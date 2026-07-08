@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import BacklogApp from '../components/apps/BacklogApp.svelte';
+---
+
+<Layout title="Backlog">
+  <BacklogApp client:only="svelte" />
+</Layout>

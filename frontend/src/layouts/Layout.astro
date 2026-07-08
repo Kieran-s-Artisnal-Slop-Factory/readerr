@@ -1,0 +1,73 @@
+---
+import '../styles/theme.css';
+import '../styles/global.css';
+import Navbar from '../components/Navbar.svelte';
+import { href } from '../lib/paths';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const currentPath = Astro.url.pathname;
+// Base-aware asset/SW URLs (host under a sub-path).
+const iconUrl = href('/icon.svg');
+const manifestUrl = href('/manifest.webmanifest');
+const swUrl = href('/sw.js');
+const swScope = href('/');
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Readerr — reading list and notes" />
+    <meta name="theme-color" content="#ff7a1a" />
+    <link rel="icon" href={iconUrl} type="image/svg+xml" />
+    <link rel="manifest" href={manifestUrl} />
+    <title>{title} · Readerr</title>
+    <script is:inline>
+      // Apply the manual theme override before first paint to avoid a flash.
+      // 'light'/'dark' pin the scheme; anything else follows the OS setting.
+      try {
+        const theme = localStorage.getItem('readerr-theme');
+        if (theme === 'light' || theme === 'dark') {
+          document.documentElement.style.colorScheme = theme;
+        }
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <Navbar client:load {currentPath} />
+    <main class="page">
+      <slot />
+    </main>
+    {
+      import.meta.env.PROD ? (
+        <script is:inline define:vars={{ swUrl, swScope }}>
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+              navigator.serviceWorker.register(swUrl, { scope: swScope }).catch(() => {});
+            });
+          }
+        </script>
+      ) : (
+        <script is:inline>
+          // Dev: the service worker must NOT run — it caches Vite's module
+          // URLs and serves stale code after edits (blank pages). Unregister
+          // any leftover registration and drop its caches.
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((regs) => {
+              for (const reg of regs) reg.unregister();
+            });
+            if (window.caches) {
+              caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+            }
+          }
+        </script>
+      )
+    }
+  </body>
+</html>

@@ -1,0 +1,7 @@
+.git
+.claude
+frontend/node_modules
+frontend/dist
+backend/*.db
+backend/*.db-*
+plan.md

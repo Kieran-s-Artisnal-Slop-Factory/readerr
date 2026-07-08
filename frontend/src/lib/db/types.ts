@@ -1,0 +1,132 @@
+/**
+ * Readerr data model — TypeScript mirror of backend/sql/schema.sql.
+ *
+ * The SQL DDL is the canonical definition; these types and the STORES map
+ * must stay 1:1 with it by field name (as must the `tables` metadata map in
+ * backend/sync.go). Every synced entity carries the SyncFields.
+ *
+ * Dates: calendar fields are local 'YYYY-MM-DD'; *_at fields are UTC ISO 8601.
+ * All prose fields (*_md) store markdown — it is the canonical format, which
+ * keeps export-to-markdown trivial.
+ */
+
+/** Columns present on every synced entity. */
+export interface SyncFields {
+  /** UUID v4, generated client-side. */
+  id: string;
+  /** UTC ISO 8601, client-set. Conflict resolution is last-write-wins on this. */
+  updated_at: string;
+  /** UTC ISO 8601 tombstone. Soft-delete only, so deletions sync. */
+  deleted_at: string | null;
+  /** Server-assigned monotonic sync cursor. null until first accepted by the server. */
+  server_seq: number | null;
+}
+
+/** Single row (single-user app). articles_per_week / focus_tag_id are phase-3 triage knobs. */
+export interface UserSettings extends SyncFields {
+  name: string | null;
+  articles_per_week: number | null;
+  focus_tag_id: string | null;
+}
+
+/**
+ * A captured link. Cheap flag toggles live here; long-form prose lives in
+ * Note so flag flips never fight editor autosaves under row-level LWW sync.
+ */
+export interface Link extends SyncFields {
+  url: string;
+  /** Equals url until the title fetch succeeds. */
+  title: string;
+  /** false => capture.ts retries the /title fetch when online. */
+  title_fetched: boolean;
+  /** UTC ISO 8601 capture time. */
+  added_at: string;
+  /** null = unread. Timestamp doubles as read history for week-close logic. */
+  read_at: string | null;
+  favourite: boolean;
+  /** A tool/app/blog rather than an article — not "read" in the usual sense. */
+  is_resource: boolean;
+  /** Phase 2: set when a closing week archives this read-but-unremarked link. */
+  slushed_at: string | null;
+}
+
+export interface Tag extends SyncFields {
+  name: string;
+  /** Tag-page overview notes (markdown). */
+  notes_md: string;
+}
+
+export interface LinkTag extends SyncFields {
+  link_id: string;
+  tag_id: string;
+}
+
+/** An in-depth document covering a topic, referencing many links. */
+export interface Topic extends SyncFields {
+  name: string;
+  /** The long-form document (markdown). */
+  body_md: string;
+}
+
+export interface LinkTopic extends SyncFields {
+  link_id: string;
+  topic_id: string;
+}
+
+/** The per-link note document: one row per link, created lazily on first edit. */
+export interface Note extends SyncFields {
+  link_id: string;
+  body_md: string;
+}
+
+/** Notable quotations: many per link, individually orderable/deletable. */
+export interface Excerpt extends SyncFields {
+  link_id: string;
+  content_md: string;
+  position: number;
+}
+
+// ===== Phase 2: weekly reading list (stores exist now, unused) =====
+
+export interface Week extends SyncFields {
+  /** Local Monday, 'YYYY-MM-DD'. */
+  week_start: string;
+  /** null = current/open week. */
+  closed_at: string | null;
+}
+
+export type WeekLinkOutcome = 'read' | 'rolled' | 'slushed';
+
+export interface WeekLink extends SyncFields {
+  week_id: string;
+  link_id: string;
+  position: number;
+  /** null while the week is open. */
+  outcome: WeekLinkOutcome | null;
+}
+
+/**
+ * IndexedDB object store definitions. Store names match SQL table names;
+ * every store uses keyPath 'id'. Indexes mirror the SQL indexes. Boolean
+ * filters (unread/favourite/resource) are getAll + in-memory filter —
+ * booleans aren't valid IndexedDB keys, and the dataset is small.
+ */
+export interface StoreIndex {
+  name: string;
+  multiEntry?: boolean;
+}
+
+export const STORES: Record<string, { indexes: StoreIndex[] }> = {
+  user_settings: { indexes: [] },
+  links: { indexes: [{ name: 'url' }, { name: 'added_at' }] },
+  tags: { indexes: [] },
+  link_tags: { indexes: [{ name: 'link_id' }, { name: 'tag_id' }] },
+  topics: { indexes: [] },
+  link_topics: { indexes: [{ name: 'link_id' }, { name: 'topic_id' }] },
+  notes: { indexes: [{ name: 'link_id' }] },
+  excerpts: { indexes: [{ name: 'link_id' }] },
+  weeks: { indexes: [{ name: 'week_start' }] },
+  week_links: { indexes: [{ name: 'week_id' }, { name: 'link_id' }] },
+};
+
+export type StoreName = keyof typeof STORES;

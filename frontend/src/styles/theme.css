@@ -1,0 +1,60 @@
+/*
+ * Workoutt theme — all configurable design tokens live here.
+ * Uses light-dark() so both themes are defined in one place;
+ * color-scheme on :root makes the browser honor the user preference.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* Brand */
+  --color-primary: #ff7a1a; /* bright orange, the brand color */
+  --color-primary-strong: #e05e00;
+  --color-primary-soft: light-dark(#fff0e3, #3d2412);
+  --color-on-primary: #ffffff;
+
+  /* Surfaces */
+  --bg-color: light-dark(#faf8f5, #151210);
+  --surface-color: light-dark(#ffffff, #1f1a16);
+  --surface-raised-color: light-dark(#ffffff, #292219);
+  --border-color: light-dark(#e8e2d9, #3d352b);
+
+  /* Text */
+  --text-color: light-dark(#241f1a, #f2ede6);
+  --text-muted-color: light-dark(#6d645a, #a99e90);
+
+  /* Feedback */
+  --color-success: light-dark(#1a7f37, #4ade80);
+  --color-danger: light-dark(#c62828, #f87171);
+  --color-warning: light-dark(#b45309, #fbbf24);
+
+  /* Typography */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-size-sm: 0.85rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.2rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+  --line-height: 1.55;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.5rem;
+
+  /* Shape */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* Elevation */
+  --shadow-1: 0 1px 3px light-dark(rgb(36 31 26 / 0.08), rgb(0 0 0 / 0.4));
+  --shadow-2: 0 4px 16px light-dark(rgb(36 31 26 / 0.14), rgb(0 0 0 / 0.55));
+
+  /* Layout */
+  --page-max-width: 60rem;
+  --navbar-height: 3.5rem;
+}

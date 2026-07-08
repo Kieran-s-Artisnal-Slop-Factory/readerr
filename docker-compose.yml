@@ -1,0 +1,15 @@
+services:
+  readerr:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DB_PATH: /data/readerr.db
+    volumes:
+      # The sqlite DB must live on a named volume — recreating the container
+      # would otherwise destroy all synced data.
+      - readerr-data:/data
+    restart: unless-stopped
+
+volumes:
+  readerr-data:

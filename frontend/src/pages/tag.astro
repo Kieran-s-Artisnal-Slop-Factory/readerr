@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import TagApp from '../components/apps/TagApp.svelte';
+---
+
+<Layout title="Tag">
+  <TagApp client:only="svelte" />
+</Layout>

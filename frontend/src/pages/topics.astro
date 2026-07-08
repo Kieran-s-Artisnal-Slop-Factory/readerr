@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import TopicsApp from '../components/apps/TopicsApp.svelte';
+---
+
+<Layout title="Topics">
+  <TopicsApp client:only="svelte" />
+</Layout>

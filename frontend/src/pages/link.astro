@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import LinkApp from '../components/apps/LinkApp.svelte';
+---
+
+<Layout title="Link">
+  <LinkApp client:only="svelte" />
+</Layout>

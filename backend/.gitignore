@@ -1,0 +1,7 @@
+# build output
+backend.exe
+
+# DB files
+readerr.db
+readerr.db-shm
+readerr.db-wal
