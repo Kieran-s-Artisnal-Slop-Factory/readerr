@@ -7,12 +7,18 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
+  import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
-  import { tagsByLinkMap } from '../../lib/services/links';
+  import { matchesSearch, tagsByLinkMap } from '../../lib/services/links';
   import type { Link, Tag } from '../../lib/db/types';
 
   let links = $state<Link[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
+  let search = $state('');
+
+  const visible = $derived(
+    links.filter((l) => matchesSearch(l, tagsByLink.get(l.id) ?? [], search))
+  );
 
   onMount(async () => {
     const [rows, tags] = await Promise.all([all<Link>('links'), tagsByLinkMap()]);
@@ -27,15 +33,27 @@
   }
 </script>
 
-<Card title={`Slush (${links.length})`}>
+<Card title={`Slush (${visible.length})`}>
   <p class="hint">
     Read links that weren't favourited or referenced in a topic when their
     week closed.
   </p>
-  <LinkList {links} {tagsByLink} onChange={onRowChange} empty="Nothing slushed yet." />
+  <div class="search-row">
+    <SearchInput bind:value={search} />
+  </div>
+  <LinkList
+    links={visible}
+    {tagsByLink}
+    onChange={onRowChange}
+    empty={search ? 'Nothing in the slush matches your search.' : 'Nothing slushed yet.'}
+  />
 </Card>
 
 <style>
+  .search-row {
+    margin-bottom: var(--space-3);
+  }
+
   .hint {
     color: var(--text-muted-color);
     font-size: var(--font-size-sm);

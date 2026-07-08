@@ -9,14 +9,16 @@
   import CaptureBox from '../CaptureBox.svelte';
   import ChipFilter from '../ChipFilter.svelte';
   import LinkList from '../LinkList.svelte';
+  import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
   import { retryMissingTitles } from '../../lib/services/capture';
-  import { tagsByLinkMap } from '../../lib/services/links';
+  import { matchesSearch, tagsByLinkMap } from '../../lib/services/links';
   import type { Link, Tag } from '../../lib/db/types';
 
   let links = $state<Link[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
   let filters = $state<string[]>([]);
+  let search = $state('');
   let loading = $state(true);
 
   const FILTER_OPTIONS = [
@@ -32,7 +34,7 @@
       if (filters.includes('read') && !l.read_at) return false;
       if (filters.includes('favourite') && !l.favourite) return false;
       if (filters.includes('resource') && !l.is_resource) return false;
-      return true;
+      return matchesSearch(l, tagsByLink.get(l.id) ?? [], search);
     })
   );
 
@@ -64,7 +66,10 @@
   </Card>
 
   <Card title={`Backlog (${visible.length})`}>
-    <ChipFilter options={FILTER_OPTIONS} bind:selected={filters} />
+    <div class="controls">
+      <SearchInput bind:value={search} />
+      <ChipFilter options={FILTER_OPTIONS} bind:selected={filters} />
+    </div>
     {#if loading}
       <p class="empty">Loading…</p>
     {:else}
@@ -79,6 +84,13 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+  }
+
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
   }
 
   .empty {

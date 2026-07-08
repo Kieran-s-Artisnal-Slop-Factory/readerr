@@ -113,6 +113,17 @@ export async function toggleResource(link: Link): Promise<Link> {
   return put('links', { ...link, is_resource: !link.is_resource });
 }
 
+/** Case-insensitive match on title, URL, or any tag name (list-page search). */
+export function matchesSearch(link: Link, tags: Tag[], query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    link.title.toLowerCase().includes(q) ||
+    link.url.toLowerCase().includes(q) ||
+    tags.some((t) => t.name.toLowerCase().includes(q))
+  );
+}
+
 /** Hostname for compact display next to titles. */
 export function domainOf(url: string): string {
   try {

@@ -3,12 +3,18 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
+  import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
-  import { tagsByLinkMap } from '../../lib/services/links';
+  import { matchesSearch, tagsByLinkMap } from '../../lib/services/links';
   import type { Link, Tag } from '../../lib/db/types';
 
   let links = $state<Link[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
+  let search = $state('');
+
+  const visible = $derived(
+    links.filter((l) => matchesSearch(l, tagsByLink.get(l.id) ?? [], search))
+  );
 
   onMount(async () => {
     const [rows, tags] = await Promise.all([all<Link>('links'), tagsByLinkMap()]);
@@ -23,11 +29,20 @@
   }
 </script>
 
-<Card title={`Resources (${links.length})`}>
+<Card title={`Resources (${visible.length})`}>
+  <div class="search-row">
+    <SearchInput bind:value={search} />
+  </div>
   <LinkList
-    {links}
+    links={visible}
     {tagsByLink}
     onChange={onRowChange}
-    empty="No resources yet — hit ⚒ on any link that's a tool rather than an article."
+    empty={search ? 'No resources match your search.' : "No resources yet — hit ⚒ on any link that's a tool rather than an article."}
   />
 </Card>
+
+<style>
+  .search-row {
+    margin-bottom: var(--space-3);
+  }
+</style>
