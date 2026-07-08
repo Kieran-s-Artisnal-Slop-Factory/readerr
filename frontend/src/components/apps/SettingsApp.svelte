@@ -4,11 +4,8 @@
   import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
-  import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
-  import { all } from '../../lib/db/repo';
   import { href } from '../../lib/paths';
   import Card from '../Card.svelte';
-  import type { Tag } from '../../lib/db/types';
 
   type Theme = 'system' | 'light' | 'dark';
 
@@ -20,19 +17,6 @@
   let syncStatus: SyncStatus = $state({ lastSyncAt: null, lastError: null });
   let syncing = $state(false);
   let exporting = $state(false);
-  let tags = $state<Tag[]>([]);
-  // Bound as strings (empty = off) and parsed on save.
-  let quotaInput = $state('');
-  let focusTagInput = $state('');
-
-  async function saveTriage() {
-    const quota = parseInt(quotaInput, 10);
-    await saveUserSettings({
-      articles_per_week: Number.isFinite(quota) && quota > 0 ? quota : null,
-      focus_tag_id: focusTagInput || null,
-    });
-    message = 'Triage settings saved.';
-  }
 
   function formatTimestamp(iso: string): string {
     return new Date(iso).toLocaleString();
@@ -72,12 +56,6 @@
     theme = stored === 'light' || stored === 'dark' ? stored : 'system';
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
-    const settings = await getUserSettings();
-    quotaInput = settings?.articles_per_week ? String(settings.articles_per_week) : '';
-    focusTagInput = settings?.focus_tag_id ?? '';
-    tags = (await all<Tag>('tags')).sort((a, b) => a.name.localeCompare(b.name));
-    // A focus tag that has since been deleted should read as "none".
-    if (focusTagInput && !tags.some((t) => t.id === focusTagInput)) focusTagInput = '';
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
     } else {
@@ -150,33 +128,6 @@
         <option value="light">Light</option>
         <option value="dark">Dark</option>
       </select>
-    </Card>
-
-    <Card title="Triage">
-      <p class="muted" style="margin-bottom: var(--space-3);">
-        With a weekly quota set, the This Week page suggests backlog links to
-        fill it — preferring the focus tag when one is chosen.
-      </p>
-      <div style="margin-bottom: var(--space-3);">
-        <label for="set-quota">Articles per week (blank = off)</label>
-        <input
-          id="set-quota"
-          type="number"
-          min="1"
-          bind:value={quotaInput}
-          onchange={saveTriage}
-          placeholder="e.g. 5"
-        />
-      </div>
-      <div>
-        <label for="set-focus">Weekly focus tag</label>
-        <select id="set-focus" bind:value={focusTagInput} onchange={saveTriage}>
-          <option value="">None</option>
-          {#each tags as tag (tag.id)}
-            <option value={tag.id}>{tag.name}</option>
-          {/each}
-        </select>
-      </div>
     </Card>
 
     <Card title="Storage">

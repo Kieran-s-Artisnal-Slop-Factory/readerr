@@ -38,6 +38,7 @@ func cols(own ...string) []string {
 // restoring client sees referenced rows first.
 var tableOrder = []string{
 	"user_settings",
+	"plans",
 	"links",
 	"tags",
 	"link_tags",
@@ -51,7 +52,10 @@ var tableOrder = []string{
 
 var tables = map[string]tableMeta{
 	"user_settings": {
-		columns: cols("id", "name", "articles_per_week", "focus_tag_id"),
+		columns: cols("id", "name", "articles_per_week", "focus_tag_id", "onboarding_completed_at"),
+	},
+	"plans": {
+		columns: cols("id", "period", "starts_on", "articles_per_week", "focus_tag_id", "note"),
 	},
 	"links": {
 		columns: cols("id", "url", "title", "title_fetched", "added_at",

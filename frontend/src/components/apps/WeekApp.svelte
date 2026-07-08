@@ -11,7 +11,7 @@
   import { all, get } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import { domainOf, tagsForLink } from '../../lib/services/links';
-  import { getUserSettings } from '../../lib/services/settings';
+  import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
   import {
     addLinkToWeek,
     closeWeek,
@@ -23,7 +23,7 @@
     weekEntries,
     type WeekEntry,
   } from '../../lib/services/weeks';
-  import type { Link, Tag, UserSettings, Week } from '../../lib/db/types';
+  import type { Link, Tag, Week } from '../../lib/db/types';
 
   let week = $state<Week | null>(null);
   let entries = $state<WeekEntry[]>([]);
@@ -33,12 +33,19 @@
   let adding = $state(false);
   let closing = $state(false);
   let message = $state('');
-  let settings = $state<UserSettings | null>(null);
+  let triage = $state<EffectiveTriage | null>(null);
   let suggestions = $state<Link[]>([]);
   let focusTagName = $state('');
 
-  const quota = $derived(settings?.articles_per_week ?? null);
+  const quota = $derived(triage?.quota ?? null);
   const underQuota = $derived(quota !== null ? Math.max(0, quota - entries.length) : 0);
+  const quotaSourceLabel = $derived(
+    triage?.quotaSource === 'week'
+      ? "this week's plan"
+      : triage?.quotaSource === 'month'
+        ? "this month's plan"
+        : null
+  );
 
   const readCount = $derived(entries.filter((e) => !!e.link.read_at).length);
   const stale = $derived(week !== null && week.week_start < currentWeekStart());
@@ -64,9 +71,9 @@
 
   onMount(async () => {
     week = await ensureOpenWeek();
-    settings = await getUserSettings();
-    if (settings?.focus_tag_id) {
-      const tag = await get<Tag>('tags', settings.focus_tag_id);
+    triage = await effectiveTriage(week.week_start);
+    if (triage.focusTagId) {
+      const tag = await get<Tag>('tags', triage.focusTagId);
       focusTagName = tag?.name ?? '';
     }
     await refresh();
@@ -92,7 +99,7 @@
     }
     suggestions = await suggestLinks(
       new Set(entries.map((e) => e.link.id)),
-      settings?.focus_tag_id ?? null,
+      triage?.focusTagId ?? null,
       underQuota
     );
   }
@@ -229,7 +236,7 @@
         <div class="suggestions">
           <div class="suggestions-head">
             <span>
-              {underQuota} under your quota of {quota}
+              {underQuota} under your quota of {quota}{#if quotaSourceLabel}&nbsp;({quotaSourceLabel}){/if}
               {#if focusTagName}
                 — prioritizing <strong>{focusTagName}</strong>
               {/if}
@@ -417,7 +424,7 @@
   }
 
   /* LinkRow draws its own bottom border; the entry wrapper owns it here. */
-  .entry-row :global(.row) {
+  .entry-row :global(.link-item) {
     border-bottom: none;
   }
 

@@ -74,6 +74,7 @@
       <p class="empty">Loading…</p>
     {:else}
       <LinkList links={visible} {tagsByLink} onChange={onRowChange}
+        onAssignmentsChange={() => void refresh()}
         empty="No links yet — paste some above to get started." />
     {/if}
   </Card>

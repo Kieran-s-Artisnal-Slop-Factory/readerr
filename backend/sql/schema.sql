@@ -16,16 +16,33 @@
 -- tables is cheaper than adding a backend migration mechanism.
 
 -- Single row of app preferences. articles_per_week / focus_tag_id are the
--- phase-3 triage automation knobs (NULL = off).
+-- default triage knobs (NULL = off), overridable per period by plans rows.
 CREATE TABLE user_settings (
+    id                      TEXT PRIMARY KEY,
+    name                    TEXT,
+    articles_per_week       INTEGER,
+    focus_tag_id            TEXT,
+    onboarding_completed_at TEXT,     -- NULL = show first-launch onboarding
+    updated_at              TEXT NOT NULL,
+    deleted_at              TEXT,
+    server_seq              INTEGER
+);
+
+-- A scheduled triage plan for one upcoming week or month. The week page
+-- resolves quota/focus per field: this week's plan, else this month's plan,
+-- else the user_settings defaults.
+CREATE TABLE plans (
     id                TEXT PRIMARY KEY,
-    name              TEXT,
+    period            TEXT NOT NULL CHECK (period IN ('week', 'month')),
+    starts_on         TEXT NOT NULL,  -- week: local Monday; month: 'YYYY-MM-01'
     articles_per_week INTEGER,
     focus_tag_id      TEXT,
+    note              TEXT NOT NULL DEFAULT '',
     updated_at        TEXT NOT NULL,
     deleted_at        TEXT,
     server_seq        INTEGER
 );
+CREATE INDEX idx_plans_starts_on ON plans (starts_on);
 
 -- A captured link. Cheap flag toggles live here; long-form prose lives in
 -- notes so flag flips never fight editor autosaves under row-level LWW.

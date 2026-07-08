@@ -22,11 +22,31 @@ export interface SyncFields {
   server_seq: number | null;
 }
 
-/** Single row (single-user app). articles_per_week / focus_tag_id are phase-3 triage knobs. */
+/**
+ * Single row (single-user app). articles_per_week / focus_tag_id are the
+ * default triage knobs, overridable per period by Plan rows.
+ */
 export interface UserSettings extends SyncFields {
   name: string | null;
   articles_per_week: number | null;
   focus_tag_id: string | null;
+  /** null = the first-launch onboarding hasn't been completed. */
+  onboarding_completed_at: string | null;
+}
+
+export type PlanPeriod = 'week' | 'month';
+
+/**
+ * A scheduled triage plan for one week or month. The week page resolves
+ * quota/focus per field: this week's plan → this month's plan → defaults.
+ */
+export interface Plan extends SyncFields {
+  period: PlanPeriod;
+  /** Week: local Monday 'YYYY-MM-DD'; month: 'YYYY-MM-01'. */
+  starts_on: string;
+  articles_per_week: number | null;
+  focus_tag_id: string | null;
+  note: string;
 }
 
 /**
@@ -118,6 +138,7 @@ export interface StoreIndex {
 
 export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   user_settings: { indexes: [] },
+  plans: { indexes: [{ name: 'starts_on' }] },
   links: { indexes: [{ name: 'url' }, { name: 'added_at' }] },
   tags: { indexes: [] },
   link_tags: { indexes: [{ name: 'link_id' }, { name: 'tag_id' }] },

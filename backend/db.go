@@ -21,6 +21,28 @@ CREATE TABLE sync_state (
 INSERT INTO sync_state (id, last_seq) VALUES (1, 0);
 `
 
+// Migrations for databases created before the current schema.sql shape.
+// Index 0 upgrades user_version 1 → 2, and so on; fresh databases get the
+// full schema and skip straight to the latest version.
+var migrations = []string{
+	// v1 → v2: scheduled triage plans + onboarding flag.
+	`
+CREATE TABLE plans (
+    id                TEXT PRIMARY KEY,
+    period            TEXT NOT NULL CHECK (period IN ('week', 'month')),
+    starts_on         TEXT NOT NULL,
+    articles_per_week INTEGER,
+    focus_tag_id      TEXT,
+    note              TEXT NOT NULL DEFAULT '',
+    updated_at        TEXT NOT NULL,
+    deleted_at        TEXT,
+    server_seq        INTEGER
+);
+CREATE INDEX idx_plans_starts_on ON plans (starts_on);
+ALTER TABLE user_settings ADD COLUMN onboarding_completed_at TEXT;
+`,
+}
+
 func openDB(path string) (*sql.DB, error) {
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", path)
 	db, err := sql.Open("sqlite", dsn)
@@ -30,6 +52,8 @@ func openDB(path string) (*sql.DB, error) {
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
+
+	latest := len(migrations) + 1
 
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
@@ -42,9 +66,15 @@ func openDB(path string) (*sql.DB, error) {
 		if _, err := db.Exec(serverDDL); err != nil {
 			return nil, fmt.Errorf("apply server ddl: %w", err)
 		}
-		if _, err := db.Exec("PRAGMA user_version = 1"); err != nil {
-			return nil, err
+		version = latest
+	}
+	for ; version < latest; version++ {
+		if _, err := db.Exec(migrations[version-1]); err != nil {
+			return nil, fmt.Errorf("apply migration to v%d: %w", version+1, err)
 		}
+	}
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", latest)); err != nil {
+		return nil, err
 	}
 	return db, nil
 }

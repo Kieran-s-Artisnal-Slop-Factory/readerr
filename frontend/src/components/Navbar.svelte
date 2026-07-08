@@ -24,6 +24,7 @@
   const links = [
     { href: href('/'), label: 'Backlog' },
     { href: href('/week/'), label: 'This Week' },
+    { href: href('/plan/'), label: 'Plan' },
     { href: href('/tags/'), label: 'Tags' },
     { href: href('/topics/'), label: 'Topics' },
     { href: href('/favourites/'), label: 'Favourites' },

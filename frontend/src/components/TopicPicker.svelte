@@ -8,7 +8,14 @@
   import { assignTopic, topicsForLink, unassignTopic } from '../lib/services/links';
   import type { Topic } from '../lib/db/types';
 
-  let { linkId }: { linkId: string } = $props();
+  let {
+    linkId,
+    onChange,
+  }: {
+    linkId: string;
+    /** Fired after any assignment change, so list pages can refresh chips. */
+    onChange?: () => void;
+  } = $props();
 
   let allTopics = $state<Topic[]>([]);
   let assignedIds = $state<Set<string>>(new Set());
@@ -27,6 +34,7 @@
     if (assignedIds.has(topic.id)) await unassignTopic(linkId, topic.id);
     else await assignTopic(linkId, topic.id);
     await refresh();
+    onChange?.();
   }
 
   async function create() {
@@ -37,6 +45,7 @@
     await assignTopic(linkId, topic.id);
     newName = '';
     await refresh();
+    onChange?.();
   }
 </script>
 

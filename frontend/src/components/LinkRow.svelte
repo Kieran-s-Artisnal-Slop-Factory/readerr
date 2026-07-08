@@ -1,5 +1,11 @@
 <script lang="ts">
-  /** One backlog row: title (links out), domain, tag chips, flag toggles. */
+  /**
+   * One backlog row: title (links out), domain, tag chips, flag toggles.
+   * When onAssignmentsChange is provided, a # button expands inline
+   * tag/topic pickers so links can be organized without leaving the list.
+   */
+  import TagPicker from './TagPicker.svelte';
+  import TopicPicker from './TopicPicker.svelte';
   import { href } from '../lib/paths';
   import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../lib/services/links';
   import type { Link, Tag, Topic } from '../lib/db/types';
@@ -9,14 +15,20 @@
     tags = [],
     topics = [],
     onChange,
+    onAssignmentsChange,
   }: {
     link: Link;
     tags?: Tag[];
     topics?: Topic[];
     onChange: (updated: Link) => void;
+    /** Enables the inline label editor; fired after assignments change. */
+    onAssignmentsChange?: () => void;
   } = $props();
+
+  let labelsOpen = $state(false);
 </script>
 
+<div class="link-item">
 <article class="row" class:read={!!link.read_at}>
   <div class="row-main">
     <a class="title" href={link.url} target="_blank" rel="noopener noreferrer">
@@ -57,22 +69,68 @@
     >
       ⚒
     </button>
+    {#if onAssignmentsChange}
+      <button
+        class="icon-btn"
+        class:active={labelsOpen}
+        title="Tags & topics"
+        aria-expanded={labelsOpen}
+        onclick={() => (labelsOpen = !labelsOpen)}
+      >
+        #
+      </button>
+    {/if}
     <a class="icon-btn open" title="Notes & details" href={href(`/link/?id=${link.id}`)}>✎</a>
   </div>
 </article>
+{#if labelsOpen && onAssignmentsChange}
+  <div class="labels">
+    <div class="labels-group">
+      <span class="labels-label">Tags</span>
+      <TagPicker linkId={link.id} onChange={onAssignmentsChange} />
+    </div>
+    <div class="labels-group">
+      <span class="labels-label">Topics</span>
+      <TopicPicker linkId={link.id} onChange={onAssignmentsChange} />
+    </div>
+  </div>
+{/if}
+</div>
 
 <style>
+  .link-item {
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .link-item:last-child {
+    border-bottom: none;
+  }
+
   .row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
     padding: var(--space-3);
-    border-bottom: 1px solid var(--border-color);
   }
 
-  .row:last-child {
-    border-bottom: none;
+  .labels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: 0 var(--space-3) var(--space-3);
+  }
+
+  .labels-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .labels-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 600;
   }
 
   .row.read .title {

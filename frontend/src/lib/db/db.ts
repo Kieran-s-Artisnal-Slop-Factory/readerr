@@ -32,6 +32,14 @@ const MIGRATIONS: Migration[] = [
   (db) => {
     db.createObjectStore('sync_meta', { keyPath: 'key' });
   },
+  // v3 — scheduled triage plans. Guarded because fresh installs already get
+  // the store from the v1 STORES loop.
+  (db) => {
+    if (!db.objectStoreNames.contains('plans')) {
+      const store = db.createObjectStore('plans', { keyPath: 'id' });
+      store.createIndex('starts_on', 'starts_on', { multiEntry: false });
+    }
+  },
 ];
 
 export const DB_VERSION = MIGRATIONS.length;

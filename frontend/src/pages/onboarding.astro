@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import OnboardingApp from '../components/apps/OnboardingApp.svelte';
+---
+
+<Layout title="Welcome">
+  <OnboardingApp client:only="svelte" />
+</Layout>

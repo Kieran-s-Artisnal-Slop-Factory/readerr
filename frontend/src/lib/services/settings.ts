@@ -11,12 +11,20 @@ export async function getUserSettings(): Promise<UserSettings | null> {
 }
 
 export async function saveUserSettings(
-  changes: Partial<Pick<UserSettings, 'name' | 'articles_per_week' | 'focus_tag_id'>>
+  changes: Partial<
+    Pick<UserSettings, 'name' | 'articles_per_week' | 'focus_tag_id' | 'onboarding_completed_at'>
+  >
 ): Promise<UserSettings> {
   const existing = await getUserSettings();
   if (existing) return put('user_settings', { ...existing, ...changes });
   return put(
     'user_settings',
-    withSyncFields({ name: null, articles_per_week: null, focus_tag_id: null, ...changes })
+    withSyncFields({
+      name: null,
+      articles_per_week: null,
+      focus_tag_id: null,
+      onboarding_completed_at: null,
+      ...changes,
+    })
   );
 }

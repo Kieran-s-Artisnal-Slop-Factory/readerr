@@ -10,6 +10,7 @@
  */
 import { all, byIndex, bulkPut, put, withSyncFields } from '../db/repo';
 import type { Link } from '../db/types';
+import { assignTag, assignTopic } from './links';
 import { getSyncUrl } from '../sync';
 
 export interface CaptureResult {
@@ -41,8 +42,16 @@ export function parseUrls(text: string): { urls: string[]; invalid: string[] } {
   return { urls, invalid };
 }
 
-/** Store pasted URLs as backlog links, skipping duplicates. */
-export async function captureLinks(text: string): Promise<CaptureResult> {
+export interface CaptureAssign {
+  tagIds?: string[];
+  topicIds?: string[];
+}
+
+/**
+ * Store pasted URLs as backlog links, skipping duplicates. Any tag/topic
+ * ids in `assign` are attached to every newly captured link.
+ */
+export async function captureLinks(text: string, assign?: CaptureAssign): Promise<CaptureResult> {
   const { urls, invalid } = parseUrls(text);
   const duplicates: string[] = [];
   const fresh: Link[] = [];
@@ -74,6 +83,10 @@ export async function captureLinks(text: string): Promise<CaptureResult> {
   }
 
   const added = fresh.length > 0 ? await bulkPut('links', fresh) : [];
+  for (const link of added) {
+    for (const tagId of assign?.tagIds ?? []) await assignTag(link.id, tagId);
+    for (const topicId of assign?.topicIds ?? []) await assignTopic(link.id, topicId);
+  }
   void fetchTitles(added);
   return { added, duplicates, invalid };
 }

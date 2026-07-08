@@ -7,7 +7,14 @@
   import { assignTag, tagsForLink, unassignTag } from '../lib/services/links';
   import type { Tag } from '../lib/db/types';
 
-  let { linkId }: { linkId: string } = $props();
+  let {
+    linkId,
+    onChange,
+  }: {
+    linkId: string;
+    /** Fired after any assignment change, so list pages can refresh chips. */
+    onChange?: () => void;
+  } = $props();
 
   let allTags = $state<Tag[]>([]);
   let assignedIds = $state<Set<string>>(new Set());
@@ -26,6 +33,7 @@
     if (assignedIds.has(tag.id)) await unassignTag(linkId, tag.id);
     else await assignTag(linkId, tag.id);
     await refresh();
+    onChange?.();
   }
 
   async function create() {
@@ -36,6 +44,7 @@
     await assignTag(linkId, tag.id);
     newName = '';
     await refresh();
+    onChange?.();
   }
 </script>
 

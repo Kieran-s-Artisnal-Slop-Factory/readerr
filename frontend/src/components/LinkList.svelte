@@ -8,12 +8,15 @@
     tagsByLink = new Map(),
     topicsByLink = new Map(),
     onChange,
+    onAssignmentsChange,
     empty = 'Nothing here yet.',
   }: {
     links: Link[];
     tagsByLink?: Map<string, Tag[]>;
     topicsByLink?: Map<string, Topic[]>;
     onChange: (updated: Link) => void;
+    /** Enables per-row inline tag/topic editing; fired after changes. */
+    onAssignmentsChange?: () => void;
     empty?: string;
   } = $props();
 </script>
@@ -28,6 +31,7 @@
         tags={tagsByLink.get(link.id) ?? []}
         topics={topicsByLink.get(link.id) ?? []}
         {onChange}
+        {onAssignmentsChange}
       />
     {/each}
   </div>
