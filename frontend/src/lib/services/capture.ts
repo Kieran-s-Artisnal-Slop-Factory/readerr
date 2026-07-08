@@ -11,6 +11,7 @@
 import { all, byIndex, bulkPut, put, withSyncFields } from '../db/repo';
 import type { Link } from '../db/types';
 import { assignTag, assignTopic } from './links';
+import { setLinkWeek } from './weeks';
 import { getSyncUrl } from '../sync';
 
 export interface CaptureResult {
@@ -21,30 +22,54 @@ export interface CaptureResult {
   invalid: string[];
 }
 
-/** Parse pasted text into normalized http(s) URLs, one per line. */
-export function parseUrls(text: string): { urls: string[]; invalid: string[] } {
-  const urls: string[] = [];
+export interface ParsedLine {
+  url: string;
+  /** Provided by markdown-format lines; null means "fetch it". */
+  title: string | null;
+}
+
+/**
+ * Parse pasted text, one link per line. Whitespace is stripped and three
+ * formats are accepted (bullets compose with the others):
+ *   - plain URL:       https://example.com
+ *   - bullet pointed:  - https://example.com
+ *   - markdown:        [Title](https://example.com)
+ */
+export function parseUrls(text: string): { entries: ParsedLine[]; invalid: string[] } {
+  const entries: ParsedLine[] = [];
   const invalid: string[] = [];
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+
+  const toHttpUrl = (raw: string): string | null => {
     try {
-      const u = new URL(trimmed);
-      if (u.protocol === 'http:' || u.protocol === 'https:') {
-        urls.push(u.toString());
-      } else {
-        invalid.push(trimmed);
-      }
+      const u = new URL(raw);
+      return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null;
     } catch {
-      invalid.push(trimmed);
+      return null;
     }
+  };
+
+  for (const line of text.split('\n')) {
+    let trimmed = line.trim();
+    if (!trimmed) continue;
+    // Strip a leading list bullet: -, *, or •.
+    trimmed = trimmed.replace(/^[-*•]\s+/, '');
+
+    const md = trimmed.match(/^\[(.+)\]\((\S+)\)$/);
+    const url = toHttpUrl(md ? md[2] : trimmed);
+    if (!url) {
+      invalid.push(trimmed);
+      continue;
+    }
+    entries.push({ url, title: md ? md[1].trim() : null });
   }
-  return { urls, invalid };
+  return { entries, invalid };
 }
 
 export interface CaptureAssign {
   tagIds?: string[];
   topicIds?: string[];
+  /** Monday 'YYYY-MM-DD' — queues every captured link for that week. */
+  weekStart?: string | null;
 }
 
 /**
@@ -52,12 +77,12 @@ export interface CaptureAssign {
  * ids in `assign` are attached to every newly captured link.
  */
 export async function captureLinks(text: string, assign?: CaptureAssign): Promise<CaptureResult> {
-  const { urls, invalid } = parseUrls(text);
+  const { entries, invalid } = parseUrls(text);
   const duplicates: string[] = [];
   const fresh: Link[] = [];
   const seen = new Set<string>();
 
-  for (const url of urls) {
+  for (const { url, title } of entries) {
     if (seen.has(url)) {
       duplicates.push(url); // dedupe within the paste itself
       continue;
@@ -71,8 +96,9 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
     fresh.push(
       withSyncFields({
         url,
-        title: url,
-        title_fetched: false,
+        // A markdown-supplied title is authoritative — don't fetch over it.
+        title: title ?? url,
+        title_fetched: title !== null,
         added_at: new Date().toISOString(),
         read_at: null,
         favourite: false,
@@ -86,8 +112,9 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
   for (const link of added) {
     for (const tagId of assign?.tagIds ?? []) await assignTag(link.id, tagId);
     for (const topicId of assign?.topicIds ?? []) await assignTopic(link.id, topicId);
+    if (assign?.weekStart) await setLinkWeek(link.id, assign.weekStart);
   }
-  void fetchTitles(added);
+  void fetchTitles(added.filter((l) => !l.title_fetched));
   return { added, duplicates, invalid };
 }
 

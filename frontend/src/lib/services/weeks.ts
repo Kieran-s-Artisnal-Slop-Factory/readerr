@@ -28,14 +28,37 @@ export function currentWeekStart(): string {
   return weekStartOf(new Date());
 }
 
-/** The open week, creating one for the current Monday if none exists. */
+/** The Monday `weeks` weeks after the given one. */
+export function weekStartPlus(weekStart: string, weeks: number): string {
+  const d = new Date(`${weekStart}T00:00:00`);
+  d.setDate(d.getDate() + 7 * weeks);
+  return weekStartOf(d);
+}
+
+/**
+ * The OPEN week row for a given Monday, creating it if needed. A closed
+ * week for the same Monday stays closed — links queue into a fresh row.
+ */
+export async function ensureWeek(weekStart: string): Promise<Week> {
+  const weeks = await all<Week>('weeks');
+  const existing = weeks.find((w) => w.week_start === weekStart && !w.closed_at);
+  if (existing) return existing;
+  return put('weeks', withSyncFields({ week_start: weekStart, closed_at: null }));
+}
+
+/**
+ * The week the /week page shows: the earliest still-open week that has
+ * started (stale ones surface first so they get closed and rolled). Weeks
+ * pre-created for future Mondays don't count until their Monday arrives.
+ */
 export async function ensureOpenWeek(): Promise<Week> {
+  const today = currentWeekStart();
   const weeks = await all<Week>('weeks');
   const open = weeks
-    .filter((w) => !w.closed_at)
+    .filter((w) => !w.closed_at && w.week_start <= today)
     .sort((a, b) => a.week_start.localeCompare(b.week_start));
   if (open.length > 0) return open[0];
-  return put('weeks', withSyncFields({ week_start: currentWeekStart(), closed_at: null }));
+  return ensureWeek(today);
 }
 
 export interface WeekEntry {
@@ -63,6 +86,40 @@ export async function addLinkToWeek(weekId: string, linkId: string): Promise<voi
 
 export async function removeFromWeek(entryId: string): Promise<void> {
   await softDelete('week_links', entryId);
+}
+
+export interface PendingWeekAssignment {
+  entry: WeekLink;
+  week: Week;
+}
+
+/** Weeks a link is still queued for (entry not yet stamped with an outcome). */
+export async function pendingWeeksForLink(linkId: string): Promise<PendingWeekAssignment[]> {
+  const entries = await byIndex<WeekLink>('week_links', 'link_id', linkId);
+  const pending: PendingWeekAssignment[] = [];
+  for (const entry of entries.filter((e) => !e.outcome)) {
+    const week = await get<Week>('weeks', entry.week_id);
+    if (week && !week.closed_at) pending.push({ entry, week });
+  }
+  return pending.sort((a, b) => a.week.week_start.localeCompare(b.week.week_start));
+}
+
+/**
+ * Queue a link for the week starting on the given Monday (creating that
+ * week if needed). A link sits in at most one upcoming week, so any other
+ * pending assignment is removed first; null just clears it.
+ */
+export async function setLinkWeek(linkId: string, weekStart: string | null): Promise<void> {
+  const pending = await pendingWeeksForLink(linkId);
+  let already = false;
+  for (const { entry, week } of pending) {
+    if (week.week_start === weekStart && !already) already = true;
+    else await removeFromWeek(entry.id);
+  }
+  if (weekStart && !already) {
+    const week = await ensureWeek(weekStart);
+    await addLinkToWeek(week.id, linkId);
+  }
 }
 
 /** Swap an entry with its neighbour above/below. */
@@ -158,7 +215,8 @@ export async function closeWeek(week: Week): Promise<CloseResult> {
   }
 
   await put('weeks', { ...week, closed_at: new Date().toISOString() });
-  const nextWeek = await put('weeks', withSyncFields({ week_start: nextStart, closed_at: null }));
+  // Reuse the next week's row if links were already queued for it.
+  const nextWeek = await ensureWeek(nextStart);
   for (const linkId of rolledLinkIds) {
     await addLinkToWeek(nextWeek.id, linkId);
   }

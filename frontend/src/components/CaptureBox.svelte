@@ -9,6 +9,7 @@
   import ChipSelect from './ChipSelect.svelte';
   import { all, put, withSyncFields } from '../lib/db/repo';
   import { captureLinks } from '../lib/services/capture';
+  import { currentWeekStart, weekStartPlus } from '../lib/services/weeks';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let { onAdded }: { onAdded: (links: Link[]) => void } = $props();
@@ -20,7 +21,23 @@
   let topics = $state<Topic[]>([]);
   let selectedTagIds = $state<string[]>([]);
   let selectedTopicIds = $state<string[]>([]);
+  let selectedWeek = $state('');
   let organizeOpen = $state(false);
+
+  const selectionCount = $derived(
+    selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
+  );
+
+  /** This week plus the next four Mondays. */
+  const weekOptions = (() => {
+    const thisWeek = currentWeekStart();
+    const label = (ws: string) =>
+      new Date(`${ws}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return [0, 1, 2, 3, 4].map((n) => {
+      const ws = weekStartPlus(thisWeek, n);
+      return { value: ws, label: n === 0 ? `This week (${label(ws)})` : `Week of ${label(ws)}` };
+    });
+  })();
 
   onMount(refreshOptions);
 
@@ -49,16 +66,19 @@
       const { added, duplicates, invalid } = await captureLinks(text, {
         tagIds: selectedTagIds,
         topicIds: selectedTopicIds,
+        weekStart: selectedWeek || null,
       });
       const parts = [`${added.length} added`];
       const labels = selectedTagIds.length + selectedTopicIds.length;
       if (labels > 0 && added.length > 0) parts.push(`${labels} label${labels === 1 ? '' : 's'} applied`);
+      if (selectedWeek && added.length > 0) parts.push('queued for the week');
       if (duplicates.length > 0) parts.push(`${duplicates.length} already saved`);
-      if (invalid.length > 0) parts.push(`${invalid.length} not a URL`);
+      if (invalid.length > 0) parts.push(`${invalid.length} not a link`);
       report = parts.join(' · ');
       text = '';
       selectedTagIds = [];
       selectedTopicIds = [];
+      selectedWeek = '';
       onAdded(added);
     } finally {
       busy = false;
@@ -87,9 +107,9 @@
     aria-expanded={organizeOpen}
     onclick={() => (organizeOpen = !organizeOpen)}
   >
-    {organizeOpen ? '▾' : '▸'} Tags & topics
-    {#if selectedTagIds.length + selectedTopicIds.length > 0}
-      <span class="badge">{selectedTagIds.length + selectedTopicIds.length}</span>
+    {organizeOpen ? '▾' : '▸'} Tags, topics & week
+    {#if selectionCount > 0}
+      <span class="badge">{selectionCount}</span>
     {/if}
   </button>
   {#if organizeOpen}
@@ -111,6 +131,15 @@
           createPlaceholder="New topic…"
           onCreate={createTopic}
         />
+      </div>
+      <div class="organize-group">
+        <span class="organize-label">Reading week</span>
+        <select class="week-select" bind:value={selectedWeek}>
+          <option value="">None (backlog only)</option>
+          {#each weekOptions as opt (opt.value)}
+            <option value={opt.value}>{opt.label}</option>
+          {/each}
+        </select>
       </div>
     </div>
   {/if}
@@ -203,5 +232,15 @@
     font-size: var(--font-size-sm);
     color: var(--text-muted-color);
     font-weight: 600;
+  }
+
+  .week-select {
+    max-width: 16rem;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-color);
+    font-size: var(--font-size-sm);
   }
 </style>
