@@ -155,6 +155,7 @@
             <MarkdownEditor
               value={excerpt.content_md}
               placeholder="Notable quotation…"
+              exportName={`${link.title} excerpt`}
               onChange={(md) => saveExcerpt(excerpt, md)}
             />
             <button class="btn btn-danger" onclick={() => deleteExcerpt(excerpt)}>Delete</button>
@@ -168,6 +169,7 @@
       <MarkdownEditor
         value={note?.body_md ?? ''}
         placeholder="Notes about this link…"
+        exportName={link.title}
         onChange={saveNote}
       />
     </Card>

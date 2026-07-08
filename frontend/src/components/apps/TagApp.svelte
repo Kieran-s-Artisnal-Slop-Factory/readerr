@@ -49,6 +49,7 @@
       <MarkdownEditor
         value={tag.notes_md}
         placeholder="Notes about this tag…"
+        exportName={tag.name}
         onChange={saveNotes}
       />
     </Card>

@@ -14,6 +14,7 @@
    * onChange as "autosave now".
    */
   import { onDestroy, onMount } from 'svelte';
+  import { marked } from 'marked';
   import { Crepe } from '@milkdown/crepe';
   import { EditorView, keymap } from '@codemirror/view';
   import { EditorState } from '@codemirror/state';
@@ -26,10 +27,13 @@
     value = '',
     onChange,
     placeholder = 'Write…',
+    exportName = 'document',
   }: {
     value?: string;
     onChange: (md: string) => void;
     placeholder?: string;
+    /** Basename for the Export MD / Export HTML downloads. */
+    exportName?: string;
   } = $props();
 
   let mode = $state<'wysiwyg' | 'source'>('wysiwyg');
@@ -108,6 +112,38 @@
     else mountCodeMirror();
   }
 
+  function download(content: string, extension: string, type: string) {
+    const safe = exportName.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'document';
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safe}.${extension}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportMarkdown() {
+    download(current, 'md', 'text/markdown');
+  }
+
+  function exportHtml() {
+    const body = marked.parse(current, { async: false });
+    const html = [
+      '<!doctype html>',
+      '<html lang="en">',
+      '<head>',
+      '<meta charset="utf-8">',
+      `<title>${exportName.replace(/</g, '&lt;')}</title>`,
+      '</head>',
+      '<body>',
+      body,
+      '</body>',
+      '</html>',
+    ].join('\n');
+    download(html, 'html', 'text/html');
+  }
+
   onMount(() => {
     void mountCrepe();
   });
@@ -119,6 +155,13 @@
 
 <div class="editor">
   <div class="editor-toolbar">
+    <button type="button" class="export" title="Download as markdown" onclick={exportMarkdown}>
+      ↓ MD
+    </button>
+    <button type="button" class="export" title="Download as HTML" onclick={exportHtml}>
+      ↓ HTML
+    </button>
+    <span class="divider"></span>
     <button
       type="button"
       class:active={mode === 'wysiwyg'}
@@ -172,6 +215,13 @@
   .editor-toolbar button.active {
     background: var(--color-primary-soft);
     color: var(--color-primary-strong);
+  }
+
+  .divider {
+    width: 1px;
+    align-self: stretch;
+    margin: var(--space-1) var(--space-1);
+    background: var(--border-color);
   }
 
   .editor-root {
