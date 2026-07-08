@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SlushApp from '../components/apps/SlushApp.svelte';
+---
+
+<Layout title="Slush">
+  <SlushApp client:only="svelte" />
+</Layout>

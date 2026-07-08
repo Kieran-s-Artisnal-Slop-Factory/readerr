@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import FavouritesApp from '../components/apps/FavouritesApp.svelte';
+---
+
+<Layout title="Favourites">
+  <FavouritesApp client:only="svelte" />
+</Layout>

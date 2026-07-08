@@ -11,7 +11,8 @@
   import LinkList from '../LinkList.svelte';
   import { all } from '../../lib/db/repo';
   import { retryMissingTitles } from '../../lib/services/capture';
-  import type { Link, LinkTag, Tag } from '../../lib/db/types';
+  import { tagsByLinkMap } from '../../lib/services/links';
+  import type { Link, Tag } from '../../lib/db/types';
 
   let links = $state<Link[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
@@ -36,22 +37,11 @@
   );
 
   async function refresh() {
-    const [rows, joins, tags] = await Promise.all([
-      all<Link>('links'),
-      all<LinkTag>('link_tags'),
-      all<Tag>('tags'),
-    ]);
-    rows.sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
-    const tagById = new Map(tags.map((t) => [t.id, t]));
-    const byLink = new Map<string, Tag[]>();
-    for (const j of joins) {
-      const tag = tagById.get(j.tag_id);
-      if (!tag) continue;
-      const list = byLink.get(j.link_id) ?? [];
-      list.push(tag);
-      byLink.set(j.link_id, list);
-    }
-    links = rows;
+    const [rows, byLink] = await Promise.all([all<Link>('links'), tagsByLinkMap()]);
+    // Slushed links live in the slush archive, not the backlog.
+    links = rows
+      .filter((l) => !l.slushed_at)
+      .sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
     tagsByLink = byLink;
   }
 

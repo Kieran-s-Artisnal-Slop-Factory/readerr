@@ -77,6 +77,30 @@ async function joinCounts<T extends SyncFields & { link_id: string }>(
   return counts;
 }
 
+/** All live tag assignments as a link_id → Tag[] map (for list pages). */
+export async function tagsByLinkMap(): Promise<Map<string, Tag[]>> {
+  const [joins, tags] = await Promise.all([all<LinkTag>('link_tags'), all<Tag>('tags')]);
+  const tagById = new Map(tags.map((t) => [t.id, t]));
+  const byLink = new Map<string, Tag[]>();
+  for (const j of joins) {
+    const tag = tagById.get(j.tag_id);
+    if (tag) byLink.set(j.link_id, [...(byLink.get(j.link_id) ?? []), tag]);
+  }
+  return byLink;
+}
+
+/** All live topic assignments as a link_id → Topic[] map (for list pages). */
+export async function topicsByLinkMap(): Promise<Map<string, Topic[]>> {
+  const [joins, topics] = await Promise.all([all<LinkTopic>('link_topics'), all<Topic>('topics')]);
+  const topicById = new Map(topics.map((t) => [t.id, t]));
+  const byLink = new Map<string, Topic[]>();
+  for (const j of joins) {
+    const topic = topicById.get(j.topic_id);
+    if (topic) byLink.set(j.link_id, [...(byLink.get(j.link_id) ?? []), topic]);
+  }
+  return byLink;
+}
+
 export async function toggleRead(link: Link): Promise<Link> {
   return put('links', { ...link, read_at: link.read_at ? null : new Date().toISOString() });
 }

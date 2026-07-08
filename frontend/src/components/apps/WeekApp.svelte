@@ -1,0 +1,378 @@
+<script lang="ts">
+  /**
+   * This week's reading list. Pick links in (search existing or paste a
+   * URL), reorder them, and close the week when done: read links that ended
+   * up in a topic or favourited count as 'read', read-but-unremarked links
+   * go to the slush archive, and unread ones roll into the next week.
+   */
+  import { onMount } from 'svelte';
+  import Card from '../Card.svelte';
+  import LinkRow from '../LinkRow.svelte';
+  import { all } from '../../lib/db/repo';
+  import { captureLinks, fetchTitles } from '../../lib/services/capture';
+  import { domainOf, tagsForLink } from '../../lib/services/links';
+  import {
+    addLinkToWeek,
+    closeWeek,
+    ensureOpenWeek,
+    currentWeekStart,
+    moveEntry,
+    removeFromWeek,
+    weekEntries,
+    type WeekEntry,
+  } from '../../lib/services/weeks';
+  import type { Link, Tag, Week } from '../../lib/db/types';
+
+  let week = $state<Week | null>(null);
+  let entries = $state<WeekEntry[]>([]);
+  let tagsByLink = $state<Map<string, Tag[]>>(new Map());
+  let allLinks = $state<Link[]>([]);
+  let query = $state('');
+  let adding = $state(false);
+  let closing = $state(false);
+  let message = $state('');
+
+  const readCount = $derived(entries.filter((e) => !!e.link.read_at).length);
+  const stale = $derived(week !== null && week.week_start < currentWeekStart());
+  const entryLinkIds = $derived(new Set(entries.map((e) => e.link.id)));
+
+  const queryIsUrl = $derived.by(() => {
+    try {
+      const u = new URL(query.trim());
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  });
+
+  const matches = $derived.by(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || queryIsUrl) return [];
+    return allLinks
+      .filter((l) => l.title.toLowerCase().includes(q) || l.url.toLowerCase().includes(q))
+      .filter((l) => !entryLinkIds.has(l.id) && !l.slushed_at)
+      .slice(0, 8);
+  });
+
+  onMount(async () => {
+    week = await ensureOpenWeek();
+    await refresh();
+  });
+
+  async function refresh() {
+    if (!week) return;
+    const [rows, everything] = await Promise.all([weekEntries(week.id), all<Link>('links')]);
+    entries = rows;
+    allLinks = everything;
+    const byLink = new Map<string, Tag[]>();
+    for (const { link } of rows) {
+      byLink.set(link.id, await tagsForLink(link.id));
+    }
+    tagsByLink = byLink;
+  }
+
+  async function addByUrl() {
+    if (!week || !queryIsUrl || adding) return;
+    adding = true;
+    try {
+      const url = new URL(query.trim()).toString();
+      const { added } = await captureLinks(url);
+      const link = added[0] ?? allLinks.find((l) => l.url === url);
+      if (link) await addLinkToWeek(week.id, link.id);
+      query = '';
+      await refresh();
+      if (added.length > 0) {
+        await fetchTitles(added);
+        await refresh();
+      }
+    } finally {
+      adding = false;
+    }
+  }
+
+  async function addExisting(link: Link) {
+    if (!week) return;
+    await addLinkToWeek(week.id, link.id);
+    query = '';
+    await refresh();
+  }
+
+  async function move(entryId: string, dir: -1 | 1) {
+    if (!week) return;
+    await moveEntry(week.id, entryId, dir);
+    await refresh();
+  }
+
+  async function remove(entryId: string) {
+    await removeFromWeek(entryId);
+    await refresh();
+  }
+
+  async function onCloseWeek() {
+    if (!week || closing) return;
+    const unread = entries.length - readCount;
+    const detail =
+      `Close this week? ` +
+      (unread > 0 ? `${unread} unread link${unread === 1 ? '' : 's'} will roll over. ` : '') +
+      `Read links without a topic or favourite go to the slush archive.`;
+    if (!confirm(detail)) return;
+    closing = true;
+    try {
+      const result = await closeWeek(week);
+      message =
+        `Week closed: ${result.read} read, ${result.slushed} slushed, ` +
+        `${result.rolled} rolled over.`;
+      week = result.nextWeek;
+      await refresh();
+    } finally {
+      closing = false;
+    }
+  }
+
+  function onRowChange(updated: Link) {
+    entries = entries.map((e) => (e.link.id === updated.id ? { ...e, link: updated } : e));
+  }
+
+  function formatWeek(weekStart: string): string {
+    const d = new Date(`${weekStart}T00:00:00`);
+    return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+  }
+</script>
+
+{#if week}
+  <div class="stack">
+    {#if message}
+      <p class="notice">{message}</p>
+    {/if}
+    {#if stale}
+      <p class="warning">
+        This list is from the week of {formatWeek(week.week_start)} — close it to
+        roll unread links into the current week.
+      </p>
+    {/if}
+
+    <Card title={`Week of ${formatWeek(week.week_start)} — ${readCount}/${entries.length} read`}>
+      <form
+        class="adder"
+        onsubmit={(e) => {
+          e.preventDefault();
+          void addByUrl();
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Paste a URL to add, or search your links…"
+          bind:value={query}
+        />
+        {#if queryIsUrl}
+          <button type="submit" class="btn btn-primary" disabled={adding}>
+            {adding ? 'Adding…' : 'Add link'}
+          </button>
+        {/if}
+      </form>
+      {#if matches.length > 0}
+        <ul class="matches">
+          {#each matches as match (match.id)}
+            <li>
+              <button type="button" class="match" onclick={() => addExisting(match)}>
+                <span class="match-title">{match.title}</span>
+                <span class="match-domain">{domainOf(match.url)}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {:else if query.trim() && !queryIsUrl}
+        <p class="no-match">No links match — paste a full URL to add a new one.</p>
+      {/if}
+
+      {#if entries.length === 0}
+        <p class="empty">Nothing picked for this week yet.</p>
+      {:else}
+        <div class="entries">
+          {#each entries as { entry, link }, i (entry.id)}
+            <div class="entry">
+              <div class="entry-controls">
+                <button class="ctrl" title="Move up" disabled={i === 0} onclick={() => move(entry.id, -1)}>↑</button>
+                <button class="ctrl" title="Move down" disabled={i === entries.length - 1} onclick={() => move(entry.id, 1)}>↓</button>
+                <button class="ctrl remove" title="Remove from this week" onclick={() => remove(entry.id)}>✕</button>
+              </div>
+              <div class="entry-row">
+                <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </Card>
+
+    <div class="close-row">
+      <button class="btn btn-danger" onclick={onCloseWeek} disabled={closing || entries.length === 0}>
+        {closing ? 'Closing…' : 'Close week'}
+      </button>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .notice {
+    background: var(--color-primary-soft);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin: 0;
+  }
+
+  .warning {
+    background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+    border: 1px solid var(--color-warning);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin: 0;
+  }
+
+  .adder {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .adder input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-color);
+  }
+
+  .matches {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .match {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--surface-color);
+    color: var(--text-color);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .matches li:last-child .match {
+    border-bottom: none;
+  }
+
+  .match:hover {
+    background: var(--color-primary-soft);
+  }
+
+  .match-title {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .match-domain {
+    flex-shrink: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+
+  .no-match {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-3);
+  }
+
+  .empty {
+    color: var(--text-muted-color);
+    text-align: center;
+    padding: var(--space-5) 0;
+  }
+
+  .entries {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .entry {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .entry:last-child {
+    border-bottom: none;
+  }
+
+  .entry-row {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* LinkRow draws its own bottom border; the entry wrapper owns it here. */
+  .entry-row :global(.row) {
+    border-bottom: none;
+  }
+
+  .entry-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .ctrl {
+    width: 1.6rem;
+    height: 1.6rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+  }
+
+  .ctrl:hover:not(:disabled) {
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+  }
+
+  .ctrl:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .ctrl.remove:hover {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+
+  .close-row {
+    display: flex;
+    justify-content: flex-end;
+  }
+</style>

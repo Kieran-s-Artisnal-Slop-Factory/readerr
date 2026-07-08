@@ -2,15 +2,17 @@
   /** One backlog row: title (links out), domain, tag chips, flag toggles. */
   import { href } from '../lib/paths';
   import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../lib/services/links';
-  import type { Link, Tag } from '../lib/db/types';
+  import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
     link,
     tags = [],
+    topics = [],
     onChange,
   }: {
     link: Link;
     tags?: Tag[];
+    topics?: Topic[];
     onChange: (updated: Link) => void;
   } = $props();
 </script>
@@ -24,6 +26,9 @@
       <span class="domain">{domainOf(link.url)}</span>
       {#each tags as tag (tag.id)}
         <a class="tag-chip" href={href(`/tag/?id=${tag.id}`)}>{tag.name}</a>
+      {/each}
+      {#each topics as topic (topic.id)}
+        <a class="tag-chip topic-chip" href={href(`/topic/?id=${topic.id}`)}>§ {topic.name}</a>
       {/each}
     </div>
   </div>
@@ -116,6 +121,10 @@
   .tag-chip:hover {
     border-color: var(--color-primary);
     color: var(--color-primary-strong);
+  }
+
+  .topic-chip {
+    border-style: dashed;
   }
 
   .row-actions {

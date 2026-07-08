@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import WeekApp from '../components/apps/WeekApp.svelte';
+---
+
+<Layout title="This Week">
+  <WeekApp client:only="svelte" />
+</Layout>

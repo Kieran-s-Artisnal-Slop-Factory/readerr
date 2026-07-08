@@ -23,8 +23,12 @@
 
   const links = [
     { href: href('/'), label: 'Backlog' },
+    { href: href('/week/'), label: 'This Week' },
     { href: href('/tags/'), label: 'Tags' },
     { href: href('/topics/'), label: 'Topics' },
+    { href: href('/favourites/'), label: 'Favourites' },
+    { href: href('/resources/'), label: 'Resources' },
+    { href: href('/slush/'), label: 'Slush' },
     { href: href('/settings/'), label: 'Settings' },
   ];
 

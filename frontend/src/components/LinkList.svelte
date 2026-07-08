@@ -1,16 +1,18 @@
 <script lang="ts">
   /** A list of LinkRows with a shared tags-per-link lookup. */
   import LinkRow from './LinkRow.svelte';
-  import type { Link, Tag } from '../lib/db/types';
+  import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
     links,
     tagsByLink = new Map(),
+    topicsByLink = new Map(),
     onChange,
     empty = 'Nothing here yet.',
   }: {
     links: Link[];
     tagsByLink?: Map<string, Tag[]>;
+    topicsByLink?: Map<string, Topic[]>;
     onChange: (updated: Link) => void;
     empty?: string;
   } = $props();
@@ -21,7 +23,12 @@
 {:else}
   <div class="list">
     {#each links as link (link.id)}
-      <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} {onChange} />
+      <LinkRow
+        {link}
+        tags={tagsByLink.get(link.id) ?? []}
+        topics={topicsByLink.get(link.id) ?? []}
+        {onChange}
+      />
     {/each}
   </div>
 {/if}
