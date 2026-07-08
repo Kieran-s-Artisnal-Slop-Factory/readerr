@@ -10,7 +10,7 @@
  * Entries keep their week_link rows forever, so past weeks are history.
  */
 import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
-import type { Link, LinkTopic, Week, WeekLink } from '../db/types';
+import type { Link, LinkTag, LinkTopic, Week, WeekLink } from '../db/types';
 
 /** Local Monday of the week containing `d`, as 'YYYY-MM-DD'. */
 export function weekStartOf(d: Date): string {
@@ -75,6 +75,38 @@ export async function moveEntry(weekId: string, entryId: string, dir: -1 | 1): P
   const b = entries[j].entry;
   await put('week_links', { ...a, position: b.position });
   await put('week_links', { ...b, position: a.position });
+}
+
+/**
+ * Triage suggestions: unread, un-slushed, non-resource backlog links not
+ * already picked. Links carrying the focus tag come first; within each
+ * group oldest-captured first, so the backlog drains front-to-back.
+ */
+export async function suggestLinks(
+  excludeLinkIds: Set<string>,
+  focusTagId: string | null,
+  count: number
+): Promise<Link[]> {
+  if (count <= 0) return [];
+  const links = await all<Link>('links');
+  const candidates = links.filter(
+    (l) => !l.read_at && !l.slushed_at && !l.is_resource && !excludeLinkIds.has(l.id)
+  );
+
+  const focused = new Set<string>();
+  if (focusTagId) {
+    const joins = await byIndex<LinkTag>('link_tags', 'tag_id', focusTagId);
+    for (const j of joins) focused.add(j.link_id);
+  }
+
+  return candidates
+    .sort((a, b) => {
+      const fa = focused.has(a.id) ? 0 : 1;
+      const fb = focused.has(b.id) ? 0 : 1;
+      if (fa !== fb) return fa - fb;
+      return a.added_at.localeCompare(b.added_at);
+    })
+    .slice(0, count);
 }
 
 export interface CloseResult {

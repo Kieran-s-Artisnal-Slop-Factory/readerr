@@ -8,9 +8,10 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkRow from '../LinkRow.svelte';
-  import { all } from '../../lib/db/repo';
+  import { all, get } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import { domainOf, tagsForLink } from '../../lib/services/links';
+  import { getUserSettings } from '../../lib/services/settings';
   import {
     addLinkToWeek,
     closeWeek,
@@ -18,10 +19,11 @@
     currentWeekStart,
     moveEntry,
     removeFromWeek,
+    suggestLinks,
     weekEntries,
     type WeekEntry,
   } from '../../lib/services/weeks';
-  import type { Link, Tag, Week } from '../../lib/db/types';
+  import type { Link, Tag, UserSettings, Week } from '../../lib/db/types';
 
   let week = $state<Week | null>(null);
   let entries = $state<WeekEntry[]>([]);
@@ -31,6 +33,12 @@
   let adding = $state(false);
   let closing = $state(false);
   let message = $state('');
+  let settings = $state<UserSettings | null>(null);
+  let suggestions = $state<Link[]>([]);
+  let focusTagName = $state('');
+
+  const quota = $derived(settings?.articles_per_week ?? null);
+  const underQuota = $derived(quota !== null ? Math.max(0, quota - entries.length) : 0);
 
   const readCount = $derived(entries.filter((e) => !!e.link.read_at).length);
   const stale = $derived(week !== null && week.week_start < currentWeekStart());
@@ -56,6 +64,11 @@
 
   onMount(async () => {
     week = await ensureOpenWeek();
+    settings = await getUserSettings();
+    if (settings?.focus_tag_id) {
+      const tag = await get<Tag>('tags', settings.focus_tag_id);
+      focusTagName = tag?.name ?? '';
+    }
     await refresh();
   });
 
@@ -69,6 +82,33 @@
       byLink.set(link.id, await tagsForLink(link.id));
     }
     tagsByLink = byLink;
+    await refreshSuggestions();
+  }
+
+  async function refreshSuggestions() {
+    if (quota === null || underQuota === 0) {
+      suggestions = [];
+      return;
+    }
+    suggestions = await suggestLinks(
+      new Set(entries.map((e) => e.link.id)),
+      settings?.focus_tag_id ?? null,
+      underQuota
+    );
+  }
+
+  async function addSuggestion(link: Link) {
+    if (!week) return;
+    await addLinkToWeek(week.id, link.id);
+    await refresh();
+  }
+
+  async function addAllSuggestions() {
+    if (!week) return;
+    for (const link of suggestions) {
+      await addLinkToWeek(week.id, link.id);
+    }
+    await refresh();
   }
 
   async function addByUrl() {
@@ -183,6 +223,34 @@
         </ul>
       {:else if query.trim() && !queryIsUrl}
         <p class="no-match">No links match — paste a full URL to add a new one.</p>
+      {/if}
+
+      {#if quota !== null && underQuota > 0 && suggestions.length > 0}
+        <div class="suggestions">
+          <div class="suggestions-head">
+            <span>
+              {underQuota} under your quota of {quota}
+              {#if focusTagName}
+                — prioritizing <strong>{focusTagName}</strong>
+              {/if}
+            </span>
+            <button type="button" class="btn" onclick={addAllSuggestions}>Add all</button>
+          </div>
+          <ul class="matches suggestion-list">
+            {#each suggestions as suggestion (suggestion.id)}
+              <li>
+                <button type="button" class="match" onclick={() => addSuggestion(suggestion)}>
+                  <span class="match-title">{suggestion.title}</span>
+                  <span class="match-domain">{domainOf(suggestion.url)}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {:else if quota !== null && underQuota > 0}
+        <p class="no-match">
+          {underQuota} under your quota of {quota}, and the backlog has no unread links to suggest.
+        </p>
       {/if}
 
       {#if entries.length === 0}
@@ -301,6 +369,24 @@
     color: var(--text-muted-color);
     font-size: var(--font-size-sm);
     margin: 0 0 var(--space-3);
+  }
+
+  .suggestions {
+    margin-bottom: var(--space-3);
+  }
+
+  .suggestions-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    margin-bottom: var(--space-2);
+  }
+
+  .suggestion-list {
+    margin-bottom: 0;
   }
 
   .empty {
