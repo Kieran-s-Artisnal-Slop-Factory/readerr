@@ -9,7 +9,7 @@
   import ChipSelect from './ChipSelect.svelte';
   import { all, put, withSyncFields } from '../lib/db/repo';
   import { captureLinks } from '../lib/services/capture';
-  import { currentWeekStart, weekStartPlus } from '../lib/services/weeks';
+  import { upcomingWeekOptions } from '../lib/services/weeks';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let { onAdded }: { onAdded: (links: Link[]) => void } = $props();
@@ -22,22 +22,14 @@
   let selectedTagIds = $state<string[]>([]);
   let selectedTopicIds = $state<string[]>([]);
   let selectedWeek = $state('');
+  let markDone = $state(false);
   let organizeOpen = $state(false);
 
   const selectionCount = $derived(
     selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
   );
 
-  /** This week plus the next four Mondays. */
-  const weekOptions = (() => {
-    const thisWeek = currentWeekStart();
-    const label = (ws: string) =>
-      new Date(`${ws}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    return [0, 1, 2, 3, 4].map((n) => {
-      const ws = weekStartPlus(thisWeek, n);
-      return { value: ws, label: n === 0 ? `This week (${label(ws)})` : `Week of ${label(ws)}` };
-    });
-  })();
+  const weekOptions = upcomingWeekOptions();
 
   onMount(refreshOptions);
 
@@ -67,11 +59,13 @@
         tagIds: selectedTagIds,
         topicIds: selectedTopicIds,
         weekStart: selectedWeek || null,
+        markDone,
       });
       const parts = [`${added.length} added`];
       const labels = selectedTagIds.length + selectedTopicIds.length;
       if (labels > 0 && added.length > 0) parts.push(`${labels} label${labels === 1 ? '' : 's'} applied`);
       if (selectedWeek && added.length > 0) parts.push('queued for the week');
+      if (markDone && added.length > 0) parts.push('marked done');
       if (duplicates.length > 0) parts.push(`${duplicates.length} already saved`);
       if (invalid.length > 0) parts.push(`${invalid.length} not a link`);
       report = parts.join(' · ');
@@ -79,6 +73,7 @@
       selectedTagIds = [];
       selectedTopicIds = [];
       selectedWeek = '';
+      markDone = false;
       onAdded(added);
     } finally {
       busy = false;
@@ -147,6 +142,10 @@
     {#if report}
       <span class="report">{report}</span>
     {/if}
+    <label class="done-check" title="Already read these? They join this week as done and slush if you don't write about them.">
+      <input type="checkbox" bind:checked={markDone} />
+      Mark as done
+    </label>
     <button class="btn btn-primary" onclick={add} disabled={busy || !text.trim()}>
       {busy ? 'Adding…' : 'Add to backlog'}
     </button>
@@ -187,6 +186,21 @@
   .report {
     font-size: var(--font-size-sm);
     color: var(--text-muted-color);
+  }
+
+  .done-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .done-check input {
+    width: auto;
+    margin: 0;
   }
 
   .organize-toggle {

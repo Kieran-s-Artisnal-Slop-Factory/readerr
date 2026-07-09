@@ -10,7 +10,7 @@
  */
 import { all, byIndex, bulkPut, put, withSyncFields } from '../db/repo';
 import type { Link } from '../db/types';
-import { assignTag, assignTopic } from './links';
+import { assignTag, assignTopic, markLinkDone } from './links';
 import { setLinkWeek } from './weeks';
 import { getSyncUrl } from '../sync';
 
@@ -70,6 +70,8 @@ export interface CaptureAssign {
   topicIds?: string[];
   /** Monday 'YYYY-MM-DD' — queues every captured link for that week. */
   weekStart?: string | null;
+  /** Mark everything done on capture (joins this week, slushes if unremarked). */
+  markDone?: boolean;
 }
 
 /**
@@ -110,9 +112,11 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
 
   const added = fresh.length > 0 ? await bulkPut('links', fresh) : [];
   for (const link of added) {
+    // Labels first: markLinkDone's slush check must see topic assignments.
     for (const tagId of assign?.tagIds ?? []) await assignTag(link.id, tagId);
     for (const topicId of assign?.topicIds ?? []) await assignTopic(link.id, topicId);
     if (assign?.weekStart) await setLinkWeek(link.id, assign.weekStart);
+    if (assign?.markDone) await markLinkDone(link);
   }
   void fetchTitles(added.filter((l) => !l.title_fetched));
   return { added, duplicates, invalid };

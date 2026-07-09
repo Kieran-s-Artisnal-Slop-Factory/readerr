@@ -28,8 +28,12 @@
     { value: 'resource', label: 'Resources' },
   ];
 
-  const visible = $derived(
+  /** Most recent done items shown before the list truncates (#16). */
+  const DONE_LIMIT = 100;
+
+  const filtered = $derived(
     links.filter((l) => {
+      if (l.slushed_at) return false; // marked done just now → moved to slush
       if (filters.includes('unread') && l.read_at) return false;
       if (filters.includes('read') && !l.read_at) return false;
       if (filters.includes('favourite') && !l.favourite) return false;
@@ -37,6 +41,14 @@
       return matchesSearch(l, tagsByLink.get(l.id) ?? [], search);
     })
   );
+
+  // Not-done items first (#15); done items capped to the most recent 100.
+  const doneTotal = $derived(filtered.filter((l) => !!l.read_at).length);
+  const visible = $derived([
+    ...filtered.filter((l) => !l.read_at),
+    ...filtered.filter((l) => !!l.read_at).slice(0, DONE_LIMIT),
+  ]);
+  const doneTruncated = $derived(doneTotal > DONE_LIMIT);
 
   async function refresh() {
     const [rows, byLink] = await Promise.all([all<Link>('links'), tagsByLinkMap()]);
@@ -76,6 +88,12 @@
       <LinkList links={visible} {tagsByLink} onChange={onRowChange}
         onAssignmentsChange={() => void refresh()}
         empty="No links yet — paste some above to get started." />
+      {#if doneTruncated}
+        <p class="truncated">
+          Showing the {DONE_LIMIT} most recent done items ({doneTotal} total) —
+          use search or the Read filter to find older ones.
+        </p>
+      {/if}
     {/if}
   </Card>
 </div>
@@ -92,6 +110,13 @@
     flex-direction: column;
     gap: var(--space-2);
     margin-bottom: var(--space-2);
+  }
+
+  .truncated {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    text-align: center;
+    margin: var(--space-3) 0 0;
   }
 
   .empty {

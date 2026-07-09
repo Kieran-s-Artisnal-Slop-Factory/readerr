@@ -3,6 +3,7 @@
  * soft (tombstoned join rows) so they sync.
  */
 import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
+import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
 import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/types';
 
 export async function tagsForLink(linkId: string): Promise<Tag[]> {
@@ -46,6 +47,9 @@ export async function assignTopic(linkId: string, topicId: string): Promise<void
   const existing = await byIndex<LinkTopic>('link_topics', 'link_id', linkId);
   if (existing.some((j) => j.topic_id === topicId)) return;
   await put('link_topics', withSyncFields({ link_id: linkId, topic_id: topicId }));
+  // Referencing a link in a topic rescues it from the slush archive.
+  const link = await get<Link>('links', linkId);
+  if (link?.slushed_at) await put('links', { ...link, slushed_at: null });
 }
 
 export async function unassignTopic(linkId: string, topicId: string): Promise<void> {
@@ -101,12 +105,58 @@ export async function topicsByLinkMap(): Promise<Map<string, Topic[]>> {
   return byLink;
 }
 
+/**
+ * Mark a link done: it becomes part of the reading history. The link joins
+ * the current week if it isn't queued for one already, its week entries
+ * complete, and — unless it's favourited or referenced in a topic — it goes
+ * straight to the slush archive.
+ */
+export async function markLinkDone(link: Link): Promise<Link> {
+  const now = new Date().toISOString();
+  let pending = await pendingWeeksForLink(link.id);
+  // Done now counts for the current week — a queued future-week assignment
+  // moves here rather than completing a week that hasn't started.
+  const today = currentWeekStart();
+  if (pending.length === 0 || pending.every(({ week }) => week.week_start > today)) {
+    if (pending.length > 0) {
+      await setLinkWeek(link.id, today);
+    } else {
+      const week = await ensureOpenWeek();
+      await addLinkToWeek(week.id, link.id);
+    }
+    pending = await pendingWeeksForLink(link.id);
+  }
+  for (const { entry } of pending) {
+    if (!entry.done_at) await put('week_links', { ...entry, done_at: now });
+  }
+  const topics = await topicsForLink(link.id);
+  const unremarked = !link.favourite && topics.length === 0;
+  return put('links', {
+    ...link,
+    read_at: link.read_at ?? now,
+    slushed_at: unremarked ? (link.slushed_at ?? now) : link.slushed_at,
+  });
+}
+
 export async function toggleRead(link: Link): Promise<Link> {
-  return put('links', { ...link, read_at: link.read_at ? null : new Date().toISOString() });
+  if (!link.read_at) return markLinkDone(link);
+  // Back to unread: leave the slush archive and un-complete any open week
+  // entries (stamped history on closed weeks stays untouched).
+  const pending = await pendingWeeksForLink(link.id);
+  for (const { entry } of pending) {
+    if (entry.done_at) await put('week_links', { ...entry, done_at: null });
+  }
+  return put('links', { ...link, read_at: null, slushed_at: null });
 }
 
 export async function toggleFavourite(link: Link): Promise<Link> {
-  return put('links', { ...link, favourite: !link.favourite });
+  const favourite = !link.favourite;
+  return put('links', {
+    ...link,
+    favourite,
+    // Favouriting rescues a link from the slush archive.
+    slushed_at: favourite ? null : link.slushed_at,
+  });
 }
 
 export async function toggleResource(link: Link): Promise<Link> {

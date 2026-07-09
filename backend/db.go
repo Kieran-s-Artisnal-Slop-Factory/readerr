@@ -41,6 +41,13 @@ CREATE TABLE plans (
 CREATE INDEX idx_plans_starts_on ON plans (starts_on);
 ALTER TABLE user_settings ADD COLUMN onboarding_completed_at TEXT;
 `,
+	// v2 → v3: week entries distinguish first reads from slush reviews, and
+	// carry their own completion timestamp.
+	`
+ALTER TABLE week_links ADD COLUMN kind TEXT NOT NULL DEFAULT 'reading'
+    CHECK (kind IN ('reading', 'review'));
+ALTER TABLE week_links ADD COLUMN done_at TEXT;
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

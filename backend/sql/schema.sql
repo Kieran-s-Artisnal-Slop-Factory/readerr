@@ -144,6 +144,9 @@ CREATE TABLE week_links (
     week_id    TEXT NOT NULL REFERENCES weeks (id),
     link_id    TEXT NOT NULL REFERENCES links (id),
     position   INTEGER NOT NULL DEFAULT 0,
+    kind       TEXT NOT NULL DEFAULT 'reading'
+               CHECK (kind IN ('reading', 'review')), -- review = re-scheduled from slush
+    done_at    TEXT,                                  -- entry-level completion this week
     outcome    TEXT CHECK (outcome IN ('read', 'rolled', 'slushed')), -- NULL while open
     updated_at TEXT NOT NULL,
     deleted_at TEXT,

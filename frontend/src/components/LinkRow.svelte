@@ -9,12 +9,7 @@
   import { href } from '../lib/paths';
   import { put } from '../lib/db/repo';
   import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../lib/services/links';
-  import {
-    currentWeekStart,
-    pendingWeeksForLink,
-    setLinkWeek,
-    weekStartPlus,
-  } from '../lib/services/weeks';
+  import { pendingWeeksForLink, setLinkWeek, upcomingWeekOptions } from '../lib/services/weeks';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
@@ -66,15 +61,7 @@
     onAssignmentsChange?.();
   }
 
-  const weekOptions = (() => {
-    const thisWeek = currentWeekStart();
-    const label = (ws: string) =>
-      new Date(`${ws}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    return [0, 1, 2, 3, 4].map((n) => {
-      const ws = weekStartPlus(thisWeek, n);
-      return { value: ws, label: n === 0 ? `This week (${label(ws)})` : `Week of ${label(ws)}` };
-    });
-  })();
+  const weekOptions = upcomingWeekOptions();
 
   function toggleLabels() {
     labelsOpen = !labelsOpen;

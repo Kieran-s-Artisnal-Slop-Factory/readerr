@@ -116,11 +116,16 @@ export interface Week extends SyncFields {
 }
 
 export type WeekLinkOutcome = 'read' | 'rolled' | 'slushed';
+export type WeekLinkKind = 'reading' | 'review';
 
 export interface WeekLink extends SyncFields {
   week_id: string;
   link_id: string;
   position: number;
+  /** 'review' = re-scheduled from the slush archive. */
+  kind: WeekLinkKind;
+  /** Entry-level completion this week (a review completes without touching read_at). */
+  done_at: string | null;
   /** null while the week is open. */
   outcome: WeekLinkOutcome | null;
 }

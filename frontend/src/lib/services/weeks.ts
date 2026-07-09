@@ -77,11 +77,63 @@ export async function weekEntries(weekId: string): Promise<WeekEntry[]> {
   return entries.sort((a, b) => a.entry.position - b.entry.position);
 }
 
-export async function addLinkToWeek(weekId: string, linkId: string): Promise<void> {
+export async function addLinkToWeek(
+  weekId: string,
+  linkId: string,
+  kind: WeekLink['kind'] = 'reading'
+): Promise<void> {
   const rows = await byIndex<WeekLink>('week_links', 'week_id', weekId);
   if (rows.some((r) => r.link_id === linkId)) return;
   const position = rows.reduce((max, r) => Math.max(max, r.position), -1) + 1;
-  await put('week_links', withSyncFields({ week_id: weekId, link_id: linkId, position, outcome: null }));
+  await put(
+    'week_links',
+    withSyncFields({ week_id: weekId, link_id: linkId, position, kind, done_at: null, outcome: null })
+  );
+}
+
+/** Stamp or clear an entry's completion for its week. */
+export async function setEntryDone(entry: WeekLink, done: boolean): Promise<WeekLink> {
+  return put('week_links', { ...entry, done_at: done ? new Date().toISOString() : null });
+}
+
+/** The Monday options offered by week pickers: this week + the next four. */
+export function upcomingWeekOptions(): { value: string; label: string }[] {
+  const thisWeek = currentWeekStart();
+  const fmt = (ws: string) =>
+    new Date(`${ws}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return [0, 1, 2, 3, 4].map((n) => {
+    const ws = weekStartPlus(thisWeek, n);
+    return { value: ws, label: n === 0 ? `This week (${fmt(ws)})` : `Week of ${fmt(ws)}` };
+  });
+}
+
+/**
+ * Re-schedule a slushed (read) link for another look: it leaves the slush
+ * archive and joins the chosen week as a 'review' entry.
+ */
+export async function reviewLink(link: Link, weekStart: string): Promise<Link> {
+  const week = await ensureWeek(weekStart);
+  await addLinkToWeek(week.id, link.id, 'review');
+  if (link.slushed_at) {
+    return put('links', { ...link, slushed_at: null });
+  }
+  return link;
+}
+
+export interface HistoryEntry {
+  entry: WeekLink;
+  week: Week;
+}
+
+/** Every week a link was ever part of, newest first (for the History card). */
+export async function weekHistoryForLink(linkId: string): Promise<HistoryEntry[]> {
+  const entries = await byIndex<WeekLink>('week_links', 'link_id', linkId);
+  const out: HistoryEntry[] = [];
+  for (const entry of entries) {
+    const week = await get<Week>('weeks', entry.week_id);
+    if (week) out.push({ entry, week });
+  }
+  return out.sort((a, b) => b.week.week_start.localeCompare(a.week.week_start));
 }
 
 export async function removeFromWeek(entryId: string): Promise<void> {
@@ -122,14 +174,8 @@ export async function setLinkWeek(linkId: string, weekStart: string | null): Pro
   }
 }
 
-/** Swap an entry with its neighbour above/below. */
-export async function moveEntry(weekId: string, entryId: string, dir: -1 | 1): Promise<void> {
-  const entries = await weekEntries(weekId);
-  const i = entries.findIndex((e) => e.entry.id === entryId);
-  const j = i + dir;
-  if (i < 0 || j < 0 || j >= entries.length) return;
-  const a = entries[i].entry;
-  const b = entries[j].entry;
+/** Swap the positions of two entries (section-local reordering). */
+export async function swapEntries(a: WeekLink, b: WeekLink): Promise<void> {
   await put('week_links', { ...a, position: b.position });
   await put('week_links', { ...b, position: a.position });
 }
@@ -169,14 +215,16 @@ export async function suggestLinks(
 export interface CloseResult {
   read: number;
   slushed: number;
-  rolled: number;
-  nextWeek: Week;
+  /** Entries never completed — their links simply return to the backlog. */
+  returned: number;
 }
 
 /**
- * Close a week: stamp outcomes, slush unremarked read links, and roll unread
- * entries into a fresh open week (the current Monday, or the following one
- * if the closing week IS the current week).
+ * Close a week and stamp outcomes. Completed entries (done_at, or a
+ * 'reading' entry whose link got read) count as 'read' when the link ended
+ * up favourited or in a topic, otherwise 'slushed' (the link goes to the
+ * slush archive). Entries never completed are stamped 'rolled' and their
+ * links just return to the backlog — nothing is carried forward.
  */
 export async function closeWeek(week: Week): Promise<CloseResult> {
   const entries = await weekEntries(week.id);
@@ -186,39 +234,46 @@ export async function closeWeek(week: Week): Promise<CloseResult> {
     return topics.length > 0;
   };
 
-  // Next Monday for a current-week close; otherwise we're closing a stale
-  // week and the new one is simply this week's Monday.
-  const today = currentWeekStart();
-  let nextStart = today;
-  if (week.week_start >= today) {
-    const d = new Date(`${week.week_start}T00:00:00`);
-    d.setDate(d.getDate() + 7);
-    nextStart = weekStartOf(d);
-  }
-
-  const rolledLinkIds: string[] = [];
-  let read = 0;
-  let slushed = 0;
+  const result: CloseResult = { read: 0, slushed: 0, returned: 0 };
   for (const { entry, link } of entries) {
     if (entry.outcome) continue; // already stamped (shouldn't happen on an open week)
-    if (!link.read_at) {
+    const done = !!entry.done_at || (entry.kind === 'reading' && !!link.read_at);
+    if (!done) {
       await put('week_links', { ...entry, outcome: 'rolled' });
-      rolledLinkIds.push(link.id);
+      result.returned++;
     } else if (await favouriteOrTopic(link)) {
       await put('week_links', { ...entry, outcome: 'read' });
-      read++;
+      result.read++;
     } else {
       await put('week_links', { ...entry, outcome: 'slushed' });
-      await put('links', { ...link, slushed_at: new Date().toISOString() });
-      slushed++;
+      if (!link.slushed_at) {
+        await put('links', { ...link, slushed_at: new Date().toISOString() });
+      }
+      result.slushed++;
     }
   }
 
   await put('weeks', { ...week, closed_at: new Date().toISOString() });
-  // Reuse the next week's row if links were already queued for it.
-  const nextWeek = await ensureWeek(nextStart);
-  for (const linkId of rolledLinkIds) {
-    await addLinkToWeek(nextWeek.id, linkId);
+  return result;
+}
+
+/**
+ * Close every open week whose Monday has passed (called when the week page
+ * loads). Aggregates the outcome counts for a "week ended" notice.
+ */
+export async function autoCloseStaleWeeks(): Promise<CloseResult | null> {
+  const today = currentWeekStart();
+  const weeks = await all<Week>('weeks');
+  const stale = weeks
+    .filter((w) => !w.closed_at && w.week_start < today)
+    .sort((a, b) => a.week_start.localeCompare(b.week_start));
+  if (stale.length === 0) return null;
+  const total: CloseResult = { read: 0, slushed: 0, returned: 0 };
+  for (const week of stale) {
+    const r = await closeWeek(week);
+    total.read += r.read;
+    total.slushed += r.slushed;
+    total.returned += r.returned;
   }
-  return { read, slushed, rolled: rolledLinkIds.length, nextWeek };
+  return total;
 }

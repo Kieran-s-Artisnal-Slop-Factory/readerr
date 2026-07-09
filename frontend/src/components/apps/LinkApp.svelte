@@ -12,11 +12,13 @@
   import TopicPicker from '../TopicPicker.svelte';
   import { byIndex, get, put, softDelete, withSyncFields } from '../../lib/db/repo';
   import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../../lib/services/links';
+  import { weekHistoryForLink, type HistoryEntry } from '../../lib/services/weeks';
   import type { Excerpt, Link, Note } from '../../lib/db/types';
 
   let link = $state<Link | null>(null);
   let note = $state<Note | null>(null);
   let excerpts = $state<Excerpt[]>([]);
+  let history = $state<HistoryEntry[]>([]);
   let missing = $state(false);
   // Editing title/url is explicit (form + save) since it's rare.
   let editingMeta = $state(false);
@@ -39,7 +41,24 @@
     excerpts = (await byIndex<Excerpt>('excerpts', 'link_id', id)).sort(
       (a, b) => a.position - b.position
     );
+    history = await weekHistoryForLink(id);
   });
+
+  function describeHistory(h: HistoryEntry): string {
+    const kind = h.entry.kind === 'review' ? 'review' : 'reading';
+    if (h.entry.outcome === 'read') return `${kind} — done`;
+    if (h.entry.outcome === 'slushed') return `${kind} — done, slushed`;
+    if (h.entry.outcome === 'rolled') return `${kind} — not finished, returned to backlog`;
+    return h.entry.done_at ? `${kind} — done` : `${kind} — in progress`;
+  }
+
+  function formatWeek(weekStart: string): string {
+    return new Date(`${weekStart}T00:00:00`).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  }
 
   async function saveNote(md: string) {
     if (!link) return;
@@ -173,6 +192,21 @@
         onChange={saveNote}
       />
     </Card>
+
+    <Card title="History">
+      {#if history.length === 0}
+        <p class="empty">Never scheduled into a week yet.</p>
+      {:else}
+        <ul class="history">
+          {#each history as h (h.entry.id)}
+            <li>
+              <span class="history-week">Week of {formatWeek(h.week.week_start)}</span>
+              <span class="history-detail">{describeHistory(h)}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </Card>
   </div>
 {/if}
 
@@ -284,5 +318,32 @@
 
   .excerpt :global(.editor) {
     width: 100%;
+  }
+
+  .history {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .history li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .history li:last-child {
+    border-bottom: none;
+  }
+
+  .history-week {
+    font-weight: 600;
+  }
+
+  .history-detail {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
   }
 </style>

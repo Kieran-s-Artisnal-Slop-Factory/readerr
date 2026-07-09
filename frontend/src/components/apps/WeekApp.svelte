@@ -1,9 +1,10 @@
 <script lang="ts">
   /**
-   * This week's reading list. Pick links in (search existing or paste a
-   * URL), reorder them, and close the week when done: read links that ended
-   * up in a topic or favourited count as 'read', read-but-unremarked links
-   * go to the slush archive, and unread ones roll into the next week.
+   * This week's reading list, in three sections: To read (unfinished
+   * 'reading' entries), Review (unfinished slush re-reads), and Done.
+   * Marking a link read completes its entry; a week whose Monday has
+   * passed closes itself on page load — done links get their outcome
+   * (read/slushed) and everything unfinished returns to the backlog.
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
@@ -14,16 +15,18 @@
   import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
   import {
     addLinkToWeek,
+    autoCloseStaleWeeks,
     closeWeek,
     ensureOpenWeek,
-    currentWeekStart,
-    moveEntry,
     removeFromWeek,
+    setEntryDone,
     suggestLinks,
+    swapEntries,
     weekEntries,
+    type CloseResult,
     type WeekEntry,
   } from '../../lib/services/weeks';
-  import type { Link, Tag, Week } from '../../lib/db/types';
+  import type { Link, Tag, Week, WeekLink } from '../../lib/db/types';
 
   let week = $state<Week | null>(null);
   let entries = $state<WeekEntry[]>([]);
@@ -37,6 +40,10 @@
   let suggestions = $state<Link[]>([]);
   let focusTagName = $state('');
 
+  const toRead = $derived(entries.filter((e) => e.entry.kind === 'reading' && !e.entry.done_at));
+  const review = $derived(entries.filter((e) => e.entry.kind === 'review' && !e.entry.done_at));
+  const done = $derived(entries.filter((e) => !!e.entry.done_at));
+
   const quota = $derived(triage?.quota ?? null);
   const underQuota = $derived(quota !== null ? Math.max(0, quota - entries.length) : 0);
   const quotaSourceLabel = $derived(
@@ -47,8 +54,6 @@
         : null
   );
 
-  const readCount = $derived(entries.filter((e) => !!e.link.read_at).length);
-  const stale = $derived(week !== null && week.week_start < currentWeekStart());
   const entryLinkIds = $derived(new Set(entries.map((e) => e.link.id)));
 
   const queryIsUrl = $derived.by(() => {
@@ -69,7 +74,16 @@
       .slice(0, 8);
   });
 
+  function describeClose(r: CloseResult): string {
+    return `${r.read} read, ${r.slushed} slushed, ${r.returned} returned to the backlog`;
+  }
+
   onMount(async () => {
+    // A week whose Monday has passed closes itself (#14).
+    const autoClosed = await autoCloseStaleWeeks();
+    if (autoClosed) {
+      message = `Last week ended and was closed automatically: ${describeClose(autoClosed)}.`;
+    }
     week = await ensureOpenWeek();
     triage = await effectiveTriage(week.week_start);
     if (triage.focusTagId) {
@@ -144,9 +158,11 @@
     await refresh();
   }
 
-  async function move(entryId: string, dir: -1 | 1) {
-    if (!week) return;
-    await moveEntry(week.id, entryId, dir);
+  /** Reorder within a section by swapping with the section neighbour. */
+  async function move(section: WeekEntry[], i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= section.length) return;
+    await swapEntries(section[i].entry, section[j].entry);
     await refresh();
   }
 
@@ -155,29 +171,38 @@
     await refresh();
   }
 
+  async function completeReview(entry: WeekLink) {
+    await setEntryDone(entry, true);
+    await refresh();
+  }
+
+  async function reopenEntry(entry: WeekLink) {
+    await setEntryDone(entry, false);
+    await refresh();
+  }
+
   async function onCloseWeek() {
     if (!week || closing) return;
-    const unread = entries.length - readCount;
+    const open = toRead.length + review.length;
     const detail =
       `Close this week? ` +
-      (unread > 0 ? `${unread} unread link${unread === 1 ? '' : 's'} will roll over. ` : '') +
-      `Read links without a topic or favourite go to the slush archive.`;
+      (open > 0 ? `${open} unfinished link${open === 1 ? '' : 's'} return to the backlog. ` : '') +
+      `Done links without a topic or favourite go to the slush archive.`;
     if (!confirm(detail)) return;
     closing = true;
     try {
       const result = await closeWeek(week);
-      message =
-        `Week closed: ${result.read} read, ${result.slushed} slushed, ` +
-        `${result.rolled} rolled over.`;
-      week = result.nextWeek;
+      message = `Week closed: ${describeClose(result)}.`;
+      week = await ensureOpenWeek();
       await refresh();
     } finally {
       closing = false;
     }
   }
 
-  function onRowChange(updated: Link) {
-    entries = entries.map((e) => (e.link.id === updated.id ? { ...e, link: updated } : e));
+  /** Marking read completes the entry too, so reload everything. */
+  async function onRowChange() {
+    await refresh();
   }
 
   function formatWeek(weekStart: string): string {
@@ -186,19 +211,32 @@
   }
 </script>
 
+{#snippet entryList(section: WeekEntry[], reorderable: boolean)}
+  <div class="entries">
+    {#each section as { entry, link }, i (entry.id)}
+      <div class="entry">
+        <div class="entry-controls">
+          {#if reorderable}
+            <button class="ctrl" title="Move up" disabled={i === 0} onclick={() => move(section, i, -1)}>↑</button>
+            <button class="ctrl" title="Move down" disabled={i === section.length - 1} onclick={() => move(section, i, 1)}>↓</button>
+          {/if}
+          <button class="ctrl remove" title="Remove from this week" onclick={() => remove(entry.id)}>✕</button>
+        </div>
+        <div class="entry-row">
+          <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
+        </div>
+      </div>
+    {/each}
+  </div>
+{/snippet}
+
 {#if week}
   <div class="stack">
     {#if message}
       <p class="notice">{message}</p>
     {/if}
-    {#if stale}
-      <p class="warning">
-        This list is from the week of {formatWeek(week.week_start)} — close it to
-        roll unread links into the current week.
-      </p>
-    {/if}
 
-    <Card title={`Week of ${formatWeek(week.week_start)} — ${readCount}/${entries.length} read`}>
+    <Card title={`Week of ${formatWeek(week.week_start)} — ${done.length}/${entries.length} done`}>
       <form
         class="adder"
         onsubmit={(e) => {
@@ -260,15 +298,43 @@
         </p>
       {/if}
 
-      {#if entries.length === 0}
-        <p class="empty">Nothing picked for this week yet.</p>
+      {#if toRead.length === 0}
+        <p class="empty">Nothing left to read this week.</p>
       {:else}
+        {@render entryList(toRead, true)}
+      {/if}
+    </Card>
+
+    {#if review.length > 0}
+      <Card title={`Review (${review.length})`}>
+        <p class="hint">Slushed links you re-scheduled for another look.</p>
         <div class="entries">
-          {#each entries as { entry, link }, i (entry.id)}
+          {#each review as { entry, link }, i (entry.id)}
             <div class="entry">
               <div class="entry-controls">
-                <button class="ctrl" title="Move up" disabled={i === 0} onclick={() => move(entry.id, -1)}>↑</button>
-                <button class="ctrl" title="Move down" disabled={i === entries.length - 1} onclick={() => move(entry.id, 1)}>↓</button>
+                <button class="ctrl" title="Move up" disabled={i === 0} onclick={() => move(review, i, -1)}>↑</button>
+                <button class="ctrl" title="Move down" disabled={i === review.length - 1} onclick={() => move(review, i, 1)}>↓</button>
+                <button class="ctrl remove" title="Remove from this week" onclick={() => remove(entry.id)}>✕</button>
+              </div>
+              <div class="entry-row">
+                <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
+              </div>
+              <button class="btn review-done" onclick={() => completeReview(entry)}>
+                Reviewed
+              </button>
+            </div>
+          {/each}
+        </div>
+      </Card>
+    {/if}
+
+    {#if done.length > 0}
+      <Card title={`Done (${done.length})`}>
+        <div class="entries">
+          {#each done as { entry, link } (entry.id)}
+            <div class="entry done-entry">
+              <div class="entry-controls">
+                <button class="ctrl" title="Not done after all" onclick={() => reopenEntry(entry)}>↩</button>
                 <button class="ctrl remove" title="Remove from this week" onclick={() => remove(entry.id)}>✕</button>
               </div>
               <div class="entry-row">
@@ -277,8 +343,8 @@
             </div>
           {/each}
         </div>
-      {/if}
-    </Card>
+      </Card>
+    {/if}
 
     <div class="close-row">
       <button class="btn btn-danger" onclick={onCloseWeek} disabled={closing || entries.length === 0}>
@@ -298,14 +364,6 @@
   .notice {
     background: var(--color-primary-soft);
     border: 1px solid var(--color-primary);
-    border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-3);
-    margin: 0;
-  }
-
-  .warning {
-    background: color-mix(in srgb, var(--color-warning) 15%, transparent);
-    border: 1px solid var(--color-warning);
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-3);
     margin: 0;
@@ -378,6 +436,12 @@
     margin: 0 0 var(--space-3);
   }
 
+  .hint {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-2);
+  }
+
   .suggestions {
     margin-bottom: var(--space-3);
   }
@@ -426,6 +490,14 @@
   /* LinkRow draws its own bottom border; the entry wrapper owns it here. */
   .entry-row :global(.link-item) {
     border-bottom: none;
+  }
+
+  .done-entry {
+    opacity: 0.75;
+  }
+
+  .review-done {
+    flex-shrink: 0;
   }
 
   .entry-controls {

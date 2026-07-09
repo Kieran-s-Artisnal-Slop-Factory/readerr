@@ -84,7 +84,7 @@ var tables = map[string]tableMeta{
 		columns: cols("id", "week_start", "closed_at"),
 	},
 	"week_links": {
-		columns: cols("id", "week_id", "link_id", "position", "outcome"),
+		columns: cols("id", "week_id", "link_id", "position", "kind", "done_at", "outcome"),
 	},
 }
 
