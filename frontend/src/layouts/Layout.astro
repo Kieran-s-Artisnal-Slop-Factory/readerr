@@ -36,6 +36,15 @@ const swScope = href('/');
         if (theme === 'light' || theme === 'dark') {
           document.documentElement.style.colorScheme = theme;
         }
+        // Custom theme CSS, pre-compiled by lib/theme.ts on save so this
+        // boot path needs no imports and never flashes the default theme.
+        const themeCss = localStorage.getItem('readerr-theme-css');
+        if (themeCss) {
+          const style = document.createElement('style');
+          style.id = 'readerr-theme';
+          style.textContent = themeCss;
+          document.head.appendChild(style);
+        }
       } catch {}
     </script>
   </head>

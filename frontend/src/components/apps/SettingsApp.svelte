@@ -6,6 +6,7 @@
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
   import { href } from '../../lib/paths';
   import Card from '../Card.svelte';
+  import ThemeEditor from '../ThemeEditor.svelte';
 
   type Theme = 'system' | 'light' | 'dark';
 
@@ -122,12 +123,15 @@
     {/if}
 
     <Card title="Appearance">
-      <label for="set-theme">Theme</label>
-      <select id="set-theme" bind:value={theme} onchange={applyTheme}>
-        <option value="system">System (follow OS setting)</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
+      <div style="margin-bottom: var(--space-3);">
+        <label for="set-theme">Mode</label>
+        <select id="set-theme" bind:value={theme} onchange={applyTheme}>
+          <option value="system">System (follow OS setting)</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <ThemeEditor />
     </Card>
 
     <Card title="Storage">

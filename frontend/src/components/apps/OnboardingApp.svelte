@@ -11,12 +11,27 @@
   import { saveUserSettings } from '../../lib/services/settings';
   import { requestPersistentStorage } from '../../lib/db/persistence';
   import { setSyncUrl, setSyncMode, testConnection } from '../../lib/sync';
+  import {
+    loadThemeConfig,
+    saveThemeConfig,
+    THEME_NAMES,
+    THEMES,
+    type ThemeName,
+  } from '../../lib/theme';
   import { href } from '../../lib/paths';
   import type { Tag } from '../../lib/db/types';
 
   // Step 0 is the welcome/choice screen; 1..N are the walkthrough.
-  const STEPS = ['Welcome', 'Capture', 'Organize', 'Weekly flow', 'Plan ahead', 'Sync & backup'];
+  const STEPS = ['Welcome', 'Appearance', 'Capture', 'Organize', 'Weekly flow', 'Plan ahead', 'Sync & backup'];
   let step = $state(0);
+
+  // Appearance step — applies live so the choice previews itself.
+  let themeChoice = $state<ThemeName>('gruvbox');
+
+  function chooseTheme(e: Event) {
+    themeChoice = (e.target as HTMLSelectElement).value as ThemeName;
+    saveThemeConfig({ ...loadThemeConfig(), base: themeChoice });
+  }
 
   // Organize step
   let tags = $state<Tag[]>([]);
@@ -31,6 +46,7 @@
   let testing = $state(false);
 
   onMount(async () => {
+    themeChoice = loadThemeConfig().base;
     tags = (await all<Tag>('tags')).sort((a, b) => a.name.localeCompare(b.name));
     // Ask for durable storage up front — cheap, and losing a reading list
     // to browser eviction is the worst first impression.
@@ -100,6 +116,23 @@
       </div>
     </Card>
   {:else if step === 1}
+    <Card title="Appearance">
+      <p>
+        Pick a look — it applies immediately, follows your OS light/dark
+        setting, and every colour is customizable later in Settings
+        (including sharing themes as JSON).
+      </p>
+      <div class="theme-row">
+        <label for="ob-theme">Theme</label>
+        <select id="ob-theme" value={themeChoice} onchange={chooseTheme}>
+          {#each THEME_NAMES as name (name)}
+            <option value={name}>{THEMES[name].label}</option>
+          {/each}
+        </select>
+      </div>
+      <p class="muted theme-desc">{THEMES[themeChoice].description}</p>
+    </Card>
+  {:else if step === 2}
     <Card title="Capture — the backlog">
       <p>
         The <strong>Backlog</strong> is home. Paste one or many URLs (one per
@@ -112,7 +145,7 @@
         row. Nothing needs triaging up front; that's what the backlog is for.
       </p>
     </Card>
-  {:else if step === 2}
+  {:else if step === 3}
     <Card title="Organize — tags, topics, flags">
       <p>
         <strong>Tags</strong> group links loosely (each tag page holds its own
@@ -141,7 +174,7 @@
         </div>
       {/if}
     </Card>
-  {:else if step === 3}
+  {:else if step === 4}
     <Card title="The weekly flow">
       <p>
         <strong>This Week</strong> is your reading list for the current week:
@@ -159,7 +192,7 @@
         <input id="ob-quota" type="number" min="1" placeholder="blank = off" bind:value={quotaInput} />
       </div>
     </Card>
-  {:else if step === 4}
+  {:else if step === 5}
     <Card title="Plan ahead">
       <p>
         The <strong>Plan</strong> tab holds your default quota and focus tag,
@@ -170,7 +203,7 @@
       </p>
       <p class="muted">Nothing to set up now — visit Plan whenever you want to schedule a focus.</p>
     </Card>
-  {:else if step === 5}
+  {:else if step === 6}
     <Card title="Sync & backup">
       <p>
         Readerr is fully functional without any server. If you run the
@@ -304,6 +337,21 @@
 
   .quota-row input {
     width: 10rem;
+  }
+
+  .theme-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .theme-row select {
+    width: auto;
+    min-width: 10rem;
+  }
+
+  .theme-desc {
+    margin-top: var(--space-2);
   }
 
   .test-result {
