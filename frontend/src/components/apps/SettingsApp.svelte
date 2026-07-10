@@ -22,6 +22,8 @@
   let syncing = $state(false);
   let exporting = $state(false);
   let stripMode = $state<StripMode>('off');
+  // One domain per line (or comma-separated) in the textarea.
+  let whitelistText = $state('');
 
   /** Example URLs demonstrating what the current cleaning setting does. */
   const STRIP_EXAMPLES = [
@@ -31,12 +33,19 @@
     'https://example.com/article?utm_source=newsletter&page=2',
   ];
 
+  const whitelist = $derived(
+    whitelistText
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+
   const stripPreview = $derived(
-    STRIP_EXAMPLES.map((url) => ({ from: url, to: cleanUrl(url, stripMode) }))
+    STRIP_EXAMPLES.map((url) => ({ from: url, to: cleanUrl(url, stripMode, whitelist) }))
   );
 
   async function saveStripMode() {
-    await saveUserSettings({ strip_query_params: stripMode });
+    await saveUserSettings({ strip_query_params: stripMode, strip_whitelist: whitelist });
     message = 'Link handling saved.';
   }
 
@@ -78,7 +87,9 @@
     theme = stored === 'light' || stored === 'dark' ? stored : 'system';
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
-    stripMode = (await getUserSettings())?.strip_query_params ?? 'off';
+    const userSettings = await getUserSettings();
+    stripMode = userSettings?.strip_query_params ?? 'off';
+    whitelistText = (userSettings?.strip_whitelist ?? []).join('\n');
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
     } else {
@@ -173,6 +184,23 @@
           <option value="all">All query params</option>
         </select>
       </div>
+      {#if stripMode === 'all'}
+        <div style="margin-bottom: var(--space-3);">
+          <label for="set-strip-whitelist">Whitelisted domains (one per line)</label>
+          <p class="muted" style="margin-bottom: var(--space-2); font-size: var(--font-size-sm);">
+            These domains (and their subdomains) keep their query params —
+            only tracking junk is removed. e.g. <code>youtube.com</code> so
+            ?v= video links survive full stripping.
+          </p>
+          <textarea
+            id="set-strip-whitelist"
+            rows="3"
+            placeholder={'youtube.com\nnews.ycombinator.com'}
+            bind:value={whitelistText}
+            onchange={saveStripMode}
+          ></textarea>
+        </div>
+      {/if}
       <p class="muted" style="margin-bottom: var(--space-2); font-size: var(--font-size-sm);">
         With your current setting:
       </p>

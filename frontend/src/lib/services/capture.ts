@@ -31,15 +31,26 @@ const TRACKING_PARAMS = [
   /^cmpid$/i,
 ];
 
+/** Does the URL's host match a whitelist entry (exact or subdomain)? */
+function hostWhitelisted(host: string, whitelist: string[]): boolean {
+  const h = host.toLowerCase().replace(/^www\./, '');
+  return whitelist.some((raw) => {
+    const entry = raw.trim().toLowerCase().replace(/^www\./, '');
+    return entry !== '' && (h === entry || h.endsWith(`.${entry}`));
+  });
+}
+
 /**
  * Clean a URL per the strip mode. 'trackers' removes only known tracking
- * params (a YouTube ?v= survives); 'all' drops the whole query string.
+ * params (a YouTube ?v= survives); 'all' drops the whole query string —
+ * except on whitelisted domains, which fall back to trackers-only cleaning
+ * so their meaningful params survive.
  */
-export function cleanUrl(url: string, mode: StripMode): string {
+export function cleanUrl(url: string, mode: StripMode, whitelist: string[] = []): string {
   if (mode === 'off') return url;
   try {
     const u = new URL(url);
-    if (mode === 'all') {
+    if (mode === 'all' && !hostWhitelisted(u.hostname, whitelist)) {
       u.search = '';
     } else {
       for (const key of [...u.searchParams.keys()]) {
@@ -120,14 +131,15 @@ export interface CaptureAssign {
  */
 export async function captureLinks(text: string, assign?: CaptureAssign): Promise<CaptureResult> {
   const { entries, invalid } = parseUrls(text);
-  const stripMode =
-    assign?.stripMode ?? (await getUserSettings())?.strip_query_params ?? 'off';
+  const settings = await getUserSettings();
+  const stripMode = assign?.stripMode ?? settings?.strip_query_params ?? 'off';
+  const whitelist = settings?.strip_whitelist ?? [];
   const duplicates: string[] = [];
   const fresh: Link[] = [];
   const seen = new Set<string>();
 
   for (const { url: rawUrl, title } of entries) {
-    const url = cleanUrl(rawUrl, stripMode);
+    const url = cleanUrl(rawUrl, stripMode, whitelist);
     if (seen.has(url)) {
       duplicates.push(url); // dedupe within the paste itself
       continue;

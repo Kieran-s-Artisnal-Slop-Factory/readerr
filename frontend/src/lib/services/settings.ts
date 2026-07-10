@@ -14,7 +14,12 @@ export async function saveUserSettings(
   changes: Partial<
     Pick<
       UserSettings,
-      'name' | 'articles_per_week' | 'focus_tag_id' | 'onboarding_completed_at' | 'strip_query_params'
+      | 'name'
+      | 'articles_per_week'
+      | 'focus_tag_id'
+      | 'onboarding_completed_at'
+      | 'strip_query_params'
+      | 'strip_whitelist'
     >
   >
 ): Promise<UserSettings> {
@@ -28,6 +33,7 @@ export async function saveUserSettings(
       focus_tag_id: null,
       onboarding_completed_at: null,
       strip_query_params: 'off' as const,
+      strip_whitelist: [] as string[],
       ...changes,
     })
   );

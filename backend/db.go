@@ -53,6 +53,10 @@ ALTER TABLE week_links ADD COLUMN done_at TEXT;
 ALTER TABLE user_settings ADD COLUMN strip_query_params TEXT NOT NULL DEFAULT 'off'
     CHECK (strip_query_params IN ('off', 'trackers', 'all'));
 `,
+	// v4 → v5: domains exempt from full query stripping (JSON array).
+	`
+ALTER TABLE user_settings ADD COLUMN strip_whitelist TEXT NOT NULL DEFAULT '[]';
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

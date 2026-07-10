@@ -37,6 +37,11 @@ export interface UserSettings extends SyncFields {
   onboarding_completed_at: string | null;
   /** Default URL cleaning for captured links. */
   strip_query_params: StripMode;
+  /**
+   * Domains (and their subdomains) exempt from 'all' stripping — they get
+   * trackers-only cleaning instead, so e.g. a youtube.com ?v= survives.
+   */
+  strip_whitelist: string[];
 }
 
 export type PlanPeriod = 'week' | 'month';

@@ -25,6 +25,7 @@ CREATE TABLE user_settings (
     onboarding_completed_at TEXT,     -- NULL = show first-launch onboarding
     strip_query_params      TEXT NOT NULL DEFAULT 'off'
                             CHECK (strip_query_params IN ('off', 'trackers', 'all')),
+    strip_whitelist         TEXT NOT NULL DEFAULT '[]', -- JSON array of exempt domains
     updated_at              TEXT NOT NULL,
     deleted_at              TEXT,
     server_seq              INTEGER
