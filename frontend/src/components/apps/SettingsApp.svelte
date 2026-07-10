@@ -3,6 +3,7 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
+  import { seedDemoData } from '../../lib/db/seed';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
   import { cleanUrl } from '../../lib/services/capture';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
@@ -112,6 +113,10 @@
     }
   }
 
+  // Range export inputs ('YYYY-MM-DD').
+  let rangeFrom = $state('');
+  let rangeTo = $state('');
+
   async function onImportFile(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -124,14 +129,23 @@
       input.value = '';
       return;
     }
-    if (!confirm('Importing a backup REPLACES all current data. Continue?')) {
+    const isFull = ((envelope as { scope?: string })?.scope ?? 'full') === 'full';
+    const warning = isFull
+      ? 'This is a full backup — importing it REPLACES all current data. Continue?'
+      : 'This is a partial export — its rows will be merged into your existing data (nothing is deleted). Continue?';
+    if (!confirm(warning)) {
       input.value = '';
       return;
     }
     try {
-      await importData(envelope as Parameters<typeof importData>[0]);
-      message = 'Import complete. Reloading…';
-      location.reload();
+      const result = await importData(envelope as Parameters<typeof importData>[0]);
+      if (result.mode === 'replaced') {
+        message = 'Import complete. Reloading…';
+        location.reload();
+      } else {
+        message = `Merged ${result.rows} rows in.`;
+        input.value = '';
+      }
     } catch (err) {
       message = `Import failed: ${err instanceof Error ? err.message : err}`;
       input.value = '';
@@ -144,6 +158,26 @@
     }
     await clearAllData();
     location.href = href('/');
+  }
+
+  let seeding = $state(false);
+
+  async function loadDemoData() {
+    if (
+      !confirm(
+        'Load ~3 months of demo data (roughly 260 links, 13 weeks, tags, topics, favourites, and resources)? ' +
+          'It mixes into whatever is already here and will sync like real data — best used on a fresh install.'
+      )
+    ) {
+      return;
+    }
+    seeding = true;
+    try {
+      const s = await seedDemoData();
+      message = `Demo data loaded: ${s.links} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics} topics, ${s.favourites} favourites, ${s.resources} resources.`;
+    } finally {
+      seeding = false;
+    }
   }
 </script>
 
@@ -264,29 +298,73 @@
     </Card>
 
     <Card title="Backup">
-      <p class="muted" style="margin-bottom: var(--space-3);">
-        <strong>JSON backup</strong> is a full copy you can import back later.
-        <strong>Markdown export</strong> writes every topic, tag, and link
-        (with notes and excerpts) as plain markdown files — your prose is
-        never locked in.
-      </p>
-      <div class="actions">
-        <button class="btn btn-primary" onclick={() => downloadExport()}>Export JSON</button>
-        <button class="btn btn-primary" onclick={exportMarkdown} disabled={exporting}>
-          {exporting ? 'Exporting…' : 'Export Markdown'}
-        </button>
-        <label class="btn" style="margin-bottom: 0;">
-          Import JSON
-          <input type="file" accept="application/json" onchange={onImportFile} hidden />
-        </label>
+      <div class="backup-section">
+        <h3>Full backup</h3>
+        <p class="muted">
+          A complete copy of everything, including deletion history — the
+          file to keep safe. <strong>Importing a full backup replaces all
+          current data.</strong> Markdown export writes every topic, tag, and
+          link (with notes and excerpts) as plain markdown files instead —
+          your prose is never locked in.
+        </p>
+        <div class="actions">
+          <button class="btn btn-primary" onclick={() => downloadExport('full')}>Export JSON</button>
+          <button class="btn btn-primary" onclick={exportMarkdown} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export Markdown'}
+          </button>
+          <label class="btn" style="margin-bottom: 0;">
+            Import JSON
+            <input type="file" accept="application/json" onchange={onImportFile} hidden />
+          </label>
+        </div>
+      </div>
+
+      <div class="backup-section">
+        <h3>Curated export</h3>
+        <p class="muted">
+          A smaller file with just the links that made it somewhere — anything
+          favourited, tagged, or referenced in a topic — plus their notes,
+          excerpts, and those tags/topics. Importing a curated file
+          <strong>merges</strong> into existing data; it never deletes.
+        </p>
+        <div class="actions">
+          <button class="btn" onclick={() => downloadExport('curated')}>Export curated JSON</button>
+        </div>
+      </div>
+
+      <div class="backup-section">
+        <h3>Time range export</h3>
+        <p class="muted">
+          Links captured between two dates (inclusive), with their notes,
+          excerpts, and referenced tags/topics. Also merges on import.
+        </p>
+        <div class="range-row">
+          <label for="set-range-from">From</label>
+          <input id="set-range-from" type="date" bind:value={rangeFrom} />
+          <label for="set-range-to">To</label>
+          <input id="set-range-to" type="date" bind:value={rangeTo} />
+          <button
+            class="btn"
+            disabled={!rangeFrom || !rangeTo || rangeFrom > rangeTo}
+            onclick={() => downloadExport('range', { from: rangeFrom, to: rangeTo })}
+          >
+            Export range
+          </button>
+        </div>
       </div>
     </Card>
 
     <Card title="Danger zone">
       <p class="muted" style="margin-bottom: var(--space-3);">
-        Wipe everything on this device. Exports above are your only undo.
+        Load a demo dataset to try the app out, or wipe everything on this
+        device (exports above are your only undo).
       </p>
-      <button class="btn btn-danger" onclick={clearData}>Clear all data</button>
+      <div class="actions">
+        <button class="btn" onclick={loadDemoData} disabled={seeding}>
+          {seeding ? 'Loading…' : 'Load demo data'}
+        </button>
+        <button class="btn btn-danger" onclick={clearData} disabled={seeding}>Clear all data</button>
+      </div>
     </Card>
   </div>
 {/if}
@@ -334,5 +412,41 @@
   .strip-preview .arrow {
     color: var(--color-primary-strong);
     flex-shrink: 0;
+  }
+
+  .backup-section {
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .backup-section:last-child {
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: none;
+  }
+
+  .backup-section h3 {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-base);
+  }
+
+  .backup-section .muted {
+    margin-bottom: var(--space-3);
+  }
+
+  .range-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .range-row label {
+    margin: 0;
+  }
+
+  .range-row input {
+    width: auto;
   }
 </style>

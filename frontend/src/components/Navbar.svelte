@@ -30,6 +30,7 @@
     { href: href('/favourites/'), label: 'Favourites' },
     { href: href('/resources/'), label: 'Resources' },
     { href: href('/slush/'), label: 'Slush' },
+    { href: href('/stats/'), label: 'Stats' },
     { href: href('/settings/'), label: 'Settings' },
   ];
 

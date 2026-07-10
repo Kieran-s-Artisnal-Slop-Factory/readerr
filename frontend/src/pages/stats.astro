@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import StatsApp from '../components/apps/StatsApp.svelte';
+---
+
+<Layout title="Stats">
+  <StatsApp client:only="svelte" />
+</Layout>
