@@ -103,26 +103,21 @@
 
 <div class="capture">
   <textarea
-    placeholder="Paste links — one per line. Plain URLs, - bullets, or [Title](url) (what copying a tab into Obsidian gives you). Enter to add, Shift+Enter for a new line."
+    placeholder="Paste links here. One per line. Plain URLs, bullet lists (- url), or [Title](url)"
     rows="3"
     bind:value={text}
     onkeydown={onKeydown}
   ></textarea>
-  <button
-    type="button"
-    class="organize-toggle"
-    aria-expanded={organizeOpen}
-    onclick={() => (organizeOpen = !organizeOpen)}
-  >
-    {organizeOpen ? '▾' : '▸'} Tags, topics & week
-    {#if selectionCount > 0}
-      <span class="badge">{selectionCount}</span>
-    {/if}
-  </button>
-  {#if organizeOpen}
+  <span class="helptext"><kbd>Enter</kbd> to add, <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>
+  <hr style="margin: 0 auto; border: none; border-top: 1px solid var(--border-color); width:85%;padding: var(--space-2) 0;" />
     <div class="organize">
       <div class="organize-group">
-        <span class="organize-label">Tags</span>
+        <span class="organize-label">Tags 
+        {#if selectionCount > 0}
+          <span class="badge">{selectionCount}</span>
+        {/if}
+        </span>
+
         <ChipSelect
           items={tags}
           bind:selected={selectedTagIds}
@@ -149,11 +144,7 @@
         </select>
       </div>
     </div>
-  {/if}
   <div class="capture-actions">
-    {#if report}
-      <span class="report">{report}</span>
-    {/if}
     <label
       class="done-check"
       title={defaultStripMode === 'all'
@@ -171,6 +162,9 @@
       {busy ? 'Adding…' : 'Add to backlog'}
     </button>
   </div>
+  {#if report}
+    <div class="report">{report}</div>
+  {/if}
 </div>
 
 <style>
@@ -207,6 +201,7 @@
   .report {
     font-size: var(--font-size-sm);
     color: var(--text-muted-color);
+    text-align:right;
   }
 
   .done-check {
@@ -277,5 +272,10 @@
     background: var(--surface-color);
     color: var(--text-color);
     font-size: var(--font-size-sm);
+  }
+  .helptext{
+    text-align: right;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
   }
 </style>

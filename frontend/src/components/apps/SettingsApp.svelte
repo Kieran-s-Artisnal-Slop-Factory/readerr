@@ -3,7 +3,7 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
-  import { seedDemoData } from '../../lib/db/seed';
+  import { seedDemoData, seedMassiveData } from '../../lib/db/seed';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
   import { cleanUrl } from '../../lib/services/capture';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
@@ -179,6 +179,42 @@
       seeding = false;
     }
   }
+
+  async function loadMassiveDemoData() {
+    if (
+      !confirm(
+        'Load massive demo data (roughly 78,000 links, 520 weeks (10 years) worth of heavy data. Also includes tags, topics, favourites, and resources)? ' +
+          'It mixes into whatever is already here and will sync like real data — best used on a fresh install.'
+      )
+    ) {
+      return;
+    }
+    seeding = true;
+    try {
+      const s = await seedMassiveData();
+      message = `Massive demo data loaded: ${s.links} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics} topics, ${s.favourites} favourites, ${s.resources} resources.`;
+    } finally {
+      seeding = false;
+    }
+  }
+
+  async function loadMediumDemoData() {
+    if (
+      !confirm(
+        'Load medium demo data (roughly 15,600 links, 104 weeks (2 years) worth of data. Also includes tags, topics, favourites, and resources)? ' +
+          'It mixes into whatever is already here and will sync like real data — best used on a fresh install.'
+      )
+    ) {
+      return;
+    }
+    seeding = true;
+    try {
+      const s = await seedMassiveData(undefined, 104); // 104 weeks = 2 years
+      message = `Medium demo data loaded: ${s.links} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics} topics, ${s.favourites} favourites, ${s.resources} resources.`;
+    } finally {
+      seeding = false;
+    }
+  }
 </script>
 
 {#if loading}
@@ -191,7 +227,7 @@
 
     <Card title="Appearance">
       <div style="margin-bottom: var(--space-3);">
-        <label for="set-theme">Mode</label>
+        <label for="set-theme">Dark/Light</label>
         <select id="set-theme" bind:value={theme} onchange={applyTheme}>
           <option value="system">System (follow OS setting)</option>
           <option value="light">Light</option>
@@ -361,7 +397,13 @@
       </p>
       <div class="actions">
         <button class="btn" onclick={loadDemoData} disabled={seeding}>
-          {seeding ? 'Loading…' : 'Load demo data'}
+          {seeding ? 'Loading…' : 'Add demo data'}
+        </button>
+        <button class="btn" onclick={loadMediumDemoData} disabled={seeding}>
+          {seeding ? 'Loading…' : 'Add 2 years demo data'}
+        </button>
+        <button class="btn" onclick={loadMassiveDemoData} disabled={seeding}>
+          {seeding ? 'Loading…' : 'Add 10 years demo data (dangerous)'}
         </button>
         <button class="btn btn-danger" onclick={clearData} disabled={seeding}>Clear all data</button>
       </div>

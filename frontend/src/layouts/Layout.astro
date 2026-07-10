@@ -6,9 +6,10 @@ import { href } from '../lib/paths';
 
 interface Props {
   title: string;
+  noNav?: boolean;
 }
 
-const { title } = Astro.props;
+const { title, noNav } = Astro.props;
 const currentPath = Astro.url.pathname;
 // Base-aware asset/SW URLs (host under a sub-path).
 const iconUrl = href('/icon.svg');
@@ -49,7 +50,7 @@ const swScope = href('/');
     </script>
   </head>
   <body>
-    <Navbar client:load {currentPath} />
+    {!noNav && <Navbar client:load {currentPath} />}
     <script>
       // First-launch gate: send brand-new installs to onboarding. Existing
       // data (any links) counts as onboarded — those users are grandfathered

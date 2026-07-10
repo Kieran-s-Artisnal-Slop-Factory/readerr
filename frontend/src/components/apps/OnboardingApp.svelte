@@ -20,6 +20,15 @@
   } from '../../lib/theme';
   import { href } from '../../lib/paths';
   import type { Tag } from '../../lib/db/types';
+    import BacklogApp from './BacklogApp.svelte';
+    import TagApp from './TagApp.svelte';
+    import TagsApp from './TagsApp.svelte';
+    import TopicsApp from './TopicsApp.svelte';
+    import FavouritesApp from './FavouritesApp.svelte';
+    import PlanApp from './PlanApp.svelte';
+    import WeekApp from './WeekApp.svelte';
+    import SlushApp from './SlushApp.svelte';
+  type Theme = 'system' | 'light' | 'dark';
 
   // Step 0 is the welcome/choice screen; 1..N are the walkthrough.
   const STEPS = ['Welcome', 'Appearance', 'Capture', 'Organize', 'Weekly flow', 'Plan ahead', 'Sync & backup'];
@@ -27,10 +36,20 @@
 
   // Appearance step — applies live so the choice previews itself.
   let themeChoice = $state<ThemeName>('gruvbox');
+  let theme: Theme = $state('system');
 
   function chooseTheme(e: Event) {
     themeChoice = (e.target as HTMLSelectElement).value as ThemeName;
     saveThemeConfig({ ...loadThemeConfig(), base: themeChoice });
+  }
+  function applyTheme() {
+    if (theme === 'system') {
+      localStorage.removeItem('readerr-theme');
+      document.documentElement.style.colorScheme = '';
+    } else {
+      localStorage.setItem('readerr-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+    }
   }
 
   // Organize step
@@ -122,6 +141,14 @@
         setting, and every colour is customizable later in Settings
         (including sharing themes as JSON).
       </p>
+      <div style="margin-bottom: var(--space-3);">
+        <label for="set-theme">Dark/Light</label>
+        <select id="set-theme" bind:value={theme} onchange={applyTheme}>
+          <option value="system">System (follow OS setting)</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
       <div class="theme-row">
         <label for="ob-theme">Theme</label>
         <select id="ob-theme" value={themeChoice} onchange={chooseTheme}>
@@ -133,76 +160,79 @@
       <p class="muted theme-desc">{THEMES[themeChoice].description}</p>
     </Card>
   {:else if step === 2}
-    <Card title="Capture — the backlog">
+    <Card title="The backlog">
       <p>
-        The <strong>Backlog</strong> is home. Paste one or many URLs (one per
-        line) into the capture box and hit Enter — links are saved instantly,
-        even offline, and page titles fill themselves in.
+        The <strong>Backlog</strong> is home. Paste links one at a time, or batch paste many URLs (one per
+        line <kbd>shift</kbd>+<kbd>enter</kbd> for a new line)
       </p>
+      <p><strong>Accepted Formats</strong></p>
+      <pre class="muted">
+  https://kieranwood.ca
+  - https://kieranwood.ca
+  [Kieran's site](https://kieranwood.ca)
+  - [Kieran's site](https://kieranwood.ca)
+      </pre>
+
       <p class="muted">
         You can attach tags and topics at capture time ("Tags &amp; topics"
         under the box), or later with the <strong>#</strong> button on any
         row. Nothing needs triaging up front; that's what the backlog is for.
       </p>
     </Card>
+
+    <h3 style="margin-bottom: var(--space-3);"><strong>Try adding your first link below!</strong></h3>
+    <BacklogApp/>
   {:else if step === 3}
     <Card title="Organize — tags, topics, flags">
       <p>
         <strong>Tags</strong> group links loosely (each tag page holds its own
-        notes). <strong>Topics</strong> are long-form documents that reference
+        notes). <br><strong>Topics</strong> are long-form documents that reference
         links — the place where real writing happens.
-        <strong>★ Favourite</strong> marks the good stuff and
-        <strong>⚒ Resource</strong> marks tools and references that aren't
+        <br><strong>★ Favourite</strong> marks the good stuff and
+        <br><strong>⚒ Resource</strong> marks tools and references that aren't
         really "read".
       </p>
-      <p class="muted">Seed a few tags now if you like (skippable):</p>
-      <form
-        class="tag-form"
-        onsubmit={(e) => {
-          e.preventDefault();
-          void addTag();
-        }}
-      >
-        <input type="text" placeholder="e.g. databases" bind:value={newTagName} />
-        <button type="submit" class="btn" disabled={!newTagName.trim()}>Add tag</button>
-      </form>
-      {#if tags.length > 0}
-        <div class="tag-chips">
-          {#each tags as tag (tag.id)}
-            <span class="chip">{tag.name}</span>
-          {/each}
-        </div>
-      {/if}
+      <br>
+      <p style="font-size: var(--font-size-md); color: var(--color-danger);">
+        <strong>Please note, clicking a tag or topic will end the onboarding process</strong>
+      </p>
     </Card>
+
+    <TagsApp/>
+    <TopicsApp/>
+    <FavouritesApp/>
   {:else if step === 4}
-    <Card title="The weekly flow">
+    <Card title="This Week">
       <p>
-        <strong>This Week</strong> is your reading list for the current week:
-        pick links from the backlog, read them, and close the week when done.
+        Organization is based around moving links into weekly blocks. 
+        <br>The <strong>This Week</strong> tab is your reading list for the current week. Pick links from the backlog, read them, and close the week when done.
+      </p>
+    </Card>
+    <WeekApp/>
+    <Card title="Closing a week">
         On close, read links you favourited or wrote about stay
-        <em>read</em>; read links with nothing written about them are
-        archived to <strong>Slush</strong>; unread links roll into next week.
-      </p>
-      <p class="muted">
-        Optionally set a weekly quota — the week page will suggest backlog
-        links to fill it:
-      </p>
-      <div class="quota-row">
-        <label for="ob-quota">Articles per week</label>
-        <input id="ob-quota" type="number" min="1" placeholder="blank = off" bind:value={quotaInput} />
-      </div>
+        <em>read</em>; read links with nothing written about them, that weren't add to any topics are
+        archived to <strong>Slush</strong>. 
+        <br><br>The system will automatically close the week on monday morning, the first time you open the app. 
+        <br><br>You can always unslush any links from the <strong>Slush</strong> tab later, or schedule them to be <em>reviewed</em>, which allows you to revisit them on a scheduled week.
     </Card>
   {:else if step === 5}
     <Card title="Plan ahead">
       <p>
-        The <strong>Plan</strong> tab holds your default quota and focus tag,
-        plus scheduled plans for upcoming weeks or months — e.g. "next week
-        is compilers, 3 articles". When a planned period arrives, its
-        settings kick in automatically; a weekly plan beats a monthly plan
-        beats your defaults.
+        The <strong>Plan</strong> tab is your automation system. It holds your default quota (how many articles per week) and focus tag (what tag to prioritize).
+        <br><br>You can also scheduled plans for upcoming weeks or months that deviate from the defaults.<br><span class="muted"> e.g. "next week
+        is compilers, grab 3 articles on them".</span> 
+        <br><br>When a planned period arrives, its settings kick in automatically<br>
       </p>
-      <p class="muted">Nothing to set up now — visit Plan whenever you want to schedule a focus.</p>
+      <div class="muted"> The precedence is:
+        <ol>
+          <li>Scheduled plan beats a default plan</li>
+          <li>a weekly plan beats a monthly plan</li>
+          <li>your defaults.</li>
+        </ol>
+      </div>
     </Card>
+    <PlanApp/>
   {:else if step === 6}
     <Card title="Sync & backup">
       <p>
@@ -214,7 +244,7 @@
       <p class="muted">
         Have one running? Enter its URL (skippable — you can set this in
         Settings later). Settings also has JSON backup and export-everything-
-        to-markdown, so your writing is never locked in.
+        to-markdown, so your writing is never locked in to just your browser.
       </p>
       <div class="sync-row">
         <input type="text" placeholder="e.g. http://192.168.1.10:8080" bind:value={syncUrlInput} />

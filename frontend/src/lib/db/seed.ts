@@ -232,3 +232,151 @@ export async function seedDemoData(): Promise<SeedSummary> {
     resources: links.filter((l) => l.is_resource).length,
   };
 }
+
+/** bulkPut in chunks so no single IDB transaction gets huge. */
+async function chunkedPut<T extends { id: string }>(
+  store: Parameters<typeof bulkPut>[0],
+  rows: T[],
+  onProgress?: (msg: string) => void,
+  label?: string
+): Promise<void> {
+  const CHUNK = 5000;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await bulkPut(store, rows.slice(i, i + CHUNK) as any);
+    onProgress?.(`Writing ${label ?? store}: ${Math.min(i + CHUNK, rows.length).toLocaleString()} / ${rows.length.toLocaleString()}…`);
+  }
+}
+
+/**
+ * The 10-year projection from scaling.md, as data you can actually feel:
+ * ~520 weeks × ~150 links (~78k links), ~1,500 topic documents, notes on
+ * 5–10 links/week, week entries with outcomes — ~240k rows total. Links
+ * are nonsense; the point is volume, not content.
+ */
+export async function seedMassiveData(
+  onProgress?: (msg: string) => void,
+  WEEKS: number = 520
+): Promise<SeedSummary> {
+  const rand = rng(19700101);
+  const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
+  const chance = (p: number) => rand() < p;
+
+  const today = currentWeekStart();
+  const iso = (day: string, hour: number) =>
+    new Date(`${day}T${String(hour % 24).padStart(2, '0')}:00:00`).toISOString();
+
+  const tags: Tag[] = THEMES.map((t) => withSyncFields({ name: t.tag, notes_md: '' }));
+
+  // ~3 topics/week over 10 years, each with a few KB of body.
+  const PARA =
+    'Notes accumulated over several reads. The interesting failure modes cluster around the edges: retries, partial writes, and clocks. See the referenced links for worked examples.\n\n';
+  const topics: Topic[] = [];
+  for (let i = 0; i < WEEKS * 3; i++) {
+    const theme = pick(THEMES);
+    topics.push(
+      withSyncFields({
+        name: `${theme.tag} deep-dive #${i + 1}`,
+        body_md: `# ${theme.tag} deep-dive #${i + 1}\n\n${PARA.repeat(2 + Math.floor(rand() * 6))}`,
+      })
+    );
+  }
+
+  const links: Link[] = [];
+  const linkTags: LinkTag[] = [];
+  const linkTopics: LinkTopic[] = [];
+  const notes: Note[] = [];
+  const excerpts: Excerpt[] = [];
+  const weeks: Week[] = [];
+  const weekLinks: WeekLink[] = [];
+
+  let serial = 0;
+  for (let w = WEEKS - 1; w >= 0; w--) {
+    const weekStart = weekStartPlus(today, -w);
+    const isCurrent = w === 0;
+    const week: Week = withSyncFields({
+      week_start: weekStart,
+      closed_at: isCurrent ? null : iso(weekStartPlus(weekStart, 1), 9),
+    });
+    weeks.push(week);
+    if (w % 52 === 0) onProgress?.(`Generating year ${Math.round((WEEKS - w) / 52)} / 10…`);
+
+    const count = 140 + Math.floor(rand() * 21); // ~150/week
+    let notesThisWeek = 0;
+    for (let i = 0; i < count; i++) {
+      serial++;
+      const theme = pick(THEMES);
+      const added = iso(weekStartPlus(weekStart, 0), 8 + (serial % 12));
+      const favourite = chance(0.02);
+      const isResource = chance(0.03);
+      const inTopic = chance(0.02);
+      const done = isCurrent ? chance(0.3) : chance(0.8);
+      const slushed = done && !favourite && !inTopic;
+      const doneAt = iso(weekStartPlus(weekStart, 0), 20);
+
+      const link: Link = withSyncFields({
+        url: `https://${pick(theme.hosts)}/nonsense/${theme.tag}/${serial}`,
+        title: `${pick(theme.titles)} — take ${serial}`,
+        title_fetched: true,
+        added_at: added,
+        read_at: done ? doneAt : null,
+        favourite,
+        is_resource: isResource,
+        slushed_at: slushed ? doneAt : null,
+      });
+      links.push(link);
+
+      if (chance(0.8)) {
+        linkTags.push(withSyncFields({ link_id: link.id, tag_id: tags[THEMES.indexOf(theme)].id }));
+      }
+      if (inTopic) {
+        linkTopics.push(
+          withSyncFields({ link_id: link.id, topic_id: topics[Math.floor(rand() * topics.length)].id })
+        );
+      }
+      // 5–10 noted links per week.
+      if (done && notesThisWeek < 10 && chance(0.06)) {
+        notesThisWeek++;
+        notes.push(
+          withSyncFields({ link_id: link.id, body_md: `${PARA.repeat(1 + Math.floor(rand() * 2))}` })
+        );
+        if (chance(0.4)) {
+          excerpts.push(
+            withSyncFields({ link_id: link.id, content_md: `"Quote ${serial} worth keeping."`, position: 0 })
+          );
+        }
+      }
+      if (chance(0.6) || done) {
+        weekLinks.push(
+          withSyncFields({
+            week_id: week.id,
+            link_id: link.id,
+            position: i,
+            kind: 'reading' as const,
+            done_at: done ? doneAt : null,
+            outcome: isCurrent ? null : done ? (slushed ? ('slushed' as const) : ('read' as const)) : ('rolled' as const),
+          })
+        );
+      }
+    }
+  }
+
+  await chunkedPut('tags', tags, onProgress);
+  await chunkedPut('topics', topics, onProgress);
+  await chunkedPut('links', links, onProgress);
+  await chunkedPut('link_tags', linkTags, onProgress);
+  await chunkedPut('link_topics', linkTopics, onProgress);
+  await chunkedPut('notes', notes, onProgress);
+  await chunkedPut('excerpts', excerpts, onProgress);
+  await chunkedPut('weeks', weeks, onProgress);
+  await chunkedPut('week_links', weekLinks, onProgress);
+
+  return {
+    links: links.length,
+    weeks: weeks.length,
+    tags: tags.length,
+    topics: topics.length,
+    favourites: links.filter((l) => l.favourite).length,
+    resources: links.filter((l) => l.is_resource).length,
+  };
+}

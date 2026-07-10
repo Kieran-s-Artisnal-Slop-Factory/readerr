@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import OnboardingApp from '../components/apps/OnboardingApp.svelte';
 ---
 
-<Layout title="Welcome">
+<Layout title="Welcome" noNav={true}>
   <OnboardingApp client:only="svelte" />
 </Layout>
