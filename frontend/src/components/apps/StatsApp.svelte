@@ -114,9 +114,19 @@
   th,
   td {
     text-align: right;
-    padding: var(--space-1) var(--space-2);
+    padding: var(--space-2) var(--space-4);
     border-bottom: 1px solid var(--border-color);
     white-space: nowrap;
+  }
+
+  th:first-child,
+  td:first-child {
+    padding-left: var(--space-2);
+  }
+
+  th:last-child,
+  td:last-child {
+    padding-right: var(--space-2);
   }
 
   th.origin,
