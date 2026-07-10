@@ -1,12 +1,13 @@
 /**
  * Weekly reading list lifecycle.
  *
- * One week row is "open" at a time (closed_at = null). Closing a week stamps
- * every entry with an outcome:
- *   - read and referenced somewhere (topic or favourite) → 'read'
- *   - read but unremarked → 'slushed' (link.slushed_at set — the slush
+ * Entries are 'reading' (first pass) or 'review' (re-scheduled from the
+ * slush archive) and complete via done_at. Closing a week — manual, or
+ * automatic once its Monday has passed — stamps every entry:
+ *   - done and referenced somewhere (topic or favourite) → 'read'
+ *   - done but unremarked → 'slushed' (link.slushed_at set — the slush
  *     archive is "things I read that had nothing written about them")
- *   - unread → 'rolled', and the link is carried into the next week
+ *   - unfinished → 'rolled', and the link just returns to the backlog
  * Entries keep their week_link rows forever, so past weeks are history.
  */
 import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
@@ -174,10 +175,26 @@ export async function setLinkWeek(linkId: string, weekStart: string | null): Pro
   }
 }
 
-/** Swap the positions of two entries (section-local reordering). */
-export async function swapEntries(a: WeekLink, b: WeekLink): Promise<void> {
-  await put('week_links', { ...a, position: b.position });
-  await put('week_links', { ...b, position: a.position });
+/**
+ * Move a section's entry from one index to another (drag & drop). The
+ * section's existing positions are redistributed over the new order, so
+ * other sections' global interleave is untouched.
+ */
+export async function reorderEntries(
+  section: WeekLink[],
+  from: number,
+  to: number
+): Promise<void> {
+  if (from === to || from < 0 || to < 0 || from >= section.length || to >= section.length) return;
+  const order = [...section];
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+  const positions = section.map((e) => e.position).sort((a, b) => a - b);
+  for (let i = 0; i < order.length; i++) {
+    if (order[i].position !== positions[i]) {
+      await put('week_links', { ...order[i], position: positions[i] });
+    }
+  }
 }
 
 /**

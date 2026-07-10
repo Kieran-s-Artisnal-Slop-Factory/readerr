@@ -9,7 +9,7 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkRow from '../LinkRow.svelte';
-  import { all, get } from '../../lib/db/repo';
+  import { all, byIndex, get } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import { domainOf, tagsForLink } from '../../lib/services/links';
   import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
@@ -19,14 +19,14 @@
     closeWeek,
     ensureOpenWeek,
     removeFromWeek,
+    reorderEntries,
     setEntryDone,
     suggestLinks,
-    swapEntries,
     weekEntries,
     type CloseResult,
     type WeekEntry,
   } from '../../lib/services/weeks';
-  import type { Link, Tag, Week, WeekLink } from '../../lib/db/types';
+  import type { Excerpt, Link, Note, Tag, Week, WeekLink } from '../../lib/db/types';
 
   let week = $state<Week | null>(null);
   let entries = $state<WeekEntry[]>([]);
@@ -39,6 +39,13 @@
   let triage = $state<EffectiveTriage | null>(null);
   let suggestions = $state<Link[]>([]);
   let focusTagName = $state('');
+  /** Notes taken across this week's links (#6). */
+  let stats = $state({ linksWithNotes: 0, excerpts: 0 });
+
+  // Drag-and-drop reordering, section-local (#13).
+  type SectionKey = 'toRead' | 'review';
+  let drag = $state<{ section: SectionKey; index: number } | null>(null);
+  let dragOver = $state<number | null>(null);
 
   const toRead = $derived(entries.filter((e) => e.entry.kind === 'reading' && !e.entry.done_at));
   const review = $derived(entries.filter((e) => e.entry.kind === 'review' && !e.entry.done_at));
@@ -99,10 +106,16 @@
     entries = rows;
     allLinks = everything;
     const byLink = new Map<string, Tag[]>();
+    let linksWithNotes = 0;
+    let excerptCount = 0;
     for (const { link } of rows) {
       byLink.set(link.id, await tagsForLink(link.id));
+      const notes = await byIndex<Note>('notes', 'link_id', link.id);
+      if (notes.some((n) => n.body_md.trim())) linksWithNotes++;
+      excerptCount += (await byIndex<Excerpt>('excerpts', 'link_id', link.id)).length;
     }
     tagsByLink = byLink;
+    stats = { linksWithNotes, excerpts: excerptCount };
     await refreshSuggestions();
   }
 
@@ -158,12 +171,42 @@
     await refresh();
   }
 
-  /** Reorder within a section by swapping with the section neighbour. */
-  async function move(section: WeekEntry[], i: number, dir: -1 | 1) {
-    const j = i + dir;
-    if (j < 0 || j >= section.length) return;
-    await swapEntries(section[i].entry, section[j].entry);
+  function sectionOf(key: SectionKey): WeekEntry[] {
+    return key === 'toRead' ? toRead : review;
+  }
+
+  function onDragStart(section: SectionKey, index: number, e: DragEvent) {
+    drag = { section, index };
+    dragOver = index;
+    if (e.dataTransfer) {
+      e.dataTransfer.setData('text/plain', ''); // Firefox requires data
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  }
+
+  function onDragOver(section: SectionKey, index: number, e: DragEvent) {
+    if (drag?.section !== section) return;
+    e.preventDefault();
+    dragOver = index;
+  }
+
+  async function onDrop(section: SectionKey, index: number, e: DragEvent) {
+    e.preventDefault();
+    if (drag?.section !== section) return;
+    const from = drag.index;
+    drag = null;
+    dragOver = null;
+    await reorderEntries(
+      sectionOf(section).map((x) => x.entry),
+      from,
+      index
+    );
     await refresh();
+  }
+
+  function onDragEnd() {
+    drag = null;
+    dragOver = null;
   }
 
   async function remove(entryId: string) {
@@ -211,20 +254,37 @@
   }
 </script>
 
-{#snippet entryList(section: WeekEntry[], reorderable: boolean)}
+{#snippet draggableList(sectionKey: 'toRead' | 'review', withReviewed: boolean)}
   <div class="entries">
-    {#each section as { entry, link }, i (entry.id)}
-      <div class="entry">
-        <div class="entry-controls">
-          {#if reorderable}
-            <button class="ctrl" title="Move up" disabled={i === 0} onclick={() => move(section, i, -1)}>↑</button>
-            <button class="ctrl" title="Move down" disabled={i === section.length - 1} onclick={() => move(section, i, 1)}>↓</button>
-          {/if}
-          <button class="ctrl remove" title="Remove from this week" onclick={() => remove(entry.id)}>✕</button>
-        </div>
+    {#each sectionOf(sectionKey) as { entry, link }, i (entry.id)}
+      <div
+        class="entry"
+        class:dragging={drag?.section === sectionKey && drag.index === i}
+        class:drag-over={drag?.section === sectionKey && dragOver === i && drag.index !== i}
+        role="listitem"
+        ondragover={(e) => onDragOver(sectionKey, i, e)}
+        ondrop={(e) => onDrop(sectionKey, i, e)}
+      >
+        <span
+          class="handle"
+          title="Drag to reorder"
+          draggable="true"
+          role="button"
+          tabindex="-1"
+          ondragstart={(e) => onDragStart(sectionKey, i, e)}
+          ondragend={onDragEnd}
+        >
+          ⠿
+        </span>
         <div class="entry-row">
           <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
         </div>
+        {#if withReviewed}
+          <button class="btn review-done" onclick={() => completeReview(entry)}>Reviewed</button>
+        {/if}
+        <button class="corner-remove" title="Remove from this week" onclick={() => remove(entry.id)}>
+          ✕
+        </button>
       </div>
     {/each}
   </div>
@@ -237,6 +297,12 @@
     {/if}
 
     <Card title={`Week of ${formatWeek(week.week_start)} — ${done.length}/${entries.length} done`}>
+      {#if entries.length > 0}
+        <p class="stats">
+          Notes on {stats.linksWithNotes} of {entries.length} link{entries.length === 1 ? '' : 's'}
+          · {stats.excerpts} excerpt{stats.excerpts === 1 ? '' : 's'}
+        </p>
+      {/if}
       <form
         class="adder"
         onsubmit={(e) => {
@@ -301,30 +367,14 @@
       {#if toRead.length === 0}
         <p class="empty">Nothing left to read this week.</p>
       {:else}
-        {@render entryList(toRead, true)}
+        {@render draggableList('toRead', false)}
       {/if}
     </Card>
 
     {#if review.length > 0}
       <Card title={`Review (${review.length})`}>
         <p class="hint">Slushed links you re-scheduled for another look.</p>
-        <div class="entries">
-          {#each review as { entry, link }, i (entry.id)}
-            <div class="entry">
-              <div class="entry-controls">
-                <button class="ctrl" title="Move up" disabled={i === 0} onclick={() => move(review, i, -1)}>↑</button>
-                <button class="ctrl" title="Move down" disabled={i === review.length - 1} onclick={() => move(review, i, 1)}>↓</button>
-                <button class="ctrl remove" title="Remove from this week" onclick={() => remove(entry.id)}>✕</button>
-              </div>
-              <div class="entry-row">
-                <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
-              </div>
-              <button class="btn review-done" onclick={() => completeReview(entry)}>
-                Reviewed
-              </button>
-            </div>
-          {/each}
-        </div>
+        {@render draggableList('review', true)}
       </Card>
     {/if}
 
@@ -333,13 +383,13 @@
         <div class="entries">
           {#each done as { entry, link } (entry.id)}
             <div class="entry done-entry">
-              <div class="entry-controls">
-                <button class="ctrl" title="Not done after all" onclick={() => reopenEntry(entry)}>↩</button>
-                <button class="ctrl remove" title="Remove from this week" onclick={() => remove(entry.id)}>✕</button>
-              </div>
+              <button class="ctrl" title="Not done after all" onclick={() => reopenEntry(entry)}>↩</button>
               <div class="entry-row">
                 <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
               </div>
+              <button class="corner-remove" title="Remove from this week" onclick={() => remove(entry.id)}>
+                ✕
+              </button>
             </div>
           {/each}
         </div>
@@ -472,6 +522,7 @@
   }
 
   .entry {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -480,6 +531,61 @@
 
   .entry:last-child {
     border-bottom: none;
+  }
+
+  .entry.dragging {
+    opacity: 0.4;
+  }
+
+  .entry.drag-over {
+    box-shadow: inset 0 2px 0 var(--color-primary);
+  }
+
+  .handle {
+    flex-shrink: 0;
+    cursor: grab;
+    color: var(--text-muted-color);
+    font-size: var(--font-size-lg);
+    padding: var(--space-1);
+    user-select: none;
+  }
+
+  .handle:active {
+    cursor: grabbing;
+  }
+
+  .handle:hover {
+    color: var(--color-primary-strong);
+  }
+
+  .corner-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 1.3rem;
+    height: 1.3rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-full);
+    background: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    opacity: 0.6;
+  }
+
+  .corner-remove:hover {
+    opacity: 1;
+    background: var(--color-primary-soft);
+    color: var(--color-danger);
+  }
+
+  .stats {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-3);
   }
 
   .entry-row {
@@ -498,13 +604,7 @@
 
   .review-done {
     flex-shrink: 0;
-  }
-
-  .entry-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex-shrink: 0;
+    margin-right: var(--space-4);
   }
 
   .ctrl {
