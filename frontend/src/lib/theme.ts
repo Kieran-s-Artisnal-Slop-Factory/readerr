@@ -14,7 +14,7 @@
  * overrides compiles to no CSS at all.
  */
 
-export type ThemeName = 'gruvbox' | 'dracula' | 'forest';
+export type ThemeName = 'forest'|'gruvbox' | 'dracula' ;
 export type Mode = 'light' | 'dark';
 
 export interface PairedVar {
@@ -97,6 +97,45 @@ export interface ThemeDef {
 }
 
 export const THEMES: Record<ThemeName, ThemeDef> = {
+  // Deep forest greens with brown accents (dark); white with green (light).
+  forest: {
+    label: 'Forest',
+    description: 'Deep green woods with brown accents; crisp green light mode.',
+    light: {
+      '--color-primary': '#2e7d43',
+      '--color-primary-strong': '#1d5e2f',
+      '--color-primary-soft': '#e4f3e7',
+      '--color-on-primary': '#ffffff',
+      '--bg-color': '#fafcf9',
+      '--surface-color': '#ffffff',
+      '--surface-raised-color': '#ffffff',
+      '--border-color': '#dbe7dc',
+      '--text-color': '#1b241d',
+      '--text-muted-color': '#5f7263',
+      '--color-success': '#1a7f37',
+      '--color-danger': '#c62828',
+      '--color-warning': '#b45309',
+      '--shadow-1': '0 1px 3px rgb(27 36 29 / 0.08)',
+      '--shadow-2': '0 4px 16px rgb(27 36 29 / 0.14)',
+    },
+    dark: {
+      '--color-primary': '#b08557',
+      '--color-primary-strong': '#cfa878',
+      '--color-primary-soft': '#33261a',
+      '--color-on-primary': '#12100c',
+      '--bg-color': '#0b1a12',
+      '--surface-color': '#122519',
+      '--surface-raised-color': '#183020',
+      '--border-color': '#29402f',
+      '--text-color': '#e4efe6',
+      '--text-muted-color': '#93ab98',
+      '--color-success': '#4ade80',
+      '--color-danger': '#f87171',
+      '--color-warning': '#d9a441',
+      '--shadow-1': '0 1px 3px rgb(0 0 0 / 0.45)',
+      '--shadow-2': '0 4px 16px rgb(0 0 0 / 0.6)',
+    },
+  },
   // The original readerr look — warm paper light mode, embers dark mode.
   gruvbox: {
     label: 'Gruvbox',
@@ -175,45 +214,6 @@ export const THEMES: Record<ThemeName, ThemeDef> = {
       '--shadow-2': '0 4px 16px rgb(0 0 0 / 0.55)',
     },
   },
-  // Deep forest greens with brown accents (dark); white with green (light).
-  forest: {
-    label: 'Forest',
-    description: 'Deep green woods with brown accents; crisp green light mode.',
-    light: {
-      '--color-primary': '#2e7d43',
-      '--color-primary-strong': '#1d5e2f',
-      '--color-primary-soft': '#e4f3e7',
-      '--color-on-primary': '#ffffff',
-      '--bg-color': '#fafcf9',
-      '--surface-color': '#ffffff',
-      '--surface-raised-color': '#ffffff',
-      '--border-color': '#dbe7dc',
-      '--text-color': '#1b241d',
-      '--text-muted-color': '#5f7263',
-      '--color-success': '#1a7f37',
-      '--color-danger': '#c62828',
-      '--color-warning': '#b45309',
-      '--shadow-1': '0 1px 3px rgb(27 36 29 / 0.08)',
-      '--shadow-2': '0 4px 16px rgb(27 36 29 / 0.14)',
-    },
-    dark: {
-      '--color-primary': '#b08557',
-      '--color-primary-strong': '#cfa878',
-      '--color-primary-soft': '#33261a',
-      '--color-on-primary': '#12100c',
-      '--bg-color': '#0b1a12',
-      '--surface-color': '#122519',
-      '--surface-raised-color': '#183020',
-      '--border-color': '#29402f',
-      '--text-color': '#e4efe6',
-      '--text-muted-color': '#93ab98',
-      '--color-success': '#4ade80',
-      '--color-danger': '#f87171',
-      '--color-warning': '#d9a441',
-      '--shadow-1': '0 1px 3px rgb(0 0 0 / 0.45)',
-      '--shadow-2': '0 4px 16px rgb(0 0 0 / 0.6)',
-    },
-  },
 };
 
 export const THEME_NAMES = Object.keys(THEMES) as ThemeName[];
@@ -234,7 +234,7 @@ const STYLE_ID = 'readerr-theme';
 const EXPORT_MARKER = 'readerr-theme';
 
 export function defaultConfig(): ThemeConfig {
-  return { base: 'gruvbox', overrides: { light: {}, dark: {}, shared: {} } };
+  return { base: 'forest', overrides: { light: {}, dark: {}, shared: {} } };
 }
 
 function pairedNames(): Set<string> {
@@ -297,13 +297,13 @@ export function hasCustomizations(cfg: ThemeConfig): boolean {
 }
 
 /**
- * Compile the config to CSS. Gruvbox with no overrides needs none.
+ * Compile the config to CSS. Forest with no overrides needs none.
  * :root:root doubles the specificity so the override wins over theme.css
  * even though the boot script injects it earlier in <head> than Astro's
  * bundled stylesheets.
  */
 export function compileCss(cfg: ThemeConfig): string {
-  if (cfg.base === 'gruvbox' && !hasCustomizations(cfg)) return '';
+  if (cfg.base === 'forest' && !hasCustomizations(cfg)) return '';
   const lines: string[] = [':root:root {'];
   for (const v of PAIRED_VARS) {
     lines.push(

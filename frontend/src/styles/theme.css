@@ -7,25 +7,25 @@
   color-scheme: light dark;
 
   /* Brand */
-  --color-primary: #ff7a1a; /* bright orange, the brand color */
-  --color-primary-strong: #e05e00;
-  --color-primary-soft: light-dark(#fff0e3, #3d2412);
-  --color-on-primary: #ffffff;
+  --color-primary: light-dark(#2e7d43, #b08557); /* crisp green in light, deep wood brown in dark */
+  --color-primary-strong: light-dark(#1d5e2f, #cfa878);
+  --color-primary-soft: light-dark(#e4f3e7, #33261a);
+  --color-on-primary: light-dark(#ffffff, #12100c);
 
   /* Surfaces */
-  --bg-color: light-dark(#faf8f5, #151210);
-  --surface-color: light-dark(#ffffff, #1f1a16);
-  --surface-raised-color: light-dark(#ffffff, #292219);
-  --border-color: light-dark(#e8e2d9, #3d352b);
+  --bg-color: light-dark(#fafcf9, #0b1a12);
+  --surface-color: light-dark(#ffffff, #122519);
+  --surface-raised-color: light-dark(#ffffff, #183020);
+  --border-color: light-dark(#dbe7dc, #29402f);
 
   /* Text */
-  --text-color: light-dark(#241f1a, #f2ede6);
-  --text-muted-color: light-dark(#6d645a, #a99e90);
+  --text-color: light-dark(#1b241d, #e4efe6);
+  --text-muted-color: light-dark(#5f7263, #93ab98);
 
   /* Feedback */
   --color-success: light-dark(#1a7f37, #4ade80);
   --color-danger: light-dark(#c62828, #f87171);
-  --color-warning: light-dark(#b45309, #fbbf24);
+  --color-warning: light-dark(#b45309, #d9a441);
 
   /* Typography */
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
