@@ -175,38 +175,53 @@
     return key === 'toRead' ? toRead : review;
   }
 
-  function onDragStart(section: SectionKey, index: number, e: DragEvent) {
+  /**
+   * Pointer-based dragging (mouse AND touch — HTML5 drag & drop is
+   * mouse-only). pointerdown on a handle arms the drag; the target index
+   * tracks whichever entry the pointer is over; pointerup drops.
+   */
+  function onHandleDown(section: SectionKey, index: number, e: PointerEvent) {
+    e.preventDefault();
+    const container = (e.currentTarget as HTMLElement).closest('.entries');
+    if (!container) return;
     drag = { section, index };
     dragOver = index;
-    if (e.dataTransfer) {
-      e.dataTransfer.setData('text/plain', ''); // Firefox requires data
-      e.dataTransfer.effectAllowed = 'move';
-    }
-  }
 
-  function onDragOver(section: SectionKey, index: number, e: DragEvent) {
-    if (drag?.section !== section) return;
-    e.preventDefault();
-    dragOver = index;
-  }
+    const indexAt = (y: number): number => {
+      const rows = [...container.querySelectorAll(':scope > .entry')];
+      const hit = rows.findIndex((r) => {
+        const b = r.getBoundingClientRect();
+        return y >= b.top && y <= b.bottom;
+      });
+      if (hit !== -1) return hit;
+      return y < rows[0].getBoundingClientRect().top ? 0 : rows.length - 1;
+    };
 
-  async function onDrop(section: SectionKey, index: number, e: DragEvent) {
-    e.preventDefault();
-    if (drag?.section !== section) return;
-    const from = drag.index;
-    drag = null;
-    dragOver = null;
-    await reorderEntries(
-      sectionOf(section).map((x) => x.entry),
-      from,
-      index
-    );
-    await refresh();
-  }
-
-  function onDragEnd() {
-    drag = null;
-    dragOver = null;
+    const onMove = (ev: PointerEvent) => {
+      ev.preventDefault(); // keep touch from scrolling mid-drag
+      dragOver = indexAt(ev.clientY);
+    };
+    const onUp = async () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      const from = drag?.index ?? null;
+      const to = dragOver;
+      const sec = drag?.section ?? null;
+      drag = null;
+      dragOver = null;
+      if (sec !== null && from !== null && to !== null && from !== to) {
+        await reorderEntries(
+          sectionOf(sec).map((x) => x.entry),
+          from,
+          to
+        );
+        await refresh();
+      }
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }
 
   async function remove(entryId: string) {
@@ -262,17 +277,13 @@
         class:dragging={drag?.section === sectionKey && drag.index === i}
         class:drag-over={drag?.section === sectionKey && dragOver === i && drag.index !== i}
         role="listitem"
-        ondragover={(e) => onDragOver(sectionKey, i, e)}
-        ondrop={(e) => onDrop(sectionKey, i, e)}
       >
         <span
           class="handle"
           title="Drag to reorder"
-          draggable="true"
           role="button"
           tabindex="-1"
-          ondragstart={(e) => onDragStart(sectionKey, i, e)}
-          ondragend={onDragEnd}
+          onpointerdown={(e) => onHandleDown(sectionKey, i, e)}
         >
           ⠿
         </span>
@@ -548,6 +559,8 @@
     font-size: var(--font-size-lg);
     padding: var(--space-1);
     user-select: none;
+    /* Pointer-event dragging: the handle must not pan the page on touch. */
+    touch-action: none;
   }
 
   .handle:active {

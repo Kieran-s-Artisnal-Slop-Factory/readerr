@@ -243,8 +243,51 @@
     outline: none;
   }
 
-  /* Let the app theme drive Crepe's colors where it uses plain background. */
+  /*
+   * Map Crepe's design tokens onto the app theme so the editor follows
+   * whatever theme (built-in or customized) is active — frame.css ships
+   * fixed light-palette values that go unreadable on dark themes.
+   */
   .editor-root :global(.milkdown) {
     background: transparent;
+    color: var(--text-color);
+    --crepe-color-background: transparent;
+    --crepe-color-on-background: var(--text-color);
+    --crepe-color-surface: var(--surface-color);
+    --crepe-color-surface-low: var(--bg-color);
+    --crepe-color-on-surface: var(--text-color);
+    --crepe-color-on-surface-variant: var(--text-muted-color);
+    --crepe-color-outline: var(--border-color);
+    --crepe-color-primary: var(--color-primary);
+    --crepe-color-secondary: var(--color-primary-soft);
+    --crepe-color-on-secondary: var(--color-primary-strong);
+    --crepe-color-inverse: var(--text-color);
+    --crepe-color-on-inverse: var(--bg-color);
+    --crepe-color-inline-code: var(--color-danger);
+    --crepe-color-error: var(--color-danger);
+    --crepe-color-hover: var(--surface-raised-color);
+    --crepe-color-selected: var(--color-primary-soft);
+    --crepe-color-inline-area: var(--bg-color);
+    --crepe-font-title: var(--font-body);
+    --crepe-font-default: var(--font-body);
+  }
+
+  /* The source view should follow the theme too (CM defaults are light). */
+  .editor-root.source :global(.cm-editor) {
+    background: transparent;
+    color: var(--text-color);
+  }
+
+  .editor-root.source :global(.cm-cursor) {
+    border-left-color: var(--text-color);
+  }
+
+  .editor-root.source :global(.cm-activeLine) {
+    background: transparent;
+  }
+
+  .editor-root.source :global(.cm-selectionBackground),
+  .editor-root.source :global(.cm-editor ::selection) {
+    background: var(--color-primary-soft);
   }
 </style>

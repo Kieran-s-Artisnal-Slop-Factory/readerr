@@ -24,9 +24,11 @@
   let config = $state<ThemeConfig>(defaultConfig());
   let tab = $state<Mode | 'shared'>('dark');
   let customizeOpen = $state(false);
-  let shareOpen = $state(false);
   let importText = $state('');
   let message = $state('');
+
+  /** The current theme as shareable plaintext, always visible (#9). */
+  const exportedText = $derived(exportTheme($state.snapshot(config) as ThemeConfig));
 
   $effect(() => {
     // Load once on mount (client-only component).
@@ -135,9 +137,6 @@
         <span class="dot" title="Has customizations"></span>
       {/if}
     </button>
-    <button type="button" class="btn" aria-expanded={shareOpen} onclick={() => (shareOpen = !shareOpen)}>
-      {shareOpen ? '▾' : '▸'} Share / import
-    </button>
   </div>
 
   {#if customizeOpen}
@@ -215,33 +214,35 @@
     </div>
   {/if}
 
-  {#if shareOpen}
-    <div class="share">
-      <div class="share-actions">
-        <button type="button" class="btn" onclick={downloadJson}>Download JSON</button>
-        <button type="button" class="btn" onclick={copyJson}>Copy to clipboard</button>
-        <label class="btn" style="margin-bottom: 0;">
-          Import file
-          <input type="file" accept="application/json" onchange={onImportFile} hidden />
-        </label>
-      </div>
-      <textarea
-        rows="3"
-        placeholder="…or paste a shared theme JSON here"
-        bind:value={importText}
-      ></textarea>
-      <div class="share-actions">
-        <button
-          type="button"
-          class="btn btn-primary"
-          disabled={!importText.trim()}
-          onclick={() => applyImport(importText)}
-        >
-          Apply pasted theme
-        </button>
-      </div>
+  <div class="share">
+    <span class="share-label">Share</span>
+    <textarea class="current" rows="4" readonly value={exportedText}></textarea>
+    <div class="share-actions">
+      <button type="button" class="btn" onclick={copyJson}>Copy to clipboard</button>
+      <button type="button" class="btn" onclick={downloadJson}>Download JSON</button>
     </div>
-  {/if}
+
+    <span class="share-label">Import</span>
+    <textarea
+      rows="3"
+      placeholder="Paste a shared theme JSON here…"
+      bind:value={importText}
+    ></textarea>
+    <div class="share-actions">
+      <button
+        type="button"
+        class="btn btn-primary"
+        disabled={!importText.trim()}
+        onclick={() => applyImport(importText)}
+      >
+        Apply pasted theme
+      </button>
+      <label class="btn" style="margin-bottom: 0;">
+        Import file
+        <input type="file" accept="application/json" onchange={onImportFile} hidden />
+      </label>
+    </div>
+  </div>
 </div>
 
 <style>
@@ -406,6 +407,18 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+    border-top: 1px solid var(--border-color);
+    padding-top: var(--space-3);
+  }
+
+  .share-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 600;
+  }
+
+  .share textarea.current {
+    color: var(--text-muted-color);
   }
 
   .share-actions {
