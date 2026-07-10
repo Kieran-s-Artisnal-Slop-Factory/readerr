@@ -48,6 +48,11 @@ ALTER TABLE week_links ADD COLUMN kind TEXT NOT NULL DEFAULT 'reading'
     CHECK (kind IN ('reading', 'review'));
 ALTER TABLE week_links ADD COLUMN done_at TEXT;
 `,
+	// v3 → v4: default URL-cleaning preference for captured links.
+	`
+ALTER TABLE user_settings ADD COLUMN strip_query_params TEXT NOT NULL DEFAULT 'off'
+    CHECK (strip_query_params IN ('off', 'trackers', 'all'));
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

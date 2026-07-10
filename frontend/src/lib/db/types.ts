@@ -22,6 +22,9 @@ export interface SyncFields {
   server_seq: number | null;
 }
 
+/** URL cleaning applied to captured links: nothing, known tracking params, or all params. */
+export type StripMode = 'off' | 'trackers' | 'all';
+
 /**
  * Single row (single-user app). articles_per_week / focus_tag_id are the
  * default triage knobs, overridable per period by Plan rows.
@@ -32,6 +35,8 @@ export interface UserSettings extends SyncFields {
   focus_tag_id: string | null;
   /** null = the first-launch onboarding hasn't been completed. */
   onboarding_completed_at: string | null;
+  /** Default URL cleaning for captured links. */
+  strip_query_params: StripMode;
 }
 
 export type PlanPeriod = 'week' | 'month';

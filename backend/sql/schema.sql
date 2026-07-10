@@ -23,6 +23,8 @@ CREATE TABLE user_settings (
     articles_per_week       INTEGER,
     focus_tag_id            TEXT,
     onboarding_completed_at TEXT,     -- NULL = show first-launch onboarding
+    strip_query_params      TEXT NOT NULL DEFAULT 'off'
+                            CHECK (strip_query_params IN ('off', 'trackers', 'all')),
     updated_at              TEXT NOT NULL,
     deleted_at              TEXT,
     server_seq              INTEGER

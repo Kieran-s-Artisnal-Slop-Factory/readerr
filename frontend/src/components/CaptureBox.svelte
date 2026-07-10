@@ -9,8 +9,9 @@
   import ChipSelect from './ChipSelect.svelte';
   import { all, put, withSyncFields } from '../lib/db/repo';
   import { captureLinks } from '../lib/services/capture';
+  import { getUserSettings } from '../lib/services/settings';
   import { upcomingWeekOptions } from '../lib/services/weeks';
-  import type { Link, Tag, Topic } from '../lib/db/types';
+  import type { Link, StripMode, Tag, Topic } from '../lib/db/types';
 
   let { onAdded }: { onAdded: (links: Link[]) => void } = $props();
 
@@ -24,6 +25,10 @@
   let selectedWeek = $state('');
   let markDone = $state(false);
   let organizeOpen = $state(false);
+  // Checkbox mirrors the Settings → Link handling default; the mode used
+  // when checked is whatever that default says (falling back to trackers).
+  let stripUrls = $state(false);
+  let defaultStripMode = $state<StripMode>('trackers');
 
   const selectionCount = $derived(
     selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
@@ -31,7 +36,13 @@
 
   const weekOptions = upcomingWeekOptions();
 
-  onMount(refreshOptions);
+  onMount(async () => {
+    const settings = await getUserSettings();
+    const mode = settings?.strip_query_params ?? 'off';
+    stripUrls = mode !== 'off';
+    if (mode !== 'off') defaultStripMode = mode;
+    await refreshOptions();
+  });
 
   async function refreshOptions() {
     const [t, tp] = await Promise.all([all<Tag>('tags'), all<Topic>('topics')]);
@@ -60,6 +71,7 @@
         topicIds: selectedTopicIds,
         weekStart: selectedWeek || null,
         markDone,
+        stripMode: stripUrls ? defaultStripMode : 'off',
       });
       const parts = [`${added.length} added`];
       const labels = selectedTagIds.length + selectedTopicIds.length;
@@ -91,7 +103,7 @@
 
 <div class="capture">
   <textarea
-    placeholder="Paste links — one per line. Enter to add, Shift+Enter for a new line."
+    placeholder="Paste links — one per line. Plain URLs, - bullets, or [Title](url) (what copying a tab into Obsidian gives you). Enter to add, Shift+Enter for a new line."
     rows="3"
     bind:value={text}
     onkeydown={onKeydown}
@@ -142,6 +154,15 @@
     {#if report}
       <span class="report">{report}</span>
     {/if}
+    <label
+      class="done-check"
+      title={defaultStripMode === 'all'
+        ? 'Remove the whole query string from pasted URLs (configure in Settings → Link handling).'
+        : 'Remove tracking params (utm_*, ref, si, …) from pasted URLs (configure in Settings → Link handling).'}
+    >
+      <input type="checkbox" bind:checked={stripUrls} />
+      Clean URLs
+    </label>
     <label class="done-check" title="Already read these? They join this week as done and slush if you don't write about them.">
       <input type="checkbox" bind:checked={markDone} />
       Mark as done

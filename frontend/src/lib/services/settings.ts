@@ -12,7 +12,10 @@ export async function getUserSettings(): Promise<UserSettings | null> {
 
 export async function saveUserSettings(
   changes: Partial<
-    Pick<UserSettings, 'name' | 'articles_per_week' | 'focus_tag_id' | 'onboarding_completed_at'>
+    Pick<
+      UserSettings,
+      'name' | 'articles_per_week' | 'focus_tag_id' | 'onboarding_completed_at' | 'strip_query_params'
+    >
   >
 ): Promise<UserSettings> {
   const existing = await getUserSettings();
@@ -24,6 +27,7 @@ export async function saveUserSettings(
       articles_per_week: null,
       focus_tag_id: null,
       onboarding_completed_at: null,
+      strip_query_params: 'off' as const,
       ...changes,
     })
   );

@@ -9,10 +9,48 @@
  * mount, which is the whole retry mechanism — no queue needed.
  */
 import { all, byIndex, bulkPut, put, withSyncFields } from '../db/repo';
-import type { Link } from '../db/types';
+import type { Link, StripMode } from '../db/types';
 import { assignTag, assignTopic, markLinkDone } from './links';
+import { getUserSettings } from './settings';
 import { setLinkWeek } from './weeks';
 import { getSyncUrl } from '../sync';
+
+/** Query params that only exist to track you — safe to drop from any URL. */
+const TRACKING_PARAMS = [
+  /^utm_/i,
+  /^ref$/i,
+  /^ref_/i,
+  /^fbclid$/i,
+  /^gclid$/i,
+  /^dclid$/i,
+  /^msclkid$/i,
+  /^mc_[ce]id$/i,
+  /^igshid$/i,
+  /^si$/i,
+  /^source$/i,
+  /^cmpid$/i,
+];
+
+/**
+ * Clean a URL per the strip mode. 'trackers' removes only known tracking
+ * params (a YouTube ?v= survives); 'all' drops the whole query string.
+ */
+export function cleanUrl(url: string, mode: StripMode): string {
+  if (mode === 'off') return url;
+  try {
+    const u = new URL(url);
+    if (mode === 'all') {
+      u.search = '';
+    } else {
+      for (const key of [...u.searchParams.keys()]) {
+        if (TRACKING_PARAMS.some((re) => re.test(key))) u.searchParams.delete(key);
+      }
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
 
 export interface CaptureResult {
   added: Link[];
@@ -72,6 +110,8 @@ export interface CaptureAssign {
   weekStart?: string | null;
   /** Mark everything done on capture (joins this week, slushes if unremarked). */
   markDone?: boolean;
+  /** URL cleaning; omitted = the user_settings default. */
+  stripMode?: StripMode;
 }
 
 /**
@@ -80,11 +120,14 @@ export interface CaptureAssign {
  */
 export async function captureLinks(text: string, assign?: CaptureAssign): Promise<CaptureResult> {
   const { entries, invalid } = parseUrls(text);
+  const stripMode =
+    assign?.stripMode ?? (await getUserSettings())?.strip_query_params ?? 'off';
   const duplicates: string[] = [];
   const fresh: Link[] = [];
   const seen = new Set<string>();
 
-  for (const { url, title } of entries) {
+  for (const { url: rawUrl, title } of entries) {
+    const url = cleanUrl(rawUrl, stripMode);
     if (seen.has(url)) {
       duplicates.push(url); // dedupe within the paste itself
       continue;
