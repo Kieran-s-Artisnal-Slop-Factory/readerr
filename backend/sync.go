@@ -46,6 +46,8 @@ var tableOrder = []string{
 	"link_topics",
 	"notes",
 	"excerpts",
+	"resource_lists",
+	"resource_list_links",
 	"weeks",
 	"week_links",
 }
@@ -81,6 +83,12 @@ var tables = map[string]tableMeta{
 	},
 	"excerpts": {
 		columns: cols("id", "link_id", "content_md", "position"),
+	},
+	"resource_lists": {
+		columns: cols("id", "name", "description_md"),
+	},
+	"resource_list_links": {
+		columns: cols("id", "list_id", "link_id", "position"),
 	},
 	"weeks": {
 		columns: cols("id", "week_start", "closed_at"),

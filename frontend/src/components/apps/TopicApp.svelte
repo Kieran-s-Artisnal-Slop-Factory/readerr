@@ -9,10 +9,11 @@
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
-  import { all, get, put } from '../../lib/db/repo';
+  import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import { assignTopic, domainOf, linksForTopic, tagsForLink } from '../../lib/services/links';
-  import type { Link, Tag, Topic } from '../../lib/db/types';
+  import { href } from '../../lib/paths';
+  import type { Link, LinkTopic, Tag, Topic } from '../../lib/db/types';
 
   let topic = $state<Topic | null>(null);
   let links = $state<Link[]>([]);
@@ -103,13 +104,27 @@
     query = '';
     await refresh();
   }
+
+  async function deleteTopic() {
+    if (!topic) return;
+    if (!confirm(`Delete topic "${topic.name}"? Its document is deleted too; the links stay.`)) {
+      return;
+    }
+    const joins = await byIndex<LinkTopic>('link_topics', 'topic_id', topic.id);
+    await softDeleteMany('link_topics', joins.map((j) => j.id));
+    await softDelete('topics', topic.id);
+    location.assign(href('/topics/'));
+  }
 </script>
 
 {#if missing}
   <p class="empty">Topic not found. <a href="./..">Back to topics.</a></p>
 {:else if topic}
   <div class="stack">
-    <h1>{topic.name}</h1>
+    <div class="topic-head">
+      <h1>{topic.name}</h1>
+      <button class="btn btn-danger" onclick={deleteTopic}>Delete topic</button>
+    </div>
     <MarkdownEditor
       value={topic.body_md}
       placeholder="Write the topic document…"
@@ -168,6 +183,13 @@
 
   h1 {
     margin: 0;
+  }
+
+  .topic-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
   }
 
   .empty {

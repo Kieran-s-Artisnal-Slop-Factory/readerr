@@ -57,6 +57,28 @@ ALTER TABLE user_settings ADD COLUMN strip_query_params TEXT NOT NULL DEFAULT 'o
 	`
 ALTER TABLE user_settings ADD COLUMN strip_whitelist TEXT NOT NULL DEFAULT '[]';
 `,
+	// v5 → v6: resource lists (named groupings of resource links).
+	`
+CREATE TABLE resource_lists (
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    description_md TEXT NOT NULL DEFAULT '',
+    updated_at     TEXT NOT NULL,
+    deleted_at     TEXT,
+    server_seq     INTEGER
+);
+CREATE TABLE resource_list_links (
+    id         TEXT PRIMARY KEY,
+    list_id    TEXT NOT NULL REFERENCES resource_lists (id),
+    link_id    TEXT NOT NULL REFERENCES links (id),
+    position   INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_resource_list_links_list ON resource_list_links (list_id);
+CREATE INDEX idx_resource_list_links_link ON resource_list_links (link_id);
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

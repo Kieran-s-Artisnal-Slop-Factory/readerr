@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import ResourceListApp from '../components/apps/ResourceListApp.svelte';
+---
+
+<Layout title="Resource list">
+  <ResourceListApp client:only="svelte" />
+</Layout>

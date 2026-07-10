@@ -130,6 +130,29 @@ CREATE TABLE excerpts (
 );
 CREATE INDEX idx_excerpts_link ON excerpts (link_id);
 
+-- A named grouping of resource links (e.g. "CLI tools"), with its own
+-- overview document and export formats.
+CREATE TABLE resource_lists (
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    description_md TEXT NOT NULL DEFAULT '',
+    updated_at     TEXT NOT NULL,
+    deleted_at     TEXT,
+    server_seq     INTEGER
+);
+
+CREATE TABLE resource_list_links (
+    id         TEXT PRIMARY KEY,
+    list_id    TEXT NOT NULL REFERENCES resource_lists (id),
+    link_id    TEXT NOT NULL REFERENCES links (id),
+    position   INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_resource_list_links_list ON resource_list_links (list_id);
+CREATE INDEX idx_resource_list_links_link ON resource_list_links (link_id);
+
 -- ===== Phase 2: weekly reading list (created empty now) =====
 
 CREATE TABLE weeks (

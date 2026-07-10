@@ -40,6 +40,15 @@ const MIGRATIONS: Migration[] = [
       store.createIndex('starts_on', 'starts_on', { multiEntry: false });
     }
   },
+  // v4 — resource lists (same guard rationale as v3).
+  (db) => {
+    if (!db.objectStoreNames.contains('resource_lists')) {
+      db.createObjectStore('resource_lists', { keyPath: 'id' });
+      const joins = db.createObjectStore('resource_list_links', { keyPath: 'id' });
+      joins.createIndex('list_id', 'list_id', { multiEntry: false });
+      joins.createIndex('link_id', 'link_id', { multiEntry: false });
+    }
+  },
 ];
 
 export const DB_VERSION = MIGRATIONS.length;

@@ -2,10 +2,10 @@
   /** Topics index: list with referenced-link counts, create. */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
-  import { all, put, withSyncFields } from '../../lib/db/repo';
+  import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
   import { topicLinkCounts } from '../../lib/services/links';
   import { href } from '../../lib/paths';
-  import type { Topic } from '../../lib/db/types';
+  import type { LinkTopic, Topic } from '../../lib/db/types';
 
   let topics = $state<Topic[]>([]);
   let counts = $state<Map<string, number>>(new Map());
@@ -26,6 +26,17 @@
     const topic = await put('topics', withSyncFields({ name, body_md: '' }));
     newName = '';
     location.assign(href(`/topic/?id=${topic.id}`));
+  }
+
+  async function remove(topic: Topic) {
+    if (!confirm(`Delete topic "${topic.name}"? Its document is deleted too; the links stay.`)) {
+      return;
+    }
+    // Tombstone the topic and its link assignments so the deletion syncs.
+    const joins = await byIndex<LinkTopic>('link_topics', 'topic_id', topic.id);
+    await softDeleteMany('link_topics', joins.map((j) => j.id));
+    await softDelete('topics', topic.id);
+    await refresh();
   }
 </script>
 
@@ -49,6 +60,9 @@
         <li>
           <a class="topic-name" href={href(`/topic/?id=${topic.id}`)}>{topic.name}</a>
           <span class="count">{counts.get(topic.id) ?? 0} links</span>
+          <span class="row-actions">
+            <button class="btn btn-danger" onclick={() => remove(topic)}>Delete</button>
+          </span>
         </li>
       {/each}
     </ul>
@@ -110,5 +124,9 @@
   .count {
     color: var(--text-muted-color);
     font-size: var(--font-size-sm);
+  }
+
+  .row-actions {
+    margin-left: auto;
   }
 </style>

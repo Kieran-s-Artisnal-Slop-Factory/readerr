@@ -116,6 +116,18 @@ export interface Excerpt extends SyncFields {
   position: number;
 }
 
+/** A named grouping of resource links with its own overview document. */
+export interface ResourceList extends SyncFields {
+  name: string;
+  description_md: string;
+}
+
+export interface ResourceListLink extends SyncFields {
+  list_id: string;
+  link_id: string;
+  position: number;
+}
+
 // ===== Phase 2: weekly reading list (stores exist now, unused) =====
 
 export interface Week extends SyncFields {
@@ -161,6 +173,8 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   link_topics: { indexes: [{ name: 'link_id' }, { name: 'topic_id' }] },
   notes: { indexes: [{ name: 'link_id' }] },
   excerpts: { indexes: [{ name: 'link_id' }] },
+  resource_lists: { indexes: [] },
+  resource_list_links: { indexes: [{ name: 'list_id' }, { name: 'link_id' }] },
   weeks: { indexes: [{ name: 'week_start' }] },
   week_links: { indexes: [{ name: 'week_id' }, { name: 'link_id' }] },
 };
