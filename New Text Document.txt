@@ -1,3 +1,6 @@
-1. Group the tags and topics links under a dropdown called collections
-2. Turn settings into a gear icon
-
+1. When I clear all data it's not actually clearing. When I go to the usage tab in my browser the storage is still taking up the same amount
+2. Complete group 7
+3. Begin implementing `scaling.md`
+4. Make adding demo data be 2 sliders. The first is how heavy your usage is, which goes up to a maximum of 200 links per week (scaling tags, notes, favourites etc. to that), and the second is how many weeks to add, going up to 520 (10 years), with a notice indicating how many years you're at (e.g. if the slider is currently at 104 weeks, say 2 years, 105 weeks, 2 years +, 156 weeks, 3 years, etc.)
+5. For the import allow import of everything (current), or just importing tags, and/or topics (with the associated notes for each), but no links. You can make this a `Template export` section under the existing backup section in the settings.
+6. Make sure each frontend page has a proper state if the query is loading. The backlog seems to have this, but the favourites and some other pages don't.

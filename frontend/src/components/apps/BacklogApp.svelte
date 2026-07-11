@@ -1,24 +1,30 @@
 <script lang="ts">
   /**
-   * Backlog: quick-paste capture plus every captured link, newest first.
-   * Filters are in-memory (booleans aren't valid IndexedDB keys and the
-   * dataset is personal-scale).
+   * Backlog: quick-paste capture plus every captured link, newest first,
+   * not-done above done (#15), paginated at 100 (scaling.md phase A). Tag
+   * chips are resolved for the visible page only; searching by tag name
+   * lazily loads the full tag map on first keystroke.
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import CaptureBox from '../CaptureBox.svelte';
   import ChipFilter from '../ChipFilter.svelte';
   import LinkList from '../LinkList.svelte';
+  import Pagination from '../Pagination.svelte';
   import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
   import { retryMissingTitles } from '../../lib/services/capture';
-  import { matchesSearch, tagsByLinkMap } from '../../lib/services/links';
+  import { matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
   import type { Link, Tag } from '../../lib/db/types';
 
+  const PAGE_SIZE = 100;
+
   let links = $state<Link[]>([]);
-  let tagsByLink = $state<Map<string, Tag[]>>(new Map());
+  let pageTags = $state<Map<string, Tag[]>>(new Map());
+  let searchTags = $state<Map<string, Tag[]> | null>(null);
   let filters = $state<string[]>([]);
   let search = $state('');
+  let page = $state(0);
   let loading = $state(true);
 
   const FILTER_OPTIONS = [
@@ -28,9 +34,6 @@
     { value: 'resource', label: 'Resources' },
   ];
 
-  /** Most recent done items shown before the list truncates (#16). */
-  const DONE_LIMIT = 100;
-
   const filtered = $derived(
     links.filter((l) => {
       if (l.slushed_at) return false; // marked done just now → moved to slush
@@ -38,25 +41,37 @@
       if (filters.includes('read') && !l.read_at) return false;
       if (filters.includes('favourite') && !l.favourite) return false;
       if (filters.includes('resource') && !l.is_resource) return false;
-      return matchesSearch(l, tagsByLink.get(l.id) ?? [], search);
+      return matchesSearch(l, searchTags?.get(l.id) ?? [], search);
     })
   );
 
-  // Not-done items first (#15); done items capped to the most recent 100.
-  const doneTotal = $derived(filtered.filter((l) => !!l.read_at).length);
-  const visible = $derived([
+  // Not-done items first (#15), then done, both newest first.
+  const ordered = $derived([
     ...filtered.filter((l) => !l.read_at),
-    ...filtered.filter((l) => !!l.read_at).slice(0, DONE_LIMIT),
+    ...filtered.filter((l) => !!l.read_at),
   ]);
-  const doneTruncated = $derived(doneTotal > DONE_LIMIT);
+  const visible = $derived(ordered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+
+  // Resolve tag chips for the visible page only.
+  $effect(() => {
+    const slice = visible;
+    void tagsForLinks(slice).then((m) => (pageTags = m));
+  });
+
+  // Tag-name search needs the full map; load it once on first search.
+  $effect(() => {
+    if (search.trim() && !searchTags) {
+      void tagsByLinkMap().then((m) => (searchTags = m));
+    }
+  });
 
   async function refresh() {
-    const [rows, byLink] = await Promise.all([all<Link>('links'), tagsByLinkMap()]);
+    const rows = await all<Link>('links');
     // Slushed links live in the slush archive, not the backlog.
     links = rows
       .filter((l) => !l.slushed_at)
       .sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
-    tagsByLink = byLink;
+    searchTags = null; // stale after any data change
   }
 
   onMount(async () => {
@@ -77,7 +92,7 @@
     <CaptureBox onAdded={() => refresh().then(() => retryMissingTitles().then(refresh))} />
   </Card>
 
-  <Card title={`Backlog (${visible.length})`}>
+  <Card title={`Backlog (${ordered.length.toLocaleString()})`}>
     <div class="controls">
       <SearchInput bind:value={search} />
       <ChipFilter options={FILTER_OPTIONS} bind:selected={filters} />
@@ -85,15 +100,10 @@
     {#if loading}
       <p class="empty">Loading…</p>
     {:else}
-      <LinkList links={visible} {tagsByLink} onChange={onRowChange}
+      <LinkList links={visible} tagsByLink={pageTags} onChange={onRowChange}
         onAssignmentsChange={() => void refresh()}
         empty="No links yet — paste some above to get started." />
-      {#if doneTruncated}
-        <p class="truncated">
-          Showing the {DONE_LIMIT} most recent done items ({doneTotal} total) —
-          use search or the Read filter to find older ones.
-        </p>
-      {/if}
+      <Pagination total={ordered.length} pageSize={PAGE_SIZE} bind:page label="links" />
     {/if}
   </Card>
 </div>
@@ -112,12 +122,6 @@
     margin-bottom: var(--space-2);
   }
 
-  .truncated {
-    color: var(--text-muted-color);
-    font-size: var(--font-size-sm);
-    text-align: center;
-    margin: var(--space-3) 0 0;
-  }
 
   .empty {
     color: var(--text-muted-color);

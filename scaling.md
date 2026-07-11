@@ -167,7 +167,7 @@ SQLite with WAL handles this scale trivially; the changes are hygiene:
 
 | Phase | Trigger | Work |
 |---|---|---|
-| **A — now / preemptive** | before real multi-year data accumulates | `page()` repo API + Pagination on backlog/slush/favourites/resources; per-row tag lookups; `server_seq` indexes server-side (one migration, cheap now) |
+| **A — now / preemptive** ✅ shipped | before real multi-year data accumulates | Render pagination (100/page) on backlog/slush/favourites/resources with page-scoped label lookups (tag-name search lazily loads the full map); `server_seq` indexes server-side (migration v8). The cursor-based `page()` repo API moves to phase B alongside the indexes that make it real. |
 | **B — ~10–25k links (year 1–2)** | list pages > ~200 ms or search lags | `status_added` + `slushed_at` + `updated_at` IDB indexes (one migration + backfill); dirty-tracked chunked push; pull `limit`; MiniSearch worker |
 | **C — ~50k+ links (year 4+)** | export jank / stats slow / DB bloat | streamed exports; cached stats; gzip; tombstone compaction |
 

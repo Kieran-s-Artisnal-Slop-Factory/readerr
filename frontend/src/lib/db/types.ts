@@ -32,7 +32,8 @@ export type StripMode = 'off' | 'trackers' | 'all';
 export interface UserSettings extends SyncFields {
   name: string | null;
   articles_per_week: number | null;
-  focus_tag_id: string | null;
+  /** Focus tags for suggestions; the quota splits across them. Empty = none. */
+  focus_tag_ids: string[];
   /** null = the first-launch onboarding hasn't been completed. */
   onboarding_completed_at: string | null;
   /** Default URL cleaning for captured links. */
@@ -55,7 +56,8 @@ export interface Plan extends SyncFields {
   /** Week: local Monday 'YYYY-MM-DD'; month: 'YYYY-MM-01'. */
   starts_on: string;
   articles_per_week: number | null;
-  focus_tag_id: string | null;
+  /** Empty array = inherit from the next level down. */
+  focus_tag_ids: string[];
   note: string;
 }
 

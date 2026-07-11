@@ -3,7 +3,7 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
-  import { seedDemoData, seedMassiveData } from '../../lib/db/seed';
+  import { seedDataset } from '../../lib/db/seed';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
   import { cleanUrl } from '../../lib/services/capture';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
@@ -116,6 +116,9 @@
   // Range export inputs ('YYYY-MM-DD').
   let rangeFrom = $state('');
   let rangeTo = $state('');
+  // Template export selections.
+  let templateTags = $state(true);
+  let templateTopics = $state(true);
 
   async function onImportFile(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -161,60 +164,41 @@
   }
 
   let seeding = $state(false);
+  let seedLinksPerWeek = $state(20);
+  let seedWeeks = $state(13);
+
+  const seedEstimate = $derived(seedLinksPerWeek * seedWeeks);
+
+  /** 104 → "2 years", 105 → "2 years +", 156 → "3 years". */
+  const seedYearsLabel = $derived.by(() => {
+    if (seedWeeks < 52) return 'less than a year';
+    const years = Math.floor(seedWeeks / 52);
+    const exact = seedWeeks % 52 === 0;
+    return `${years} year${years === 1 ? '' : 's'}${exact ? '' : ' +'}`;
+  });
 
   async function loadDemoData() {
     if (
       !confirm(
-        'Load ~3 months of demo data (roughly 260 links, 13 weeks, tags, topics, favourites, and resources)? ' +
-          'It mixes into whatever is already here and will sync like real data — best used on a fresh install.'
+        `Load demo data: ~${seedEstimate.toLocaleString()} links over ${seedWeeks} weeks (${seedYearsLabel})? ` +
+          'It mixes into whatever is already here and will sync like real data — best used on a fresh install. ' +
+          'Large datasets take a while to write and are deliberately heavy.'
       )
     ) {
       return;
     }
     seeding = true;
     try {
-      const s = await seedDemoData();
-      message = `Demo data loaded: ${s.links} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics} topics, ${s.favourites} favourites, ${s.resources} resources.`;
+      const s = await seedDataset(
+        { linksPerWeek: seedLinksPerWeek, weeks: seedWeeks },
+        (m) => (message = m)
+      );
+      message = `Demo data loaded: ${s.links.toLocaleString()} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics.toLocaleString()} topics, ${s.notes.toLocaleString()} notes, ${s.favourites} favourites, ${s.resources} resources.`;
     } finally {
       seeding = false;
     }
   }
 
-  async function loadMassiveDemoData() {
-    if (
-      !confirm(
-        'Load massive demo data (roughly 78,000 links, 520 weeks (10 years) worth of heavy data. Also includes tags, topics, favourites, and resources)? ' +
-          'It mixes into whatever is already here and will sync like real data — best used on a fresh install.'
-      )
-    ) {
-      return;
-    }
-    seeding = true;
-    try {
-      const s = await seedMassiveData();
-      message = `Massive demo data loaded: ${s.links} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics} topics, ${s.favourites} favourites, ${s.resources} resources.`;
-    } finally {
-      seeding = false;
-    }
-  }
-
-  async function loadMediumDemoData() {
-    if (
-      !confirm(
-        'Load medium demo data (roughly 15,600 links, 104 weeks (2 years) worth of data. Also includes tags, topics, favourites, and resources)? ' +
-          'It mixes into whatever is already here and will sync like real data — best used on a fresh install.'
-      )
-    ) {
-      return;
-    }
-    seeding = true;
-    try {
-      const s = await seedMassiveData(undefined, 104); // 104 weeks = 2 years
-      message = `Medium demo data loaded: ${s.links} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics} topics, ${s.favourites} favourites, ${s.resources} resources.`;
-    } finally {
-      seeding = false;
-    }
-  }
 </script>
 
 {#if loading}
@@ -369,6 +353,31 @@
       </div>
 
       <div class="backup-section">
+        <h3>Template export</h3>
+        <p class="muted">
+          Just your organizational scheme — tags and/or topics with their
+          notes and documents, <strong>no links</strong>. Handy for starting
+          a fresh install with your structure in place. Merges on import.
+        </p>
+        <div class="template-row">
+          <label class="check">
+            <input type="checkbox" bind:checked={templateTags} /> Tags
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={templateTopics} /> Topics
+          </label>
+          <button
+            class="btn"
+            disabled={!templateTags && !templateTopics}
+            onclick={() =>
+              downloadExport('template', undefined, { tags: templateTags, topics: templateTopics })}
+          >
+            Export template
+          </button>
+        </div>
+      </div>
+
+      <div class="backup-section">
         <h3>Time range export</h3>
         <p class="muted">
           Links captured between two dates (inclusive), with their notes,
@@ -392,18 +401,25 @@
 
     <Card title="Danger zone">
       <p class="muted" style="margin-bottom: var(--space-3);">
-        Load a demo dataset to try the app out, or wipe everything on this
-        device (exports above are your only undo).
+        Load a demo dataset to try the app out (or to feel how it behaves at
+        multi-year scale), or wipe everything on this device (exports above
+        are your only undo).
+      </p>
+      <div class="seed-slider">
+        <label for="seed-links">Usage weight: {seedLinksPerWeek} links/week</label>
+        <input id="seed-links" type="range" min="5" max="200" step="5" bind:value={seedLinksPerWeek} />
+      </div>
+      <div class="seed-slider">
+        <label for="seed-weeks">Duration: {seedWeeks} weeks ({seedYearsLabel})</label>
+        <input id="seed-weeks" type="range" min="1" max="520" step="1" bind:value={seedWeeks} />
+      </div>
+      <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--font-size-sm);">
+        ≈ {seedEstimate.toLocaleString()} links (notes, topics, favourites,
+        and resources scale along).
       </p>
       <div class="actions">
         <button class="btn" onclick={loadDemoData} disabled={seeding}>
-          {seeding ? 'Loading…' : 'Add demo data'}
-        </button>
-        <button class="btn" onclick={loadMediumDemoData} disabled={seeding}>
-          {seeding ? 'Loading…' : 'Add 2 years demo data'}
-        </button>
-        <button class="btn" onclick={loadMassiveDemoData} disabled={seeding}>
-          {seeding ? 'Loading…' : 'Add 10 years demo data (dangerous)'}
+          {seeding ? 'Loading…' : 'Load demo data'}
         </button>
         <button class="btn btn-danger" onclick={clearData} disabled={seeding}>Clear all data</button>
       </div>
@@ -490,5 +506,34 @@
 
   .range-row input {
     width: auto;
+  }
+
+  .template-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .template-row .check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0;
+    cursor: pointer;
+  }
+
+  .template-row .check input {
+    width: auto;
+    margin: 0;
+  }
+
+  .seed-slider {
+    margin-bottom: var(--space-3);
+  }
+
+  .seed-slider input[type='range'] {
+    width: 100%;
+    accent-color: var(--color-primary);
   }
 </style>

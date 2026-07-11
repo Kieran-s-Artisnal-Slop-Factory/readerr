@@ -5,9 +5,10 @@
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
-  import { all } from '../../lib/db/repo';
+  import ChipSelect from '../ChipSelect.svelte';
+  import { all, put, withSyncFields } from '../../lib/db/repo';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
-  import { deletePlan, listPlans, periodEnd, periodStart, savePlan } from '../../lib/services/plans';
+  import { deletePlan, focusIdsOf, listPlans, periodEnd, periodStart, savePlan } from '../../lib/services/plans';
   import { currentWeekStart } from '../../lib/services/weeks';
   import type { Plan, PlanPeriod, Tag } from '../../lib/db/types';
 
@@ -18,14 +19,20 @@
 
   // Defaults (user_settings)
   let quotaInput = $state('');
-  let focusTagInput = $state('');
+  let focusTagIds = $state<string[]>([]);
 
   // New-plan form
   let newPeriod = $state<PlanPeriod>('week');
   let newDate = $state('');
   let newQuota = $state('');
-  let newFocus = $state('');
+  let newFocusIds = $state<string[]>([]);
   let newNote = $state('');
+
+  async function createTag(name: string): Promise<string> {
+    const tag = await put('tags', withSyncFields({ name, notes_md: '' }));
+    tags = [...tags, tag].sort((a, b) => a.name.localeCompare(b.name));
+    return tag.id;
+  }
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -38,9 +45,11 @@
   async function refresh() {
     const settings = await getUserSettings();
     quotaInput = settings?.articles_per_week ? String(settings.articles_per_week) : '';
-    focusTagInput = settings?.focus_tag_id ?? '';
     tags = (await all<Tag>('tags')).sort((a, b) => a.name.localeCompare(b.name));
-    if (focusTagInput && !tags.some((t) => t.id === focusTagInput)) focusTagInput = '';
+    // Drop focus tags that have since been deleted.
+    focusTagIds = (settings ? focusIdsOf(settings) : []).filter((id) =>
+      tags.some((t) => t.id === id)
+    );
     plans = await listPlans();
     loading = false;
   }
@@ -49,7 +58,7 @@
     const quota = parseInt(quotaInput, 10);
     await saveUserSettings({
       articles_per_week: Number.isFinite(quota) && quota > 0 ? quota : null,
-      focus_tag_id: focusTagInput || null,
+      focus_tag_ids: focusTagIds,
     });
     message = 'Defaults saved.';
   }
@@ -60,13 +69,13 @@
     const quota = parseInt(newQuota, 10);
     await savePlan(newPeriod, newDate, {
       articles_per_week: Number.isFinite(quota) && quota > 0 ? quota : null,
-      focus_tag_id: newFocus || null,
+      focus_tag_ids: newFocusIds,
       note: newNote.trim(),
     });
     message = 'Plan saved.';
     newDate = '';
     newQuota = '';
-    newFocus = '';
+    newFocusIds = [];
     newNote = '';
     await refresh();
   }
@@ -106,27 +115,29 @@
         The This Week page suggests backlog links to fill the quota,
         preferring the focus tag.
       </p>
-      <div class="row2">
-        <div>
-          <label for="plan-quota">Articles per week (blank = off)</label>
-          <input
-            id="plan-quota"
-            type="number"
-            min="1"
-            bind:value={quotaInput}
-            onchange={saveDefaults}
-            placeholder="e.g. 5"
-          />
-        </div>
-        <div>
-          <label for="plan-focus">Focus tag</label>
-          <select id="plan-focus" bind:value={focusTagInput} onchange={saveDefaults}>
-            <option value="">None</option>
-            {#each tags as tag (tag.id)}
-              <option value={tag.id}>{tag.name}</option>
-            {/each}
-          </select>
-        </div>
+      <div>
+        <label for="plan-quota">Articles per week (blank = off)</label>
+        <input
+          id="plan-quota"
+          type="number"
+          min="1"
+          bind:value={quotaInput}
+          onchange={saveDefaults}
+          placeholder="e.g. 5"
+        />
+      </div>
+      <div style="margin-top: var(--space-3);">
+        <span class="field-label">Focus tags (quota splits across them)</span>
+        <ChipSelect
+          items={tags}
+          bind:selected={focusTagIds}
+          createPlaceholder="New tag…"
+          onCreate={async (name) => {
+            const id = await createTag(name);
+            return id;
+          }}
+        />
+        <button class="btn save-focus" onclick={saveDefaults}>Save focus tags</button>
       </div>
     </Card>
 
@@ -152,20 +163,18 @@
             <input id="plan-date" type="date" bind:value={newDate} min="2020-01-01" />
           </div>
         </div>
-        <div class="row2">
-          <div>
-            <label for="plan-new-quota">Articles per week (blank = inherit)</label>
-            <input id="plan-new-quota" type="number" min="1" bind:value={newQuota} placeholder="inherit" />
-          </div>
-          <div>
-            <label for="plan-new-focus">Focus tag (blank = inherit)</label>
-            <select id="plan-new-focus" bind:value={newFocus}>
-              <option value="">Inherit</option>
-              {#each tags as tag (tag.id)}
-                <option value={tag.id}>{tag.name}</option>
-              {/each}
-            </select>
-          </div>
+        <div>
+          <label for="plan-new-quota">Articles per week (blank = inherit)</label>
+          <input id="plan-new-quota" type="number" min="1" bind:value={newQuota} placeholder="inherit" />
+        </div>
+        <div>
+          <span class="field-label">Focus tags (none selected = inherit)</span>
+          <ChipSelect
+            items={tags}
+            bind:selected={newFocusIds}
+            createPlaceholder="New tag…"
+            onCreate={createTag}
+          />
         </div>
         <div>
           <label for="plan-note">Note (optional)</label>
@@ -196,7 +205,9 @@
                 </span>
                 <span class="plan-detail">
                   {plan.articles_per_week != null ? `${plan.articles_per_week}/week` : 'quota inherited'}
-                  · focus: {plan.focus_tag_id ? tagName(plan.focus_tag_id) : 'inherited'}
+                  · focus: {focusIdsOf(plan).length > 0
+                    ? focusIdsOf(plan).map(tagName).join(' + ')
+                    : 'inherited'}
                   {#if plan.note}
                     · {plan.note}
                   {/if}
@@ -235,6 +246,18 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-3);
+  }
+
+  .field-label {
+    display: block;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 600;
+    margin-bottom: var(--space-2);
+  }
+
+  .save-focus {
+    margin-top: var(--space-2);
   }
 
   .plan-form {

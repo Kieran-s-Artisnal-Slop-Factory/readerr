@@ -196,6 +196,8 @@
       </div>
     </Card>
   </div>
+{:else}
+  <p class="empty">Loading…</p>
 {/if}
 
 <style>

@@ -79,6 +79,31 @@ CREATE TABLE resource_list_links (
 CREATE INDEX idx_resource_list_links_list ON resource_list_links (list_id);
 CREATE INDEX idx_resource_list_links_link ON resource_list_links (link_id);
 `,
+	// v6 → v7: multiple focus tags (JSON arrays). Existing single values are
+	// carried over; the old columns stay in place but are no longer synced.
+	`
+ALTER TABLE user_settings ADD COLUMN focus_tag_ids TEXT NOT NULL DEFAULT '[]';
+UPDATE user_settings SET focus_tag_ids = '["' || focus_tag_id || '"]' WHERE focus_tag_id IS NOT NULL;
+ALTER TABLE plans ADD COLUMN focus_tag_ids TEXT NOT NULL DEFAULT '[]';
+UPDATE plans SET focus_tag_ids = '["' || focus_tag_id || '"]' WHERE focus_tag_id IS NOT NULL;
+`,
+	// v7 → v8 (scaling.md phase A): sync pull filters WHERE server_seq > ?
+	// on every table — index it so pulls stop being full scans.
+	`
+CREATE INDEX idx_user_settings_seq ON user_settings (server_seq);
+CREATE INDEX idx_plans_seq ON plans (server_seq);
+CREATE INDEX idx_links_seq ON links (server_seq);
+CREATE INDEX idx_tags_seq ON tags (server_seq);
+CREATE INDEX idx_link_tags_seq ON link_tags (server_seq);
+CREATE INDEX idx_topics_seq ON topics (server_seq);
+CREATE INDEX idx_link_topics_seq ON link_topics (server_seq);
+CREATE INDEX idx_notes_seq ON notes (server_seq);
+CREATE INDEX idx_excerpts_seq ON excerpts (server_seq);
+CREATE INDEX idx_resource_lists_seq ON resource_lists (server_seq);
+CREATE INDEX idx_resource_list_links_seq ON resource_list_links (server_seq);
+CREATE INDEX idx_weeks_seq ON weeks (server_seq);
+CREATE INDEX idx_week_links_seq ON week_links (server_seq);
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

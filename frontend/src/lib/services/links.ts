@@ -81,6 +81,44 @@ async function joinCounts<T extends SyncFields & { link_id: string }>(
   return counts;
 }
 
+/**
+ * Tags for just the given links (scaling.md phase A: list pages resolve
+ * labels for the visible page only — ~100 indexed lookups — instead of
+ * building whole-database maps).
+ */
+export async function tagsForLinks(links: Link[]): Promise<Map<string, Tag[]>> {
+  const map = new Map<string, Tag[]>();
+  const cache = new Map<string, Tag | undefined>();
+  for (const link of links) {
+    const joins = await byIndex<LinkTag>('link_tags', 'link_id', link.id);
+    const tags: Tag[] = [];
+    for (const j of joins) {
+      if (!cache.has(j.tag_id)) cache.set(j.tag_id, await get<Tag>('tags', j.tag_id));
+      const tag = cache.get(j.tag_id);
+      if (tag) tags.push(tag);
+    }
+    map.set(link.id, tags);
+  }
+  return map;
+}
+
+/** Topics for just the given links (same rationale as tagsForLinks). */
+export async function topicsForLinks(links: Link[]): Promise<Map<string, Topic[]>> {
+  const map = new Map<string, Topic[]>();
+  const cache = new Map<string, Topic | undefined>();
+  for (const link of links) {
+    const joins = await byIndex<LinkTopic>('link_topics', 'link_id', link.id);
+    const topics: Topic[] = [];
+    for (const j of joins) {
+      if (!cache.has(j.topic_id)) cache.set(j.topic_id, await get<Topic>('topics', j.topic_id));
+      const topic = cache.get(j.topic_id);
+      if (topic) topics.push(topic);
+    }
+    map.set(link.id, topics);
+  }
+  return map;
+}
+
 /** All live tag assignments as a link_id → Tag[] map (for list pages). */
 export async function tagsByLinkMap(): Promise<Map<string, Tag[]>> {
   const [joins, tags] = await Promise.all([all<LinkTag>('link_tags'), all<Tag>('tags')]);

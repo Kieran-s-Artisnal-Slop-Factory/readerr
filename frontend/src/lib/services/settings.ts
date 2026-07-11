@@ -16,7 +16,7 @@ export async function saveUserSettings(
       UserSettings,
       | 'name'
       | 'articles_per_week'
-      | 'focus_tag_id'
+      | 'focus_tag_ids'
       | 'onboarding_completed_at'
       | 'strip_query_params'
       | 'strip_whitelist'
@@ -30,7 +30,7 @@ export async function saveUserSettings(
     withSyncFields({
       name: null,
       articles_per_week: null,
-      focus_tag_id: null,
+      focus_tag_ids: [] as string[],
       onboarding_completed_at: null,
       strip_query_params: 'off' as const,
       strip_whitelist: [] as string[],

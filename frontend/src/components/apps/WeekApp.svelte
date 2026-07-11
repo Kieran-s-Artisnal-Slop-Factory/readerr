@@ -93,10 +93,12 @@
     }
     week = await ensureOpenWeek();
     triage = await effectiveTriage(week.week_start);
-    if (triage.focusTagId) {
-      const tag = await get<Tag>('tags', triage.focusTagId);
-      focusTagName = tag?.name ?? '';
+    const names: string[] = [];
+    for (const id of triage.focusTagIds) {
+      const tag = await get<Tag>('tags', id);
+      if (tag) names.push(tag.name);
     }
+    focusTagName = names.join(' + ');
     await refresh();
   });
 
@@ -126,7 +128,7 @@
     }
     suggestions = await suggestLinks(
       new Set(entries.map((e) => e.link.id)),
-      triage?.focusTagId ?? null,
+      triage?.focusTagIds ?? [],
       underQuota
     );
   }
@@ -413,6 +415,8 @@
       </button>
     </div>
   </div>
+{:else}
+  <p class="empty">Loading…</p>
 {/if}
 
 <style>

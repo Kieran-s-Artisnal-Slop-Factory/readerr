@@ -199,34 +199,59 @@ export async function reorderEntries(
 
 /**
  * Triage suggestions: unread, un-slushed, non-resource backlog links not
- * already picked. Links carrying the focus tag come first; within each
- * group oldest-captured first, so the backlog drains front-to-back.
+ * already picked, oldest-captured first so the backlog drains front-to-back.
+ *
+ * With focus tags the quota SPLITS across them (#10): 3 across
+ * [databases, history] means 2 from databases and 1 from history — earlier
+ * tags get the remainder — with no link suggested twice (a link carrying
+ * several focus tags counts against the first bucket that takes it). Any
+ * bucket that runs dry, and any leftover quota, falls back to the general
+ * backlog pool.
  */
 export async function suggestLinks(
   excludeLinkIds: Set<string>,
-  focusTagId: string | null,
+  focusTagIds: string[],
   count: number
 ): Promise<Link[]> {
   if (count <= 0) return [];
   const links = await all<Link>('links');
-  const candidates = links.filter(
-    (l) => !l.read_at && !l.slushed_at && !l.is_resource && !excludeLinkIds.has(l.id)
-  );
+  const candidates = links
+    .filter((l) => !l.read_at && !l.slushed_at && !l.is_resource && !excludeLinkIds.has(l.id))
+    .sort((a, b) => a.added_at.localeCompare(b.added_at));
 
-  const focused = new Set<string>();
-  if (focusTagId) {
-    const joins = await byIndex<LinkTag>('link_tags', 'tag_id', focusTagId);
-    for (const j of joins) focused.add(j.link_id);
+  const chosen: Link[] = [];
+  const taken = new Set<string>();
+  const take = (pool: Link[], n: number) => {
+    for (const link of pool) {
+      if (chosen.length >= count || n <= 0) break;
+      if (taken.has(link.id)) continue;
+      taken.add(link.id);
+      chosen.push(link);
+      n--;
+    }
+  };
+
+  if (focusTagIds.length > 0) {
+    // Per-tag pools in the order the tags were chosen.
+    const pools: Link[][] = [];
+    for (const tagId of focusTagIds) {
+      const tagged = new Set(
+        (await byIndex<LinkTag>('link_tags', 'tag_id', tagId)).map((j) => j.link_id)
+      );
+      pools.push(candidates.filter((l) => tagged.has(l.id)));
+    }
+    // Split the quota: earlier tags get the remainder (3 over 2 → 2+1).
+    const base = Math.floor(count / focusTagIds.length);
+    let remainder = count % focusTagIds.length;
+    for (const pool of pools) {
+      take(pool, base + (remainder > 0 ? 1 : 0));
+      if (remainder > 0) remainder--;
+    }
   }
 
-  return candidates
-    .sort((a, b) => {
-      const fa = focused.has(a.id) ? 0 : 1;
-      const fb = focused.has(b.id) ? 0 : 1;
-      if (fa !== fb) return fa - fb;
-      return a.added_at.localeCompare(b.added_at);
-    })
-    .slice(0, count);
+  // Fill whatever's left (no focus, dry buckets) from the general pool.
+  take(candidates, count - chosen.length);
+  return chosen;
 }
 
 export interface CloseResult {

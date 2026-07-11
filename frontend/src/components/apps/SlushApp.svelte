@@ -1,38 +1,57 @@
 <script lang="ts">
   /**
    * The slush archive: read links that weren't part of a topic or
-   * favourited when their week closed — things with nothing written about
-   * them. Each row can be re-scheduled ("reviewed") into an upcoming week,
-   * which moves it out of the slush and into that week's Review section.
+   * favourited when their week closed. Each row can be re-scheduled
+   * ("reviewed") into an upcoming week. Paginated at 100 with page-scoped
+   * labels (scaling.md phase A).
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkRow from '../LinkRow.svelte';
+  import Pagination from '../Pagination.svelte';
   import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
-  import { matchesSearch, tagsByLinkMap } from '../../lib/services/links';
+  import { matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
   import { reviewLink, upcomingWeekOptions } from '../../lib/services/weeks';
   import type { Link, Tag } from '../../lib/db/types';
 
+  const PAGE_SIZE = 100;
+
   let links = $state<Link[]>([]);
-  let tagsByLink = $state<Map<string, Tag[]>>(new Map());
+  let pageTags = $state<Map<string, Tag[]>>(new Map());
+  let searchTags = $state<Map<string, Tag[]> | null>(null);
   let search = $state('');
+  let page = $state(0);
+  let loading = $state(true);
   let message = $state('');
 
   const weekOptions = upcomingWeekOptions();
 
-  const visible = $derived(
-    links.filter((l) => matchesSearch(l, tagsByLink.get(l.id) ?? [], search))
+  const filtered = $derived(
+    links.filter((l) => matchesSearch(l, searchTags?.get(l.id) ?? [], search))
   );
+  const visible = $derived(filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+
+  $effect(() => {
+    const slice = visible;
+    void tagsForLinks(slice).then((m) => (pageTags = m));
+  });
+
+  $effect(() => {
+    if (search.trim() && !searchTags) {
+      void tagsByLinkMap().then((m) => (searchTags = m));
+    }
+  });
 
   onMount(refresh);
 
   async function refresh() {
-    const [rows, tags] = await Promise.all([all<Link>('links'), tagsByLinkMap()]);
+    const rows = await all<Link>('links');
     links = rows
       .filter((l) => l.slushed_at)
       .sort((a, b) => ((a.slushed_at ?? '') < (b.slushed_at ?? '') ? 1 : -1));
-    tagsByLink = tags;
+    searchTags = null;
+    loading = false;
   }
 
   async function review(link: Link, e: Event) {
@@ -51,7 +70,7 @@
   }
 </script>
 
-<Card title={`Slush (${visible.length})`}>
+<Card title={`Slush (${filtered.length.toLocaleString()})`}>
   <p class="hint">
     Read links that weren't favourited or referenced in a topic when their
     week closed. Pick a week to give one another look.
@@ -62,7 +81,9 @@
   <div class="search-row">
     <SearchInput bind:value={search} />
   </div>
-  {#if visible.length === 0}
+  {#if loading}
+    <p class="empty">Loading…</p>
+  {:else if visible.length === 0}
     <p class="empty">
       {search ? 'Nothing in the slush matches your search.' : 'Nothing slushed yet.'}
     </p>
@@ -71,7 +92,7 @@
       {#each visible as link (link.id)}
         <div class="slush-row">
           <div class="slush-link">
-            <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
+            <LinkRow {link} tags={pageTags.get(link.id) ?? []} onChange={onRowChange} />
           </div>
           <select class="review-select" title="Re-schedule for another week" onchange={(e) => review(link, e)}>
             <option value="">Review in…</option>
@@ -82,6 +103,7 @@
         </div>
       {/each}
     </div>
+    <Pagination total={filtered.length} pageSize={PAGE_SIZE} bind:page label="slushed links" />
   {/if}
 </Card>
 

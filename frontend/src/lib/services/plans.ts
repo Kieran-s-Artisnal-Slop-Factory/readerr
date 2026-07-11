@@ -39,10 +39,16 @@ export async function listPlans(): Promise<Plan[]> {
  * Create or update the plan for a period (one plan per period start —
  * saving over the same week/month replaces its values).
  */
+/** Tolerate rows written before focus tags became plural. */
+export function focusIdsOf(row: { focus_tag_ids?: string[]; focus_tag_id?: string | null }): string[] {
+  if (Array.isArray(row.focus_tag_ids)) return row.focus_tag_ids;
+  return row.focus_tag_id ? [row.focus_tag_id] : [];
+}
+
 export async function savePlan(
   period: PlanPeriod,
   date: string,
-  fields: { articles_per_week: number | null; focus_tag_id: string | null; note: string }
+  fields: { articles_per_week: number | null; focus_tag_ids: string[]; note: string }
 ): Promise<Plan> {
   const starts_on = periodStart(period, date);
   const existing = (await listPlans()).find(
@@ -58,7 +64,8 @@ export async function deletePlan(id: string): Promise<void> {
 
 export interface EffectiveTriage {
   quota: number | null;
-  focusTagId: string | null;
+  /** Suggestion quota splits across these; empty = no focus. */
+  focusTagIds: string[];
   /** Where each value came from, for display. */
   quotaSource: 'week' | 'month' | 'defaults';
   focusSource: 'week' | 'month' | 'defaults';
@@ -70,21 +77,29 @@ export async function effectiveTriage(weekStart: string): Promise<EffectiveTriag
   const weekly = plans.find((p) => p.period === 'week' && p.starts_on === weekStart);
   const monthly = plans.find((p) => p.period === 'month' && p.starts_on === monthStartOf(weekStart));
 
-  const pick = <T>(
-    week: T | null | undefined,
-    month: T | null | undefined,
-    fallback: T | null
-  ): { value: T | null; source: 'week' | 'month' | 'defaults' } => {
+  const pickNum = (
+    week: number | null | undefined,
+    month: number | null | undefined,
+    fallback: number | null
+  ): { value: number | null; source: 'week' | 'month' | 'defaults' } => {
     if (week != null) return { value: week, source: 'week' };
     if (month != null) return { value: month, source: 'month' };
     return { value: fallback, source: 'defaults' };
   };
 
-  const quota = pick(weekly?.articles_per_week, monthly?.articles_per_week, settings?.articles_per_week ?? null);
-  const focus = pick(weekly?.focus_tag_id, monthly?.focus_tag_id, settings?.focus_tag_id ?? null);
+  const pickTags = (): { value: string[]; source: 'week' | 'month' | 'defaults' } => {
+    const w = weekly ? focusIdsOf(weekly) : [];
+    if (w.length > 0) return { value: w, source: 'week' };
+    const m = monthly ? focusIdsOf(monthly) : [];
+    if (m.length > 0) return { value: m, source: 'month' };
+    return { value: settings ? focusIdsOf(settings) : [], source: 'defaults' };
+  };
+
+  const quota = pickNum(weekly?.articles_per_week, monthly?.articles_per_week, settings?.articles_per_week ?? null);
+  const focus = pickTags();
   return {
     quota: quota.value,
-    focusTagId: focus.value,
+    focusTagIds: focus.value,
     quotaSource: quota.source,
     focusSource: focus.source,
   };

@@ -8,15 +8,23 @@
  *             tags/topics themselves. Live rows only.
  *   range   — links captured within a date range plus their related rows
  *             and whichever tags/topics they reference. Live rows only.
+ *   template— just tags and/or topics with their documents (notes_md /
+ *             body_md), NO links — for carrying an organizational scheme to
+ *             another install. Live rows only.
  *
- * Importing a curated/range file MERGES rows in by id — nothing is cleared —
- * so partial exports can never wipe a fuller dataset.
+ * Importing anything but a full backup MERGES rows in by id — nothing is
+ * cleared — so partial exports can never wipe a fuller dataset.
  */
-import { getDB, DB_VERSION } from './db';
+import { getDB, DB_NAME, DB_VERSION } from './db';
 import { STORES } from './types';
 import type { Excerpt, Link, LinkTag, LinkTopic, Note, SyncFields } from './types';
 
-export type ExportScope = 'full' | 'curated' | 'range';
+export type ExportScope = 'full' | 'curated' | 'range' | 'template';
+
+export interface TemplateOptions {
+  tags: boolean;
+  topics: boolean;
+}
 
 export interface ExportEnvelope {
   schemaVersion: number;
@@ -62,11 +70,17 @@ async function relatedData(links: Link[]): Promise<Record<string, unknown[]>> {
 
 export async function exportData(
   scope: ExportScope = 'full',
-  range?: { from: string; to: string }
+  range?: { from: string; to: string },
+  template?: TemplateOptions
 ): Promise<ExportEnvelope> {
   let data: Record<string, unknown[]>;
   if (scope === 'full') {
     data = await fullData();
+  } else if (scope === 'template') {
+    const opts = template ?? { tags: true, topics: true };
+    data = {};
+    if (opts.tags) data.tags = await live('tags');
+    if (opts.topics) data.topics = await live('topics');
   } else if (scope === 'curated') {
     const links = await live<Link>('links');
     const tagged = new Set((await live<LinkTag>('link_tags')).map((j) => j.link_id));
@@ -94,32 +108,51 @@ export async function exportData(
 /** Trigger a browser download of an export. */
 export async function downloadExport(
   scope: ExportScope = 'full',
-  range?: { from: string; to: string }
+  range?: { from: string; to: string },
+  template?: TemplateOptions
 ): Promise<void> {
-  const envelope = await exportData(scope, range);
+  const envelope = await exportData(scope, range, template);
   const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   const label =
-    scope === 'full' ? 'backup' : scope === 'curated' ? 'curated' : `${range?.from}_${range?.to}`;
+    scope === 'full'
+      ? 'backup'
+      : scope === 'curated'
+        ? 'curated'
+        : scope === 'template'
+          ? 'template'
+          : `${range?.from}_${range?.to}`;
   a.download = `readerr-${label}-${envelope.exportedAt.slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
 /**
- * Wipe every store, including sync bookkeeping. Escape hatch — the caller is
- * responsible for confirming with the user first.
+ * Wipe everything on this device: the whole IndexedDB database (deleted,
+ * not just cleared — clearing stores leaves the on-disk file allocated, so
+ * the browser's usage number never drops), plus readerr's localStorage keys
+ * and service-worker caches. The caller must confirm with the user first
+ * and reload afterwards (the cached DB connection is gone).
  */
 export async function clearAllData(): Promise<void> {
   const db = await getDB();
-  const names = [...Object.keys(STORES), 'sync_meta'];
-  const tx = db.transaction(names, 'readwrite');
-  for (const name of names) {
-    tx.objectStore(name).clear();
+  db.close();
+  await new Promise<void>((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => resolve(); // another tab holds it open; deletion completes when it closes
+  });
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith('readerr-')) localStorage.removeItem(key);
   }
-  await tx.done;
+  if (typeof caches !== 'undefined') {
+    for (const key of await caches.keys()) {
+      if (key.startsWith('readerr-')) await caches.delete(key);
+    }
+  }
 }
 
 export interface ImportResult {

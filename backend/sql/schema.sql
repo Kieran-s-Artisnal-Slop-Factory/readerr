@@ -21,7 +21,7 @@ CREATE TABLE user_settings (
     id                      TEXT PRIMARY KEY,
     name                    TEXT,
     articles_per_week       INTEGER,
-    focus_tag_id            TEXT,
+    focus_tag_ids           TEXT NOT NULL DEFAULT '[]', -- JSON array of tag ids
     onboarding_completed_at TEXT,     -- NULL = show first-launch onboarding
     strip_query_params      TEXT NOT NULL DEFAULT 'off'
                             CHECK (strip_query_params IN ('off', 'trackers', 'all')),
@@ -39,7 +39,7 @@ CREATE TABLE plans (
     period            TEXT NOT NULL CHECK (period IN ('week', 'month')),
     starts_on         TEXT NOT NULL,  -- week: local Monday; month: 'YYYY-MM-01'
     articles_per_week INTEGER,
-    focus_tag_id      TEXT,
+    focus_tag_ids     TEXT NOT NULL DEFAULT '[]', -- JSON array of tag ids
     note              TEXT NOT NULL DEFAULT '',
     updated_at        TEXT NOT NULL,
     deleted_at        TEXT,
@@ -180,3 +180,18 @@ CREATE TABLE week_links (
 );
 CREATE INDEX idx_week_links_week ON week_links (week_id);
 CREATE INDEX idx_week_links_link ON week_links (link_id);
+
+-- Sync pull filters on server_seq per table (scaling.md phase A).
+CREATE INDEX idx_user_settings_seq ON user_settings (server_seq);
+CREATE INDEX idx_plans_seq ON plans (server_seq);
+CREATE INDEX idx_links_seq ON links (server_seq);
+CREATE INDEX idx_tags_seq ON tags (server_seq);
+CREATE INDEX idx_link_tags_seq ON link_tags (server_seq);
+CREATE INDEX idx_topics_seq ON topics (server_seq);
+CREATE INDEX idx_link_topics_seq ON link_topics (server_seq);
+CREATE INDEX idx_notes_seq ON notes (server_seq);
+CREATE INDEX idx_excerpts_seq ON excerpts (server_seq);
+CREATE INDEX idx_resource_lists_seq ON resource_lists (server_seq);
+CREATE INDEX idx_resource_list_links_seq ON resource_list_links (server_seq);
+CREATE INDEX idx_weeks_seq ON weeks (server_seq);
+CREATE INDEX idx_week_links_seq ON week_links (server_seq);

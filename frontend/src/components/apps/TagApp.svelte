@@ -57,6 +57,8 @@
       <LinkList {links} {tagsByLink} onChange={onRowChange} empty="No links carry this tag yet." />
     </Card>
   </div>
+{:else}
+  <p class="empty">Loading…</p>
 {/if}
 
 <style>

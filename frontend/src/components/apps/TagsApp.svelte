@@ -10,6 +10,7 @@
   let tags = $state<Tag[]>([]);
   let counts = $state<Map<string, number>>(new Map());
   let newName = $state('');
+  let loading = $state(true);
   let renamingId = $state<string | null>(null);
   let renameValue = $state('');
 
@@ -20,6 +21,7 @@
     rows.sort((a, b) => a.name.localeCompare(b.name));
     tags = rows;
     counts = c;
+    loading = false;
   }
 
   async function create() {
@@ -61,7 +63,9 @@
     <button type="submit" class="btn btn-primary" disabled={!newName.trim()}>Create</button>
   </form>
 
-  {#if tags.length === 0}
+  {#if loading}
+    <p class="empty">Loading…</p>
+  {:else if tags.length === 0}
     <p class="empty">No tags yet.</p>
   {:else}
     <ul class="tag-list">

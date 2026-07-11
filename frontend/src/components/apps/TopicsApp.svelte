@@ -10,6 +10,7 @@
   let topics = $state<Topic[]>([]);
   let counts = $state<Map<string, number>>(new Map());
   let newName = $state('');
+  let loading = $state(true);
 
   onMount(refresh);
 
@@ -18,6 +19,7 @@
     rows.sort((a, b) => a.name.localeCompare(b.name));
     topics = rows;
     counts = c;
+    loading = false;
   }
 
   async function create() {
@@ -52,7 +54,9 @@
     <button type="submit" class="btn btn-primary" disabled={!newName.trim()}>Create</button>
   </form>
 
-  {#if topics.length === 0}
+  {#if loading}
+    <p class="empty">Loading…</p>
+  {:else if topics.length === 0}
     <p class="empty">No topics yet — create one to start a long-form document.</p>
   {:else}
     <ul class="topic-list">

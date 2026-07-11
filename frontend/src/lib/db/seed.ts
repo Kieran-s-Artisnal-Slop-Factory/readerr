@@ -1,12 +1,14 @@
 /**
- * Demo data seeding (#17): ~3 months of realistic usage — 13 weeks
- * averaging 20 links each, tags, 3 topic documents, favourites, resources,
- * a resource list, notes and excerpts, and closed weeks with lifecycle
- * outcomes. Deterministic (seeded PRNG) so repeated runs look the same;
- * everything goes through the normal stores and syncs like real data.
+ * Demo data seeding, parameterized by usage weight and duration (#17 + the
+ * sliders): `linksPerWeek` up to 200 and `weeks` up to 520 (10 years).
+ * Notes, topics, favourites, and resources scale with usage. Content is
+ * nonsense — the point is realistic *volume* and lifecycle shape, so you
+ * can feel what multi-year usage does to the app. Deterministic (seeded
+ * PRNG); everything goes through the normal stores and syncs like real
+ * data, and repeated runs add duplicates (new ids each run).
  */
 import { bulkPut, withSyncFields } from './repo';
-import { weekStartOf, weekStartPlus, currentWeekStart } from '../services/weeks';
+import { weekStartPlus, currentWeekStart } from '../services/weeks';
 import type {
   Excerpt,
   Link,
@@ -74,191 +76,51 @@ const RESOURCE_POOL = [
   ['Zero sync engine', 'https://zero.rocicorp.dev/docs'],
 ] as const;
 
+const PARA =
+  'Notes accumulated over several reads. The interesting failure modes cluster around the edges: retries, partial writes, and clocks. See the referenced links for worked examples.\n\n';
+
+export interface SeedOptions {
+  /** Capture rate; the demo default is 20, the scaling.md ceiling is 200. */
+  linksPerWeek: number;
+  /** How far back to generate; 52 per year, up to 520. */
+  weeks: number;
+}
+
 export interface SeedSummary {
   links: number;
   weeks: number;
   tags: number;
   topics: number;
+  notes: number;
   favourites: number;
   resources: number;
 }
 
-export async function seedDemoData(): Promise<SeedSummary> {
-  const rand = rng(20260710);
-  const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
-  const chance = (p: number) => rand() < p;
-
-  const today = currentWeekStart();
-  const iso = (day: string, hour: number) =>
-    new Date(`${day}T${String(hour).padStart(2, '0')}:00:00`).toISOString();
-
-  const tags: Tag[] = THEMES.map((t) => withSyncFields({ name: t.tag, notes_md: '' }));
-
-  const topics: Topic[] = [
-    { name: 'Database internals', body_md: '# Database internals\n\nHow storage engines actually work: B-trees vs LSM, WAL, and the read/write paths.\n' },
-    { name: 'Go patterns', body_md: '# Go patterns\n\nIdioms worth keeping: functional options, table tests, and error wrapping.\n' },
-    { name: 'Local-first apps', body_md: '# Local-first apps\n\nIndexedDB as the source of truth, sync as an add-on. Notes on CRDTs vs LWW.\n' },
-  ].map((t) => withSyncFields(t));
-  const topicByTag: Record<string, Topic | undefined> = {
-    databases: topics[0],
-    go: topics[1],
-    webdev: topics[2],
-  };
-
-  const links: Link[] = [];
-  const linkTags: LinkTag[] = [];
-  const linkTopics: LinkTopic[] = [];
-  const notes: Note[] = [];
-  const excerpts: Excerpt[] = [];
-  const weeks: Week[] = [];
-  const weekLinks: WeekLink[] = [];
-
-  let serial = 0;
-  for (let w = 12; w >= 0; w--) {
-    const weekStart = weekStartPlus(today, -w);
-    const isCurrent = weekStart === today;
-    const week: Week = withSyncFields({
-      week_start: weekStart,
-      closed_at: isCurrent ? null : iso(weekStartPlus(weekStart, 1), 9),
-    });
-    weeks.push(week);
-
-    const count = 17 + Math.floor(rand() * 7); // ~20/week
-    for (let i = 0; i < count; i++) {
-      serial++;
-      const theme = pick(THEMES);
-      const day = weekStartOf(new Date(`${weekStart}T00:00:00`));
-      const addedDay = weekStartPlus(day, 0); // Monday; spread below
-      const d = new Date(`${addedDay}T00:00:00`);
-      d.setDate(d.getDate() + Math.floor(rand() * 7));
-      const added = new Date(d);
-      added.setHours(8 + Math.floor(rand() * 12));
-
-      const host = pick(theme.hosts);
-      const title = `${pick(theme.titles)} (${serial})`;
-      const url = `https://${host}/demo/${theme.tag}-${serial}`;
-      const favourite = chance(0.03);
-      const isResource = chance(0.04);
-      const inTopic = !!topicByTag[theme.tag] && chance(0.18);
-
-      // Lifecycle: closed weeks resolved ~70% of their entries.
-      const done = isCurrent ? chance(0.3) : chance(0.7);
-      const slushed = done && !favourite && !inTopic;
-      const doneAt = iso(weekStartPlus(weekStart, 0), 20);
-
-      const link: Link = withSyncFields({
-        url,
-        title,
-        title_fetched: true,
-        added_at: added.toISOString(),
-        read_at: done ? doneAt : null,
-        favourite,
-        is_resource: isResource,
-        slushed_at: slushed ? doneAt : null,
-      });
-      links.push(link);
-
-      if (chance(0.75)) {
-        linkTags.push(withSyncFields({ link_id: link.id, tag_id: tags.find((t) => t.name === theme.tag)!.id }));
-      }
-      if (inTopic) {
-        linkTopics.push(withSyncFields({ link_id: link.id, topic_id: topicByTag[theme.tag]!.id }));
-      }
-      if (done && chance(0.2)) {
-        notes.push(withSyncFields({ link_id: link.id, body_md: `Takeaways from *${title}*: worth revisiting when it comes up again.` }));
-      }
-      if (done && chance(0.1)) {
-        excerpts.push(withSyncFields({ link_id: link.id, content_md: `"The interesting part of ${theme.tag} is never the happy path."`, position: 0 }));
-      }
-
-      // Roughly half of each week's captures were scheduled into the week.
-      if (chance(0.5) || done) {
-        weekLinks.push(
-          withSyncFields({
-            week_id: week.id,
-            link_id: link.id,
-            position: i,
-            kind: 'reading' as const,
-            done_at: done ? doneAt : null,
-            outcome: isCurrent ? null : done ? (slushed ? ('slushed' as const) : ('read' as const)) : ('rolled' as const),
-          })
-        );
-      }
-    }
-  }
-
-  // A handful of standalone resources plus a list grouping them.
-  const list: ResourceList = withSyncFields({
-    name: 'Handy tools',
-    description_md: 'Utilities worth keeping around — mostly CLI and web tooling.',
-  });
-  const listLinks: ResourceListLink[] = [];
-  const resourceLinks: Link[] = RESOURCE_POOL.map(([title, url], i) => {
-    const link: Link = withSyncFields({
-      url,
-      title,
-      title_fetched: true,
-      added_at: iso(weekStartPlus(today, -(i % 10)), 12),
-      read_at: null,
-      favourite: false,
-      is_resource: true,
-      slushed_at: null,
-    });
-    if (i < 6) {
-      listLinks.push(withSyncFields({ list_id: list.id, link_id: link.id, position: i }));
-    }
-    return link;
-  });
-  links.push(...resourceLinks);
-
-  await bulkPut('tags', tags);
-  await bulkPut('topics', topics);
-  await bulkPut('links', links);
-  await bulkPut('link_tags', linkTags);
-  await bulkPut('link_topics', linkTopics);
-  await bulkPut('notes', notes);
-  await bulkPut('excerpts', excerpts);
-  await bulkPut('weeks', weeks);
-  await bulkPut('week_links', weekLinks);
-  await bulkPut('resource_lists', [list]);
-  await bulkPut('resource_list_links', listLinks);
-
-  return {
-    links: links.length,
-    weeks: weeks.length,
-    tags: tags.length,
-    topics: topics.length,
-    favourites: links.filter((l) => l.favourite).length,
-    resources: links.filter((l) => l.is_resource).length,
-  };
-}
-
 /** bulkPut in chunks so no single IDB transaction gets huge. */
 async function chunkedPut<T extends { id: string }>(
-  store: Parameters<typeof bulkPut>[0],
+  store: string,
   rows: T[],
-  onProgress?: (msg: string) => void,
-  label?: string
+  onProgress?: (msg: string) => void
 ): Promise<void> {
   const CHUNK = 5000;
   for (let i = 0; i < rows.length; i += CHUNK) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await bulkPut(store, rows.slice(i, i + CHUNK) as any);
-    onProgress?.(`Writing ${label ?? store}: ${Math.min(i + CHUNK, rows.length).toLocaleString()} / ${rows.length.toLocaleString()}…`);
+    await bulkPut(store as any, rows.slice(i, i + CHUNK) as any);
+    if (rows.length > CHUNK) {
+      onProgress?.(
+        `Writing ${store}: ${Math.min(i + CHUNK, rows.length).toLocaleString()} / ${rows.length.toLocaleString()}…`
+      );
+    }
   }
 }
 
-/**
- * The 10-year projection from scaling.md, as data you can actually feel:
- * ~520 weeks × ~150 links (~78k links), ~1,500 topic documents, notes on
- * 5–10 links/week, week entries with outcomes — ~240k rows total. Links
- * are nonsense; the point is volume, not content.
- */
-export async function seedMassiveData(
-  onProgress?: (msg: string) => void,
-  WEEKS: number = 520
+export async function seedDataset(
+  options: SeedOptions,
+  onProgress?: (msg: string) => void
 ): Promise<SeedSummary> {
-  const rand = rng(19700101);
+  const linksPerWeek = Math.max(1, Math.min(200, Math.round(options.linksPerWeek)));
+  const WEEKS = Math.max(1, Math.min(520, Math.round(options.weeks)));
+  const rand = rng(20260710 + linksPerWeek * 1000 + WEEKS);
   const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
   const chance = (p: number) => rand() < p;
 
@@ -266,13 +128,15 @@ export async function seedMassiveData(
   const iso = (day: string, hour: number) =>
     new Date(`${day}T${String(hour % 24).padStart(2, '0')}:00:00`).toISOString();
 
+  // Rates observed at ~150 links/week (the user's real usage), scaled.
+  const usage = linksPerWeek / 150;
+  const notesPerWeekCap = Math.max(1, Math.round(10 * usage));
+  const topicsTotal = Math.max(1, Math.round(3 * usage * WEEKS));
+
   const tags: Tag[] = THEMES.map((t) => withSyncFields({ name: t.tag, notes_md: '' }));
 
-  // ~3 topics/week over 10 years, each with a few KB of body.
-  const PARA =
-    'Notes accumulated over several reads. The interesting failure modes cluster around the edges: retries, partial writes, and clocks. See the referenced links for worked examples.\n\n';
   const topics: Topic[] = [];
-  for (let i = 0; i < WEEKS * 3; i++) {
+  for (let i = 0; i < topicsTotal; i++) {
     const theme = pick(THEMES);
     topics.push(
       withSyncFields({
@@ -299,9 +163,12 @@ export async function seedMassiveData(
       closed_at: isCurrent ? null : iso(weekStartPlus(weekStart, 1), 9),
     });
     weeks.push(week);
-    if (w % 52 === 0) onProgress?.(`Generating year ${Math.round((WEEKS - w) / 52)} / 10…`);
+    if (WEEKS > 52 && w % 52 === 0) {
+      onProgress?.(`Generating year ${Math.ceil((WEEKS - w) / 52)} / ${Math.ceil(WEEKS / 52)}…`);
+    }
 
-    const count = 140 + Math.floor(rand() * 21); // ~150/week
+    const jitter = Math.round(linksPerWeek * 0.15);
+    const count = Math.max(1, linksPerWeek - jitter + Math.floor(rand() * (2 * jitter + 1)));
     let notesThisWeek = 0;
     for (let i = 0; i < count; i++) {
       serial++;
@@ -334,11 +201,10 @@ export async function seedMassiveData(
           withSyncFields({ link_id: link.id, topic_id: topics[Math.floor(rand() * topics.length)].id })
         );
       }
-      // 5–10 noted links per week.
-      if (done && notesThisWeek < 10 && chance(0.06)) {
+      if (done && notesThisWeek < notesPerWeekCap && chance(0.08)) {
         notesThisWeek++;
         notes.push(
-          withSyncFields({ link_id: link.id, body_md: `${PARA.repeat(1 + Math.floor(rand() * 2))}` })
+          withSyncFields({ link_id: link.id, body_md: PARA.repeat(1 + Math.floor(rand() * 2)) })
         );
         if (chance(0.4)) {
           excerpts.push(
@@ -361,6 +227,30 @@ export async function seedMassiveData(
     }
   }
 
+  // A handful of standalone resources plus a list grouping them.
+  const list: ResourceList = withSyncFields({
+    name: 'Handy tools',
+    description_md: 'Utilities worth keeping around — mostly CLI and web tooling.',
+  });
+  const listLinks: ResourceListLink[] = [];
+  const resourceLinks: Link[] = RESOURCE_POOL.map(([title, url], i) => {
+    const link: Link = withSyncFields({
+      url,
+      title,
+      title_fetched: true,
+      added_at: iso(weekStartPlus(today, -(i % Math.min(10, WEEKS))), 12),
+      read_at: null,
+      favourite: false,
+      is_resource: true,
+      slushed_at: null,
+    });
+    if (i < 6) {
+      listLinks.push(withSyncFields({ list_id: list.id, link_id: link.id, position: i }));
+    }
+    return link;
+  });
+  links.push(...resourceLinks);
+
   await chunkedPut('tags', tags, onProgress);
   await chunkedPut('topics', topics, onProgress);
   await chunkedPut('links', links, onProgress);
@@ -370,12 +260,15 @@ export async function seedMassiveData(
   await chunkedPut('excerpts', excerpts, onProgress);
   await chunkedPut('weeks', weeks, onProgress);
   await chunkedPut('week_links', weekLinks, onProgress);
+  await chunkedPut('resource_lists', [list], onProgress);
+  await chunkedPut('resource_list_links', listLinks, onProgress);
 
   return {
     links: links.length,
     weeks: weeks.length,
     tags: tags.length,
     topics: topics.length,
+    notes: notes.length,
     favourites: links.filter((l) => l.favourite).length,
     resources: links.filter((l) => l.is_resource).length,
   };

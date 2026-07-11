@@ -1,11 +1,16 @@
 <script lang="ts">
-  /** Links flagged as resources — tools/apps/blogs, not articles to "read". */
+  /**
+   * Links flagged as resources — tools/apps/blogs, not articles to "read" —
+   * plus the resource lists grouping them. Paginated at 100 with
+   * page-scoped labels (scaling.md phase A).
+   */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
+  import Pagination from '../Pagination.svelte';
   import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
-  import { matchesSearch, tagsByLinkMap } from '../../lib/services/links';
+  import { matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
   import {
     createResourceList,
     deleteResourceList,
@@ -15,32 +20,49 @@
   import { href } from '../../lib/paths';
   import type { Link, ResourceList, Tag } from '../../lib/db/types';
 
+  const PAGE_SIZE = 100;
+
   let links = $state<Link[]>([]);
-  let tagsByLink = $state<Map<string, Tag[]>>(new Map());
+  let pageTags = $state<Map<string, Tag[]>>(new Map());
+  let searchTags = $state<Map<string, Tag[]> | null>(null);
   let search = $state('');
+  let page = $state(0);
+  let loading = $state(true);
   let lists = $state<ResourceList[]>([]);
   let listCounts = $state<Map<string, number>>(new Map());
   let newListName = $state('');
 
-  const visible = $derived(
-    links.filter((l) => matchesSearch(l, tagsByLink.get(l.id) ?? [], search))
+  const filtered = $derived(
+    links.filter((l) => matchesSearch(l, searchTags?.get(l.id) ?? [], search))
   );
+  const visible = $derived(filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+
+  $effect(() => {
+    const slice = visible;
+    void tagsForLinks(slice).then((m) => (pageTags = m));
+  });
+
+  $effect(() => {
+    if (search.trim() && !searchTags) {
+      void tagsByLinkMap().then((m) => (searchTags = m));
+    }
+  });
 
   onMount(refresh);
 
   async function refresh() {
-    const [rows, tags, allLists, counts] = await Promise.all([
+    const [rows, allLists, counts] = await Promise.all([
       all<Link>('links'),
-      tagsByLinkMap(),
       listResourceLists(),
       listMemberCounts(),
     ]);
     links = rows
       .filter((l) => l.is_resource)
       .sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
-    tagsByLink = tags;
     lists = allLists;
     listCounts = counts;
+    searchTags = null;
+    loading = false;
   }
 
   async function createList() {
@@ -78,7 +100,9 @@
     <input type="text" placeholder="New list…" bind:value={newListName} />
     <button type="submit" class="btn btn-primary" disabled={!newListName.trim()}>Create</button>
   </form>
-  {#if lists.length > 0}
+  {#if loading}
+    <p class="empty">Loading…</p>
+  {:else if lists.length > 0}
     <ul class="list-list">
       {#each lists as list (list.id)}
         <li>
@@ -93,16 +117,21 @@
   {/if}
 </Card>
 
-<Card title={`Resources (${visible.length})`}>
+<Card title={`Resources (${filtered.length.toLocaleString()})`}>
   <div class="search-row">
     <SearchInput bind:value={search} />
   </div>
-  <LinkList
-    links={visible}
-    {tagsByLink}
-    onChange={onRowChange}
-    empty={search ? 'No resources match your search.' : "No resources yet — hit ⚒ on any link that's a tool rather than an article."}
-  />
+  {#if loading}
+    <p class="empty">Loading…</p>
+  {:else}
+    <LinkList
+      links={visible}
+      tagsByLink={pageTags}
+      onChange={onRowChange}
+      empty={search ? 'No resources match your search.' : "No resources yet — hit ⚒ on any link that's a tool rather than an article."}
+    />
+    <Pagination total={filtered.length} pageSize={PAGE_SIZE} bind:page label="resources" />
+  {/if}
 </Card>
 </div>
 
@@ -115,6 +144,12 @@
 
   .search-row {
     margin-bottom: var(--space-3);
+  }
+
+  .empty {
+    color: var(--text-muted-color);
+    text-align: center;
+    padding: var(--space-5) 0;
   }
 
   .hint {
