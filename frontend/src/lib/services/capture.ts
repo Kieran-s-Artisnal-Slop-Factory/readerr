@@ -123,6 +123,8 @@ export interface CaptureAssign {
   markDone?: boolean;
   /** URL cleaning; omitted = the user_settings default. */
   stripMode?: StripMode;
+  /** Fetch titles for bare links; omitted = the user_settings default. */
+  autoTitle?: boolean;
 }
 
 /**
@@ -173,30 +175,55 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
     if (assign?.weekStart) await setLinkWeek(link.id, assign.weekStart);
     if (assign?.markDone) await markLinkDone(link);
   }
-  void fetchTitles(added.filter((l) => !l.title_fetched));
+  // Only chase titles when auto-title is on (default true); otherwise bare
+  // links keep their URL as the title.
+  const autoTitle = assign?.autoTitle ?? settings?.auto_title ?? true;
+  if (autoTitle) void fetchTitles(added.filter((l) => !l.title_fetched));
   return { added, duplicates, invalid };
 }
 
+const TITLE_ATTEMPTS = 3;
+const TITLE_RETRY_MS = 400;
+
 /**
- * Resolve titles through the backend. Errors are swallowed — the row keeps
- * title_fetched = false and gets retried later.
+ * Resolve a title through the backend, retrying up to 3 times with 400ms
+ * between attempts. On success the link row is updated; on failure the link
+ * keeps its URL as the title (title_fetched stays false so a later pass can
+ * try again).
  */
+async function fetchTitle(link: Link, base: string): Promise<void> {
+  for (let attempt = 0; attempt < TITLE_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(`${base}/title?url=${encodeURIComponent(link.url)}`);
+      if (res.ok) {
+        const json = (await res.json()) as { ok: boolean; title?: string };
+        if (json.ok && json.title) {
+          await put<Link>('links', { ...link, title: json.title, title_fetched: true });
+          return;
+        }
+      }
+    } catch {
+      // network/parse error — fall through to retry
+    }
+    if (attempt < TITLE_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, TITLE_RETRY_MS));
+    }
+  }
+}
+
+/** Resolve titles for the given links (each retried; errors swallowed). */
 export async function fetchTitles(links: Link[]): Promise<void> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   const base = getSyncUrl();
-  await Promise.allSettled(
-    links.map(async (link) => {
-      const res = await fetch(`${base}/title?url=${encodeURIComponent(link.url)}`);
-      if (!res.ok) return;
-      const json = (await res.json()) as { ok: boolean; title?: string };
-      if (!json.ok || !json.title) return;
-      await put<Link>('links', { ...link, title: json.title, title_fetched: true });
-    })
-  );
+  await Promise.allSettled(links.map((link) => fetchTitle(link, base)));
 }
 
-/** Retry title resolution for every link still missing one. */
+/**
+ * Retry title resolution for every link still missing one — but only when
+ * auto-title is enabled, so leaving it off keeps bare links bare.
+ */
 export async function retryMissingTitles(): Promise<void> {
+  if ((await getUserSettings())?.auto_title === false) return;
   const links = await all<Link>('links');
   const missing = links.filter((l) => !l.title_fetched);
   if (missing.length > 0) await fetchTitles(missing);

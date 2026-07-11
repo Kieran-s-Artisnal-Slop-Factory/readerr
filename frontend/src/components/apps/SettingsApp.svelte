@@ -25,6 +25,7 @@
   let stripMode = $state<StripMode>('off');
   // One domain per line (or comma-separated) in the textarea.
   let whitelistText = $state('');
+  let autoTitle = $state(true);
 
   /** Example URLs demonstrating what the current cleaning setting does. */
   const STRIP_EXAMPLES = [
@@ -47,6 +48,11 @@
 
   async function saveStripMode() {
     await saveUserSettings({ strip_query_params: stripMode, strip_whitelist: whitelist });
+    message = 'Link handling saved.';
+  }
+
+  async function saveAutoTitle() {
+    await saveUserSettings({ auto_title: autoTitle });
     message = 'Link handling saved.';
   }
 
@@ -105,6 +111,7 @@
     const userSettings = await getUserSettings();
     stripMode = userSettings?.strip_query_params ?? 'off';
     whitelistText = (userSettings?.strip_whitelist ?? []).join('\n');
+    autoTitle = userSettings?.auto_title ?? true;
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
     } else {
@@ -281,6 +288,17 @@
           </li>
         {/each}
       </ul>
+
+      <label class="check" style="margin-top: var(--space-4);">
+        <input type="checkbox" bind:checked={autoTitle} onchange={saveAutoTitle} />
+        Automatically title bare links
+      </label>
+      <p class="muted" style="margin-top: var(--space-1); font-size: var(--font-size-sm);">
+        When a link is pasted without a title, fetch the page and use its
+        title (retrying a few times). This is the default for the "Auto-title"
+        checkbox on the capture box; requires a reachable sync server. Off
+        keeps bare links showing their URL.
+      </p>
     </Card>
 
     <Card title="Storage">
@@ -555,15 +573,15 @@
     flex-wrap: wrap;
   }
 
-  .template-row .check {
+  .check {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-2);
     margin: 0;
     cursor: pointer;
   }
 
-  .template-row .check input {
+  .check input {
     width: auto;
     margin: 0;
   }

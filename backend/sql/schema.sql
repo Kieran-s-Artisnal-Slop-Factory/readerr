@@ -26,6 +26,7 @@ CREATE TABLE user_settings (
     strip_query_params      TEXT NOT NULL DEFAULT 'off'
                             CHECK (strip_query_params IN ('off', 'trackers', 'all')),
     strip_whitelist         TEXT NOT NULL DEFAULT '[]', -- JSON array of exempt domains
+    auto_title              INTEGER NOT NULL DEFAULT 1, -- fetch titles for bare links
     updated_at              TEXT NOT NULL,
     deleted_at              TEXT,
     server_seq              INTEGER

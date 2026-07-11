@@ -43,6 +43,8 @@ export interface UserSettings extends SyncFields {
    * trackers-only cleaning instead, so e.g. a youtube.com ?v= survives.
    */
   strip_whitelist: string[];
+  /** Fetch page titles for bare (untitled) links on capture. */
+  auto_title: boolean;
 }
 
 export type PlanPeriod = 'week' | 'month';

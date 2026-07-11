@@ -28,28 +28,20 @@
   let loading = $state(true);
 
   const FILTER_OPTIONS = [
-    { value: 'unread', label: 'Unread' },
-    { value: 'read', label: 'Read' },
     { value: 'favourite', label: 'Favourites' },
     { value: 'resource', label: 'Resources' },
   ];
 
-  const filtered = $derived(
+  // The backlog is the unread triage queue: read links leave it (marking one
+  // read adds it to the current week) and slushed links live in the archive.
+  const ordered = $derived(
     links.filter((l) => {
-      if (l.slushed_at) return false; // marked done just now → moved to slush
-      if (filters.includes('unread') && l.read_at) return false;
-      if (filters.includes('read') && !l.read_at) return false;
+      if (l.read_at || l.slushed_at) return false;
       if (filters.includes('favourite') && !l.favourite) return false;
       if (filters.includes('resource') && !l.is_resource) return false;
       return matchesSearch(l, searchTags?.get(l.id) ?? [], search);
     })
   );
-
-  // Not-done items first (#15), then done, both newest first.
-  const ordered = $derived([
-    ...filtered.filter((l) => !l.read_at),
-    ...filtered.filter((l) => !!l.read_at),
-  ]);
   const visible = $derived(ordered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
 
   // Resolve tag chips for the visible page only.

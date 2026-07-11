@@ -20,6 +20,7 @@ export async function saveUserSettings(
       | 'onboarding_completed_at'
       | 'strip_query_params'
       | 'strip_whitelist'
+      | 'auto_title'
     >
   >
 ): Promise<UserSettings> {
@@ -34,6 +35,7 @@ export async function saveUserSettings(
       onboarding_completed_at: null,
       strip_query_params: 'off' as const,
       strip_whitelist: [] as string[],
+      auto_title: true,
       ...changes,
     })
   );

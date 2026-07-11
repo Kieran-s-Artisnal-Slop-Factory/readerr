@@ -104,6 +104,11 @@ CREATE INDEX idx_resource_list_links_seq ON resource_list_links (server_seq);
 CREATE INDEX idx_weeks_seq ON weeks (server_seq);
 CREATE INDEX idx_week_links_seq ON week_links (server_seq);
 `,
+	// v8 → v9: opt setting to auto-fetch titles for bare (untitled) links.
+	// Default on to preserve the previous always-fetch behavior.
+	`
+ALTER TABLE user_settings ADD COLUMN auto_title INTEGER NOT NULL DEFAULT 1;
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

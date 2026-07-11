@@ -20,6 +20,12 @@
   let excerpts = $state<Excerpt[]>([]);
   let history = $state<HistoryEntry[]>([]);
   let missing = $state(false);
+  // The note loads a tick after the link, so the Notes editor must wait for
+  // it — otherwise it mounts with '' before the note arrives (the editor
+  // only reads `value` at mount), showing an existing note as blank and
+  // overwriting it on the next keystroke.
+  let loaded = $state(false);
+  let creatingNote = $state(false);
   // Editing title/url is explicit (form + save) since it's rare.
   let editingMeta = $state(false);
   let editTitle = $state('');
@@ -42,6 +48,7 @@
       (a, b) => a.position - b.position
     );
     history = await weekHistoryForLink(id);
+    loaded = true;
   });
 
   function describeHistory(h: HistoryEntry): string {
@@ -64,8 +71,12 @@
     if (!link) return;
     if (note) {
       note = await put('notes', { ...note, body_md: md });
-    } else if (md.trim()) {
+    } else if (md.trim() && !creatingNote) {
+      // Lock so rapid debounced saves before the first put resolves can't
+      // create duplicate note rows.
+      creatingNote = true;
       note = await put('notes', withSyncFields({ link_id: link.id, body_md: md }));
+      creatingNote = false;
     }
   }
 
@@ -185,12 +196,16 @@
     </Card>
 
     <Card title="Notes">
-      <MarkdownEditor
-        value={note?.body_md ?? ''}
-        placeholder="Notes about this link…"
-        exportName={link.title}
-        onChange={saveNote}
-      />
+      {#if loaded}
+        <MarkdownEditor
+          value={note?.body_md ?? ''}
+          placeholder="Notes about this link…"
+          exportName={link.title}
+          onChange={saveNote}
+        />
+      {:else}
+        <p class="empty">Loading…</p>
+      {/if}
     </Card>
 
     <Card title="History">

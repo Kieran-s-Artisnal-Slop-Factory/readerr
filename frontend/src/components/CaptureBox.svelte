@@ -30,6 +30,7 @@
   // when checked is whatever that default says (falling back to trackers).
   let stripUrls = $state(false);
   let defaultStripMode = $state<StripMode>('trackers');
+  let autoTitle = $state(true);
 
   const selectionCount = $derived(
     selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
@@ -42,6 +43,7 @@
     const mode = settings?.strip_query_params ?? 'off';
     stripUrls = mode !== 'off';
     if (mode !== 'off') defaultStripMode = mode;
+    autoTitle = settings?.auto_title ?? true;
     await refreshOptions();
   });
 
@@ -73,6 +75,7 @@
         weekStart: selectedWeek || null,
         markDone,
         stripMode: stripUrls ? defaultStripMode : 'off',
+        autoTitle,
       });
       const parts = [`${added.length} added`];
       const labels = selectedTagIds.length + selectedTopicIds.length;
@@ -156,6 +159,10 @@
     >
       <input type="checkbox" bind:checked={stripUrls} />
       Clean URLs
+    </label>
+    <label class="done-check" title="Fetch page titles for links pasted without one (configure the default in Settings → Link handling).">
+      <input type="checkbox" bind:checked={autoTitle} />
+      Auto-title
     </label>
     <label class="done-check" title="Already read these? They join this week as done and slush if you don't write about them.">
       <input type="checkbox" bind:checked={markDone} />
