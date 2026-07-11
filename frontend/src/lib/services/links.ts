@@ -6,6 +6,47 @@ import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
 import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/types';
 
+/**
+ * Tags ordered by most-recent assignment to a link (the join row's
+ * updated_at), newest first; never-assigned tags follow, newest-created
+ * first. Used by the capture box so the tags you reach for most stay near
+ * the top when the list is long enough to paginate.
+ */
+export async function tagsByRecentUse(): Promise<Tag[]> {
+  const [tags, joins] = await Promise.all([all<Tag>('tags'), all<LinkTag>('link_tags')]);
+  const lastUse = new Map<string, string>();
+  for (const j of joins) {
+    const prev = lastUse.get(j.tag_id);
+    if (!prev || j.updated_at > prev) lastUse.set(j.tag_id, j.updated_at);
+  }
+  return tags.sort((a, b) => rankRecent(a, b, lastUse));
+}
+
+export async function topicsByRecentUse(): Promise<Topic[]> {
+  const [topics, joins] = await Promise.all([all<Topic>('topics'), all<LinkTopic>('link_topics')]);
+  const lastUse = new Map<string, string>();
+  for (const j of joins) {
+    const prev = lastUse.get(j.topic_id);
+    if (!prev || j.updated_at > prev) lastUse.set(j.topic_id, j.updated_at);
+  }
+  return topics.sort((a, b) => rankRecent(a, b, lastUse));
+}
+
+/** Sort by last assignment desc, then by own updated_at desc, then name. */
+function rankRecent(
+  a: SyncFields & { name: string },
+  b: SyncFields & { name: string },
+  lastUse: Map<string, string>
+): number {
+  const ua = lastUse.get(a.id);
+  const ub = lastUse.get(b.id);
+  if (ua && ub) return ua < ub ? 1 : ua > ub ? -1 : 0;
+  if (ua) return -1; // used beats never-used
+  if (ub) return 1;
+  if (a.updated_at !== b.updated_at) return a.updated_at < b.updated_at ? 1 : -1;
+  return a.name.localeCompare(b.name);
+}
+
 export async function tagsForLink(linkId: string): Promise<Tag[]> {
   const joins = await byIndex<LinkTag>('link_tags', 'link_id', linkId);
   const tags = await Promise.all(joins.map((j) => get<Tag>('tags', j.tag_id)));

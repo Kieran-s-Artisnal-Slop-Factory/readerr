@@ -9,6 +9,7 @@
   import ChipSelect from './ChipSelect.svelte';
   import { all, put, withSyncFields } from '../lib/db/repo';
   import { captureLinks } from '../lib/services/capture';
+  import { tagsByRecentUse, topicsByRecentUse } from '../lib/services/links';
   import { getUserSettings } from '../lib/services/settings';
   import { upcomingWeekOptions } from '../lib/services/weeks';
   import type { Link, StripMode, Tag, Topic } from '../lib/db/types';
@@ -45,9 +46,9 @@
   });
 
   async function refreshOptions() {
-    const [t, tp] = await Promise.all([all<Tag>('tags'), all<Topic>('topics')]);
-    tags = t.sort((a, b) => a.name.localeCompare(b.name));
-    topics = tp.sort((a, b) => a.name.localeCompare(b.name));
+    // Most-recently-assigned first, so frequent labels stay on the first
+    // page once the lists grow long enough to paginate.
+    [tags, topics] = await Promise.all([tagsByRecentUse(), topicsByRecentUse()]);
   }
 
   async function createTag(name: string): Promise<string> {
@@ -122,6 +123,7 @@
           items={tags}
           bind:selected={selectedTagIds}
           createPlaceholder="New tag…"
+          pageLabel="tags"
           onCreate={createTag}
         />
       </div>
@@ -131,6 +133,7 @@
           items={topics}
           bind:selected={selectedTopicIds}
           createPlaceholder="New topic…"
+          pageLabel="topics"
           onCreate={createTopic}
         />
       </div>

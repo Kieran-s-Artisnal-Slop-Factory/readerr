@@ -57,15 +57,40 @@ export function setSyncUrl(url: string): void {
   else localStorage.removeItem(SYNC_URL_KEY);
 }
 
+/**
+ * Human-readable message for the status codes worth explaining; anything
+ * else falls back to the raw status number + reason phrase.
+ */
+export function describeStatus(status: number, statusText: string): string {
+  switch (status) {
+    case 400:
+      return "The server rejected the request as invalid (400). This usually means the app and server versions don't match — update both to the same version.";
+    case 403:
+      return 'The server refused access (403). Check that this URL is the readerr sync server and that any proxy or firewall in front of it allows you through.';
+    case 404:
+      return "No sync server was found at that URL (404). Double-check the address and port — a plain web server or wrong path returns this. It should point at readerr's backend root.";
+    case 502:
+      return "The server is unreachable through its proxy (502 Bad Gateway). The readerr backend is probably down or restarting behind the reverse proxy — try again shortly.";
+    case 503:
+      return 'The server is temporarily unavailable (503). It may be starting up, overloaded, or in maintenance — try again in a moment.';
+    default: {
+      const reason = statusText || 'error';
+      if (status >= 500) {
+        return `The server returned an error (${status} ${reason}). Contact whoever runs it with these details.`;
+      }
+      return `The server returned ${status} ${reason}. Check the sync server URL in Settings.`;
+    }
+  }
+}
+
 /** Map an HTTP failure to a user-facing message; full details go to the console. */
 async function describeHttpError(phase: string, res: Response): Promise<string> {
   const body = await res.text().catch(() => '');
-  const detail = `${res.status} ${res.statusText || 'error'}`;
-  console.error(`[readerr sync] ${phase} failed: ${detail}`, body || '(no response body)');
-  if (res.status >= 500) {
-    return `Server experiencing errors, please contact your administrator with the following details: ${detail}`;
-  }
-  return `Cannot reach the sync server — check the server URL in Settings (${detail})`;
+  console.error(
+    `[readerr sync] ${phase} failed: ${res.status} ${res.statusText || 'error'}`,
+    body || '(no response body)'
+  );
+  return describeStatus(res.status, res.statusText);
 }
 
 function describeNetworkError(phase: string, err: unknown): string {

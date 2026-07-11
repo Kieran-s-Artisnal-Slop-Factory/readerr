@@ -4,7 +4,7 @@
   import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
   import { seedDataset } from '../../lib/db/seed';
-  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
+  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
   import { cleanUrl } from '../../lib/services/capture';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
   import { href } from '../../lib/paths';
@@ -81,6 +81,20 @@
     syncUrl = getSyncUrl();
     if (syncUrl) setSyncMode('sync'); // configuring a server opts back into syncing
     message = 'Sync server saved.';
+    syncTest = null; // a URL change invalidates the last test result
+  }
+
+  let testing = $state(false);
+  let syncTest = $state<{ ok: boolean; message: string } | null>(null);
+
+  async function testSyncServer() {
+    testing = true;
+    syncTest = null;
+    try {
+      syncTest = await testConnection(syncUrl);
+    } finally {
+      testing = false;
+    }
   }
 
   onMount(async () => {
@@ -312,9 +326,20 @@
           placeholder="e.g. http://192.168.1.10:8080"
         />
       </div>
-      <button class="btn btn-primary" onclick={runSync} disabled={syncing}>
-        {syncing ? 'Syncing…' : 'Sync now'}
-      </button>
+      {#if syncTest}
+        <div class="test-banner" class:ok={syncTest.ok} role="status">
+          {syncTest.ok ? '✅' : '⚠️'}
+          {syncTest.message}
+        </div>
+      {/if}
+      <div class="actions">
+        <button class="btn" onclick={testSyncServer} disabled={testing}>
+          {testing ? 'Testing…' : 'Test connection'}
+        </button>
+        <button class="btn btn-primary" onclick={runSync} disabled={syncing}>
+          {syncing ? 'Syncing…' : 'Sync now'}
+        </button>
+      </div>
     </Card>
 
     <Card title="Backup">
@@ -439,6 +464,21 @@
     border: 1px solid var(--color-primary);
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-3);
+  }
+
+  .test-banner {
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-3);
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    color: var(--text-color);
+  }
+
+  .test-banner.ok {
+    border-color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 14%, transparent);
   }
 
   .strip-preview {
