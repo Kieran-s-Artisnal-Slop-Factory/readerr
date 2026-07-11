@@ -144,16 +144,29 @@
     download(html, 'html', 'text/html');
   }
 
+  // Save the moment focus leaves the editor (clicking a link, a toolbar
+  // button, etc.) and when the page is being hidden/unloaded. An MPA
+  // navigation doesn't reliably run onDestroy, so without this a note typed
+  // within the last 400ms (the debounce window) would be lost on navigation.
+  function flushNow() {
+    flush();
+  }
+
   onMount(() => {
     void mountCrepe();
+    window.addEventListener('pagehide', flushNow);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushNow();
+    });
   });
 
   onDestroy(() => {
+    window.removeEventListener('pagehide', flushNow);
     void destroyEditor();
   });
 </script>
 
-<div class="editor">
+<div class="editor" onfocusout={flushNow}>
   <div class="editor-toolbar">
     <button type="button" class="export" title="Download as markdown" onclick={exportMarkdown}>
       ↓ MD

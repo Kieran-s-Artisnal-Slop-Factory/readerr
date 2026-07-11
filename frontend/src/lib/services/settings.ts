@@ -21,6 +21,7 @@ export async function saveUserSettings(
       | 'strip_query_params'
       | 'strip_whitelist'
       | 'auto_title'
+      | 'default_week'
     >
   >
 ): Promise<UserSettings> {
@@ -36,6 +37,7 @@ export async function saveUserSettings(
       strip_query_params: 'off' as const,
       strip_whitelist: [] as string[],
       auto_title: true,
+      default_week: 'none' as const,
       ...changes,
     })
   );

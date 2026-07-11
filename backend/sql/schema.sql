@@ -27,6 +27,8 @@ CREATE TABLE user_settings (
                             CHECK (strip_query_params IN ('off', 'trackers', 'all')),
     strip_whitelist         TEXT NOT NULL DEFAULT '[]', -- JSON array of exempt domains
     auto_title              INTEGER NOT NULL DEFAULT 1, -- fetch titles for bare links
+    default_week            TEXT NOT NULL DEFAULT 'none' -- capture: preselect reading week
+                            CHECK (default_week IN ('none', 'current')),
     updated_at              TEXT NOT NULL,
     deleted_at              TEXT,
     server_seq              INTEGER

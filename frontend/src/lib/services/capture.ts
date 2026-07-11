@@ -127,6 +127,8 @@ export interface CaptureAssign {
   stripMode?: StripMode;
   /** Fetch titles for bare links; omitted = the user_settings default. */
   autoTitle?: boolean;
+  /** Flag every captured link as a resource. */
+  isResource?: boolean;
 }
 
 /**
@@ -163,7 +165,7 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
         added_at: new Date().toISOString(),
         read_at: null,
         favourite: false,
-        is_resource: false,
+        is_resource: assign?.isResource ?? false,
         slushed_at: null,
       })
     );
@@ -175,7 +177,8 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
     for (const tagId of assign?.tagIds ?? []) await assignTag(link.id, tagId);
     for (const topicId of assign?.topicIds ?? []) await assignTopic(link.id, topicId);
     if (assign?.weekStart) await setLinkWeek(link.id, assign.weekStart);
-    if (assign?.markDone) await markLinkDone(link);
+    // Done from capture doesn't slush immediately (week-close still can).
+    if (assign?.markDone) await markLinkDone(link, false);
   }
   // Only chase titles when auto-title is on (default true); otherwise bare
   // links keep their URL as the title.

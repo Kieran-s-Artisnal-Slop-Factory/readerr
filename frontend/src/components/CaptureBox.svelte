@@ -25,7 +25,10 @@
   let selectedTopicIds = $state<string[]>([]);
   let selectedWeek = $state('');
   let markDone = $state(false);
+  let isResource = $state(false);
   let organizeOpen = $state(false);
+  // Remembers the default so it can be restored after each capture resets.
+  let defaultWeek = $state('');
   // Checkbox mirrors the Settings → Link handling default; the mode used
   // when checked is whatever that default says (falling back to trackers).
   let stripUrls = $state(false);
@@ -44,6 +47,11 @@
     stripUrls = mode !== 'off';
     if (mode !== 'off') defaultStripMode = mode;
     autoTitle = settings?.auto_title ?? true;
+    // Preselect this week's Monday when the default is 'current'.
+    if (settings?.default_week === 'current') {
+      defaultWeek = weekOptions[0]?.value ?? '';
+      selectedWeek = defaultWeek;
+    }
     await refreshOptions();
   });
 
@@ -74,6 +82,7 @@
         topicIds: selectedTopicIds,
         weekStart: selectedWeek || null,
         markDone,
+        isResource,
         stripMode: stripUrls ? defaultStripMode : 'off',
         autoTitle,
       });
@@ -81,6 +90,7 @@
       const labels = selectedTagIds.length + selectedTopicIds.length;
       if (labels > 0 && added.length > 0) parts.push(`${labels} label${labels === 1 ? '' : 's'} applied`);
       if (selectedWeek && added.length > 0) parts.push('queued for the week');
+      if (isResource && added.length > 0) parts.push('as resources');
       if (markDone && added.length > 0) parts.push('marked done');
       if (duplicates.length > 0) parts.push(`${duplicates.length} already saved`);
       if (invalid.length > 0) parts.push(`${invalid.length} not a link`);
@@ -88,8 +98,10 @@
       text = '';
       selectedTagIds = [];
       selectedTopicIds = [];
-      selectedWeek = '';
+      // Restore the default week rather than clearing (respects the setting).
+      selectedWeek = defaultWeek;
       markDone = false;
+      isResource = false;
       onAdded(added);
     } finally {
       busy = false;
@@ -164,7 +176,11 @@
       <input type="checkbox" bind:checked={autoTitle} />
       Auto-title
     </label>
-    <label class="done-check" title="Already read these? They join this week as done and slush if you don't write about them.">
+    <label class="done-check" title="Flag these as resources (tools, apps, references) rather than articles to read.">
+      <input type="checkbox" bind:checked={isResource} />
+      Resource
+    </label>
+    <label class="done-check" title="Already read these? They join this week as done.">
       <input type="checkbox" bind:checked={markDone} />
       Mark as done
     </label>

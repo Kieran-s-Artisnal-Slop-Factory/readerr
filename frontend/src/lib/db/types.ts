@@ -45,6 +45,8 @@ export interface UserSettings extends SyncFields {
   strip_whitelist: string[];
   /** Fetch page titles for bare (untitled) links on capture. */
   auto_title: boolean;
+  /** Capture default: leave the reading week unset, or preselect this week. */
+  default_week: 'none' | 'current';
 }
 
 export type PlanPeriod = 'week' | 'month';

@@ -26,6 +26,7 @@
   // One domain per line (or comma-separated) in the textarea.
   let whitelistText = $state('');
   let autoTitle = $state(true);
+  let defaultWeek = $state<'none' | 'current'>('none');
 
   /** Example URLs demonstrating what the current cleaning setting does. */
   const STRIP_EXAMPLES = [
@@ -53,6 +54,11 @@
 
   async function saveAutoTitle() {
     await saveUserSettings({ auto_title: autoTitle });
+    message = 'Link handling saved.';
+  }
+
+  async function saveDefaultWeek() {
+    await saveUserSettings({ default_week: defaultWeek });
     message = 'Link handling saved.';
   }
 
@@ -112,6 +118,7 @@
     stripMode = userSettings?.strip_query_params ?? 'off';
     whitelistText = (userSettings?.strip_whitelist ?? []).join('\n');
     autoTitle = userSettings?.auto_title ?? true;
+    defaultWeek = userSettings?.default_week ?? 'none';
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
     } else {
@@ -296,9 +303,18 @@
       <p class="muted" style="margin-top: var(--space-1); font-size: var(--font-size-sm);">
         When a link is pasted without a title, fetch the page and use its
         title (retrying a few times). This is the default for the "Auto-title"
-        checkbox on the capture box; requires a reachable sync server. Off
-        keeps bare links showing their URL.
+        checkbox on the capture box. With a sync server the fetch runs on the
+        backend; offline it's attempted in the browser (many sites block it).
+        Off keeps bare links showing their URL.
       </p>
+
+      <div style="margin-top: var(--space-4);">
+        <label for="set-default-week">Default reading week for captured links</label>
+        <select id="set-default-week" bind:value={defaultWeek} onchange={saveDefaultWeek}>
+          <option value="none">None — leave unscheduled (backlog only)</option>
+          <option value="current">This week — preselect the current week</option>
+        </select>
+      </div>
     </Card>
 
     <Card title="Storage">

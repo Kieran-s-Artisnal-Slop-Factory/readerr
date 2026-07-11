@@ -188,9 +188,10 @@ export async function topicsByLinkMap(): Promise<Map<string, Topic[]>> {
  * Mark a link done: it becomes part of the reading history. The link joins
  * the current week if it isn't queued for one already, its week entries
  * complete, and — unless it's favourited or referenced in a topic — it goes
- * straight to the slush archive.
+ * straight to the slush archive. Pass slush=false to skip that immediate
+ * slushing (the week-close pass still slushes unremarked links later).
  */
-export async function markLinkDone(link: Link): Promise<Link> {
+export async function markLinkDone(link: Link, slush = true): Promise<Link> {
   const now = new Date().toISOString();
   let pending = await pendingWeeksForLink(link.id);
   // Done now counts for the current week — a queued future-week assignment
@@ -209,7 +210,7 @@ export async function markLinkDone(link: Link): Promise<Link> {
     if (!entry.done_at) await put('week_links', { ...entry, done_at: now });
   }
   const topics = await topicsForLink(link.id);
-  const unremarked = !link.favourite && topics.length === 0;
+  const unremarked = slush && !link.favourite && topics.length === 0;
   return put('links', {
     ...link,
     read_at: link.read_at ?? now,

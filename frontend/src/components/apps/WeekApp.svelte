@@ -236,11 +236,6 @@
     await refresh();
   }
 
-  async function reopenEntry(entry: WeekLink) {
-    await setEntryDone(entry, false);
-    await refresh();
-  }
-
   async function onCloseWeek() {
     if (!week || closing) return;
     const open = toRead.length + review.length;
@@ -396,7 +391,6 @@
         <div class="entries">
           {#each done as { entry, link } (entry.id)}
             <div class="entry done-entry">
-              <button class="ctrl" title="Not done after all" onclick={() => reopenEntry(entry)}>↩</button>
               <div class="entry-row">
                 <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
               </div>
@@ -577,26 +571,27 @@
 
   .corner-remove {
     position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 1.3rem;
-    height: 1.3rem;
+    top: var(--space-2);
+    right: var(--space-2);
+    width: 1.9rem;
+    height: 1.9rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: none;
+    border: 1px solid var(--border-color);
     border-radius: var(--radius-full);
-    background: none;
-    color: var(--text-muted-color);
+    background: var(--surface-raised-color);
+    color: var(--color-danger);
     cursor: pointer;
-    font-size: var(--font-size-sm);
-    opacity: 0.6;
+    font-size: var(--font-size-base);
+    font-weight: 700;
+    line-height: 1;
   }
 
   .corner-remove:hover {
-    opacity: 1;
-    background: var(--color-primary-soft);
-    color: var(--color-danger);
+    background: var(--color-danger);
+    color: var(--color-on-primary);
+    border-color: var(--color-danger);
   }
 
   .stats {

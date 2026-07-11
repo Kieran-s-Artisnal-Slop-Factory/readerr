@@ -55,7 +55,8 @@ var tableOrder = []string{
 var tables = map[string]tableMeta{
 	"user_settings": {
 		columns: cols("id", "name", "articles_per_week", "focus_tag_ids",
-			"onboarding_completed_at", "strip_query_params", "strip_whitelist", "auto_title"),
+			"onboarding_completed_at", "strip_query_params", "strip_whitelist", "auto_title",
+			"default_week"),
 		jsonCols: set("strip_whitelist", "focus_tag_ids"),
 		boolCols: set("auto_title"),
 	},

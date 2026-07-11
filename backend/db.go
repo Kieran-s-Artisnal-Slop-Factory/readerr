@@ -109,6 +109,11 @@ CREATE INDEX idx_week_links_seq ON week_links (server_seq);
 	`
 ALTER TABLE user_settings ADD COLUMN auto_title INTEGER NOT NULL DEFAULT 1;
 `,
+	// v9 → v10: default reading week for captured links.
+	`
+ALTER TABLE user_settings ADD COLUMN default_week TEXT NOT NULL DEFAULT 'none'
+    CHECK (default_week IN ('none', 'current'));
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {
