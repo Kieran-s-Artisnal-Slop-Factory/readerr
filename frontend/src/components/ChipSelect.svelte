@@ -5,6 +5,8 @@
    * nothing is assigned until the caller acts on it. Used by CaptureBox to
    * pre-pick tags/topics for the links about to be captured.
    */
+  import Pagination from './Pagination.svelte';
+
   interface Item {
     id: string;
     name: string;
@@ -15,15 +17,28 @@
     selected = $bindable([]),
     createPlaceholder = 'New…',
     onCreate,
+    pageSize = 50,
+    pageLabel = 'items',
   }: {
     items: Item[];
     selected?: string[];
     createPlaceholder?: string;
     /** Create a new item and return its id; it gets selected automatically. */
     onCreate: (name: string) => Promise<string>;
+    /** Chips per page; the caller controls the ordering. */
+    pageSize?: number;
+    pageLabel?: string;
   } = $props();
 
   let newName = $state('');
+  let page = $state(0);
+
+  const pageItems = $derived(items.slice(page * pageSize, (page + 1) * pageSize));
+  // Selected chips must stay visible (and deselectable) even when the
+  // pager has moved past them.
+  const offPageSelected = $derived(
+    items.filter((i) => selected.includes(i.id) && !pageItems.some((p) => p.id === i.id))
+  );
 
   function toggle(id: string) {
     selected = selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id];
@@ -41,7 +56,7 @@
 
 <div class="chip-select">
   <div class="chips">
-    {#each items as item (item.id)}
+    {#each [...offPageSelected, ...pageItems] as item (item.id)}
       <button
         type="button"
         class="chip"
@@ -66,6 +81,7 @@
       onblur={() => void create()}
     />
   </div>
+  <Pagination total={items.length} {pageSize} bind:page label={pageLabel} />
 </div>
 
 <style>
