@@ -1,1 +1,6 @@
 1. Notes for individual links are not saving
+2. On the capture page add the option to search for tags/topics in the chipselector if there's more than 100 tags
+3. Remove the automatic slushing when marking links as done in the capture box
+4. Make the x to remove items in the this-week page more visible, and remove the "not done after all" button since un-reading the link should already handle that
+5. Add the ability to specify that the links being added are a resource in the capture box
+6. Add a setting that allows people to specify if they want links to default to no reading week (current behavior), or the current week pre-selected, when capturing links

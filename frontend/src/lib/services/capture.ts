@@ -3,17 +3,19 @@
  *
  * Capture is instant and fully offline — links are stored immediately with
  * title = url and title_fetched = false. Titles are then resolved
- * fire-and-forget through the backend's GET /title endpoint (the browser
- * can't fetch cross-origin pages itself); rows that still have
- * title_fetched = false are retried by retryMissingTitles() on backlog
- * mount, which is the whole retry mechanism — no queue needed.
+ * fire-and-forget: through the backend's GET /title endpoint when a sync
+ * server is available (it can read cross-origin pages the browser can't),
+ * or by a direct client-side fetch in offline-only mode (best effort — CORS
+ * limits which sites work). Rows that still have title_fetched = false are
+ * retried by retryMissingTitles() on backlog mount — the whole retry
+ * mechanism, no queue needed.
  */
 import { all, byIndex, bulkPut, put, withSyncFields } from '../db/repo';
 import type { Link, StripMode } from '../db/types';
 import { assignTag, assignTopic, markLinkDone } from './links';
 import { getUserSettings } from './settings';
 import { setLinkWeek } from './weeks';
-import { getSyncUrl } from '../sync';
+import { getSyncMode, getSyncUrl } from '../sync';
 
 /** Query params that only exist to track you — safe to drop from any URL. */
 const TRACKING_PARAMS = [
@@ -184,26 +186,59 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
 
 const TITLE_ATTEMPTS = 3;
 const TITLE_RETRY_MS = 400;
+const MAX_TITLE_LEN = 300;
+
+/** Ask the backend's /title endpoint. Returns the title or null. */
+async function fetchTitleViaBackend(url: string, base: string): Promise<string | null> {
+  const res = await fetch(`${base}/title?url=${encodeURIComponent(url)}`);
+  if (!res.ok) return null;
+  const json = (await res.json()) as { ok: boolean; title?: string };
+  return json.ok && json.title ? json.title : null;
+}
 
 /**
- * Resolve a title through the backend, retrying up to 3 times with 400ms
- * between attempts. On success the link row is updated; on failure the link
- * keeps its URL as the title (title_fetched stays false so a later pass can
- * try again).
+ * Fetch the page directly from the browser and extract its title — the
+ * offline-mode fallback when there's no backend. Mirrors the backend's
+ * extraction (og:title, then <title>). Cross-origin CORS blocks the body
+ * for most sites, so this succeeds only where the site allows it; failures
+ * fall back to the URL as title, same as the backend path.
  */
-async function fetchTitle(link: Link, base: string): Promise<void> {
+async function fetchTitleViaClient(url: string): Promise<string | null> {
+  const res = await fetch(url, { headers: { Accept: 'text/html' } });
+  if (!res.ok) return null;
+  const html = await res.text();
+  const og =
+    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ??
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+  const raw = og?.[1] ?? html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  if (!raw) return null;
+  // Decode entities via a detached textarea, collapse whitespace, cap length.
+  const el = document.createElement('textarea');
+  el.innerHTML = raw;
+  const title = el.value.trim().replace(/\s+/g, ' ').slice(0, MAX_TITLE_LEN);
+  return title || null;
+}
+
+/**
+ * Resolve a title, retrying up to 3 times with 400ms between attempts. The
+ * source depends on mode: the backend /title endpoint when a sync server is
+ * available, otherwise a direct client-side fetch (offline mode). On success
+ * the link row is updated; on failure the link keeps its URL as the title
+ * (title_fetched stays false so a later pass can try again).
+ */
+async function fetchTitle(link: Link, mode: 'backend' | 'client', base: string): Promise<void> {
   for (let attempt = 0; attempt < TITLE_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(`${base}/title?url=${encodeURIComponent(link.url)}`);
-      if (res.ok) {
-        const json = (await res.json()) as { ok: boolean; title?: string };
-        if (json.ok && json.title) {
-          await put<Link>('links', { ...link, title: json.title, title_fetched: true });
-          return;
-        }
+      const title =
+        mode === 'backend'
+          ? await fetchTitleViaBackend(link.url, base)
+          : await fetchTitleViaClient(link.url);
+      if (title) {
+        await put<Link>('links', { ...link, title, title_fetched: true });
+        return;
       }
     } catch {
-      // network/parse error — fall through to retry
+      // network/CORS/parse error — fall through to retry
     }
     if (attempt < TITLE_ATTEMPTS - 1) {
       await new Promise((r) => setTimeout(r, TITLE_RETRY_MS));
@@ -211,11 +246,16 @@ async function fetchTitle(link: Link, base: string): Promise<void> {
   }
 }
 
-/** Resolve titles for the given links (each retried; errors swallowed). */
+/**
+ * Resolve titles for the given links (each retried; errors swallowed). Uses
+ * the backend when syncing is on (a server, even same-origin, is available);
+ * in offline-only mode it fetches client-side instead.
+ */
 export async function fetchTitles(links: Link[]): Promise<void> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  const mode = getSyncMode() === 'offline' ? 'client' : 'backend';
   const base = getSyncUrl();
-  await Promise.allSettled(links.map((link) => fetchTitle(link, base)));
+  await Promise.allSettled(links.map((link) => fetchTitle(link, mode, base)));
 }
 
 /**
