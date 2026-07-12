@@ -114,6 +114,17 @@ ALTER TABLE user_settings ADD COLUMN auto_title INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE user_settings ADD COLUMN default_week TEXT NOT NULL DEFAULT 'none'
     CHECK (default_week IN ('none', 'current'));
 `,
+	// v10 → v11: weeks-ahead offset for the capture default week. Meaningful
+	// only when default_week = 'current'; 0 = this week, N = N weeks ahead.
+	`
+ALTER TABLE user_settings ADD COLUMN default_week_offset INTEGER NOT NULL DEFAULT 0;
+`,
+	// v11 → v12: yearly-archival preferences. Archived rows are a local-only
+	// IndexedDB store (see yearly-archival.md); only the settings sync.
+	`
+ALTER TABLE user_settings ADD COLUMN archive_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE user_settings ADD COLUMN archive_after_months INTEGER NOT NULL DEFAULT 24;
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

@@ -49,7 +49,20 @@ const MIGRATIONS: Migration[] = [
       joins.createIndex('link_id', 'link_id', { multiEntry: false });
     }
   },
+  // v5 — the archive store (see yearly-archival.md). Local-only: NOT in
+  // STORES, so it never syncs; archived links are hard-moved here out of the
+  // hot `links` store. Mirrors the links shape.
+  (db) => {
+    if (!db.objectStoreNames.contains('archived_links')) {
+      const store = db.createObjectStore('archived_links', { keyPath: 'id' });
+      store.createIndex('added_at', 'added_at', { multiEntry: false });
+      store.createIndex('slushed_at', 'slushed_at', { multiEntry: false });
+    }
+  },
 ];
+
+/** Local-only stores that live in IndexedDB but never sync or appear in STORES. */
+export const LOCAL_STORES = ['archived_links'];
 
 export const DB_VERSION = MIGRATIONS.length;
 

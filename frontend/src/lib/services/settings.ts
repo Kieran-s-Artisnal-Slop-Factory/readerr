@@ -22,6 +22,9 @@ export async function saveUserSettings(
       | 'strip_whitelist'
       | 'auto_title'
       | 'default_week'
+      | 'default_week_offset'
+      | 'archive_enabled'
+      | 'archive_after_months'
     >
   >
 ): Promise<UserSettings> {
@@ -38,6 +41,9 @@ export async function saveUserSettings(
       strip_whitelist: [] as string[],
       auto_title: true,
       default_week: 'none' as const,
+      default_week_offset: 0,
+      archive_enabled: false,
+      archive_after_months: 24,
       ...changes,
     })
   );

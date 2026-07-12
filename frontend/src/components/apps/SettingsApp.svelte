@@ -4,6 +4,7 @@
   import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
   import { seedDataset } from '../../lib/db/seed';
+  import { archivableCount, archivedCount, archiveNow } from '../../lib/services/archive';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
   import { cleanUrl } from '../../lib/services/capture';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
@@ -26,7 +27,38 @@
   // One domain per line (or comma-separated) in the textarea.
   let whitelistText = $state('');
   let autoTitle = $state(true);
-  let defaultWeek = $state<'none' | 'current'>('none');
+  // 'custom' is a UI-only mode: stored as default_week='current' + an offset.
+  let defaultWeekMode = $state<'none' | 'current' | 'custom'>('none');
+  let defaultWeekOffset = $state(1);
+  // Archival
+  let archiveEnabled = $state(false);
+  let archiveMonths = $state(24);
+  let archivable = $state(0);
+  let archived = $state(0);
+  let archiving = $state(false);
+
+  async function refreshArchiveCounts() {
+    archivable = await archivableCount(archiveMonths);
+    archived = await archivedCount();
+  }
+
+  async function saveArchival() {
+    archiveMonths = Math.max(1, Math.round(archiveMonths) || 24);
+    await saveUserSettings({ archive_enabled: archiveEnabled, archive_after_months: archiveMonths });
+    await refreshArchiveCounts();
+    message = 'Archival settings saved.';
+  }
+
+  async function runArchiveNow() {
+    archiving = true;
+    try {
+      const moved = await archiveNow(archiveMonths);
+      await refreshArchiveCounts();
+      message = `Archived ${moved.toLocaleString()} link${moved === 1 ? '' : 's'}.`;
+    } finally {
+      archiving = false;
+    }
+  }
 
   /** Example URLs demonstrating what the current cleaning setting does. */
   const STRIP_EXAMPLES = [
@@ -58,7 +90,15 @@
   }
 
   async function saveDefaultWeek() {
-    await saveUserSettings({ default_week: defaultWeek });
+    if (defaultWeekMode === 'none') {
+      await saveUserSettings({ default_week: 'none', default_week_offset: 0 });
+    } else if (defaultWeekMode === 'current') {
+      await saveUserSettings({ default_week: 'current', default_week_offset: 0 });
+    } else {
+      const n = Math.min(12, Math.max(1, Math.round(defaultWeekOffset) || 1));
+      defaultWeekOffset = n;
+      await saveUserSettings({ default_week: 'current', default_week_offset: n });
+    }
     message = 'Link handling saved.';
   }
 
@@ -118,7 +158,13 @@
     stripMode = userSettings?.strip_query_params ?? 'off';
     whitelistText = (userSettings?.strip_whitelist ?? []).join('\n');
     autoTitle = userSettings?.auto_title ?? true;
-    defaultWeek = userSettings?.default_week ?? 'none';
+    const dw = userSettings?.default_week ?? 'none';
+    const off = userSettings?.default_week_offset ?? 0;
+    defaultWeekMode = dw === 'none' ? 'none' : off > 0 ? 'custom' : 'current';
+    defaultWeekOffset = off > 0 ? off : 1;
+    archiveEnabled = userSettings?.archive_enabled ?? false;
+    archiveMonths = userSettings?.archive_after_months ?? 24;
+    void refreshArchiveCounts();
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
     } else {
@@ -310,11 +356,26 @@
 
       <div style="margin-top: var(--space-4);">
         <label for="set-default-week">Default reading week for captured links</label>
-        <select id="set-default-week" bind:value={defaultWeek} onchange={saveDefaultWeek}>
+        <select id="set-default-week" bind:value={defaultWeekMode} onchange={saveDefaultWeek}>
           <option value="none">None — leave unscheduled (backlog only)</option>
           <option value="current">This week — preselect the current week</option>
+          <option value="custom">Custom — a set number of weeks ahead</option>
         </select>
       </div>
+      {#if defaultWeekMode === 'custom'}
+        <div class="week-offset-row">
+          <label for="set-week-offset">Weeks ahead</label>
+          <input
+            id="set-week-offset"
+            type="number"
+            min="1"
+            max="12"
+            bind:value={defaultWeekOffset}
+            onchange={saveDefaultWeek}
+          />
+          <span class="muted">(1–12; captured links preselect that week)</span>
+        </div>
+      {/if}
     </Card>
 
     <Card title="Storage">
@@ -455,6 +516,40 @@
             Export range
           </button>
         </div>
+      </div>
+    </Card>
+
+    <Card title="Archival">
+      <p class="muted" style="margin-bottom: var(--space-3);">
+        As your library grows, moving old, cold links out of the main view
+        keeps everything fast. Archival relocates <strong>slushed links</strong>
+        (read, but not favourited or in a topic) older than the age below into
+        a separate <strong>Archive</strong> tab — still searchable, and
+        reversible. Nothing else is ever touched.
+      </p>
+      <label class="check">
+        <input type="checkbox" bind:checked={archiveEnabled} onchange={saveArchival} />
+        Enable archival mode
+      </label>
+      <div class="week-offset-row" style="margin-top: var(--space-3);">
+        <label for="set-archive-months">Archive slushed links older than</label>
+        <input
+          id="set-archive-months"
+          type="number"
+          min="1"
+          bind:value={archiveMonths}
+          onchange={saveArchival}
+        />
+        <span class="muted">months</span>
+      </div>
+      <p class="muted" style="margin-top: var(--space-3); font-size: var(--font-size-sm);">
+        {archivable.toLocaleString()} link{archivable === 1 ? '' : 's'} currently
+        archivable · {archived.toLocaleString()} already archived.
+      </p>
+      <div class="actions">
+        <button class="btn" onclick={runArchiveNow} disabled={archiving || archivable === 0}>
+          {archiving ? 'Archiving…' : 'Archive now'}
+        </button>
       </div>
     </Card>
 
@@ -600,6 +695,17 @@
   .check input {
     width: auto;
     margin: 0;
+  }
+
+  .week-offset-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+
+  .week-offset-row input {
+    width: 5rem;
   }
 
   .seed-slider {

@@ -45,8 +45,14 @@ export interface UserSettings extends SyncFields {
   strip_whitelist: string[];
   /** Fetch page titles for bare (untitled) links on capture. */
   auto_title: boolean;
-  /** Capture default: leave the reading week unset, or preselect this week. */
+  /** Capture default: leave the reading week unset, or preselect a week. */
   default_week: 'none' | 'current';
+  /** Weeks ahead of the current week to preselect (0 = this week). */
+  default_week_offset: number;
+  /** Yearly archival: move cold slushed links out of the hot store. */
+  archive_enabled: boolean;
+  /** Slushed links older than this many months are archivable. */
+  archive_after_months: number;
 }
 
 export type PlanPeriod = 'week' | 'month';

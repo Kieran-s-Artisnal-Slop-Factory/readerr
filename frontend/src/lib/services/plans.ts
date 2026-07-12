@@ -62,6 +62,20 @@ export async function deletePlan(id: string): Promise<void> {
   await softDelete('plans', id);
 }
 
+/**
+ * The plan governing a given week: its own weekly plan if one exists,
+ * otherwise the monthly plan covering it, otherwise null. Used by the
+ * calendar to show what's planned for each week.
+ */
+export async function governingPlan(weekStart: string): Promise<Plan | null> {
+  const plans = await listPlans();
+  return (
+    plans.find((p) => p.period === 'week' && p.starts_on === weekStart) ??
+    plans.find((p) => p.period === 'month' && p.starts_on === monthStartOf(weekStart)) ??
+    null
+  );
+}
+
 export interface EffectiveTriage {
   quota: number | null;
   /** Suggestion quota splits across these; empty = no focus. */

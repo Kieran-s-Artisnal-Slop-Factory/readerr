@@ -36,6 +36,16 @@ export function weekStartPlus(weekStart: string, weeks: number): string {
   return weekStartOf(d);
 }
 
+/** The (open, else any) week row for a Monday without creating one. */
+export async function findWeek(weekStart: string): Promise<Week | null> {
+  const weeks = await all<Week>('weeks');
+  return (
+    weeks.find((w) => w.week_start === weekStart && !w.closed_at) ??
+    weeks.find((w) => w.week_start === weekStart) ??
+    null
+  );
+}
+
 /**
  * The OPEN week row for a given Monday, creating it if needed. A closed
  * week for the same Monday stays closed — links queue into a fresh row.
@@ -97,12 +107,12 @@ export async function setEntryDone(entry: WeekLink, done: boolean): Promise<Week
   return put('week_links', { ...entry, done_at: done ? new Date().toISOString() : null });
 }
 
-/** The Monday options offered by week pickers: this week + the next four. */
-export function upcomingWeekOptions(): { value: string; label: string }[] {
+/** The Monday options offered by week pickers: this week + the next `count`. */
+export function upcomingWeekOptions(count = 12): { value: string; label: string }[] {
   const thisWeek = currentWeekStart();
   const fmt = (ws: string) =>
     new Date(`${ws}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  return [0, 1, 2, 3, 4].map((n) => {
+  return Array.from({ length: count + 1 }, (_, n) => {
     const ws = weekStartPlus(thisWeek, n);
     return { value: ws, label: n === 0 ? `This week (${fmt(ws)})` : `Week of ${fmt(ws)}` };
   });

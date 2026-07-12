@@ -47,9 +47,10 @@
     stripUrls = mode !== 'off';
     if (mode !== 'off') defaultStripMode = mode;
     autoTitle = settings?.auto_title ?? true;
-    // Preselect this week's Monday when the default is 'current'.
+    // Preselect the configured default week (this week, or N weeks ahead).
     if (settings?.default_week === 'current') {
-      defaultWeek = weekOptions[0]?.value ?? '';
+      const offset = Math.max(0, settings.default_week_offset ?? 0);
+      defaultWeek = weekOptions[offset]?.value ?? weekOptions[0]?.value ?? '';
       selectedWeek = defaultWeek;
     }
     await refreshOptions();

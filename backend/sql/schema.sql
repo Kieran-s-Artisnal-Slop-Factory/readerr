@@ -29,6 +29,9 @@ CREATE TABLE user_settings (
     auto_title              INTEGER NOT NULL DEFAULT 1, -- fetch titles for bare links
     default_week            TEXT NOT NULL DEFAULT 'none' -- capture: preselect reading week
                             CHECK (default_week IN ('none', 'current')),
+    default_week_offset     INTEGER NOT NULL DEFAULT 0,  -- weeks ahead when 'current'
+    archive_enabled         INTEGER NOT NULL DEFAULT 0,  -- yearly-archival mode
+    archive_after_months    INTEGER NOT NULL DEFAULT 24, -- slushed-link archival age
     updated_at              TEXT NOT NULL,
     deleted_at              TEXT,
     server_seq              INTEGER

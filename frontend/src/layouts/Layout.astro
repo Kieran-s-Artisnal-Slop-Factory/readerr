@@ -2,6 +2,7 @@
 import '../styles/theme.css';
 import '../styles/global.css';
 import Navbar from '../components/Navbar.svelte';
+import ArchiveSuggestModal from '../components/ArchiveSuggestModal.svelte';
 import { href } from '../lib/paths';
 
 interface Props {
@@ -76,6 +77,7 @@ const swScope = href('/');
         }
       }
     </script>
+    {!noNav && <ArchiveSuggestModal client:load />}
     <main class="page">
       <slot />
     </main>

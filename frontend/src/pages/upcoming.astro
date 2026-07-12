@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import UpcomingApp from '../components/apps/UpcomingApp.svelte';
+---
+
+<Layout title="Upcoming weeks">
+  <UpcomingApp client:only="svelte" />
+</Layout>

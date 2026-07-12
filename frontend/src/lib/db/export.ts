@@ -15,7 +15,7 @@
  * Importing anything but a full backup MERGES rows in by id — nothing is
  * cleared — so partial exports can never wipe a fuller dataset.
  */
-import { getDB, DB_NAME, DB_VERSION } from './db';
+import { getDB, DB_NAME, DB_VERSION, LOCAL_STORES } from './db';
 import { STORES } from './types';
 import type { Excerpt, Link, LinkTag, LinkTopic, Note, SyncFields } from './types';
 
@@ -38,7 +38,8 @@ export interface ExportEnvelope {
 async function fullData(): Promise<Record<string, unknown[]>> {
   const db = await getDB();
   const data: Record<string, unknown[]> = {};
-  for (const name of Object.keys(STORES)) {
+  // Synced stores plus the local-only archive, so a full backup loses nothing.
+  for (const name of [...Object.keys(STORES), ...LOCAL_STORES]) {
     data[name] = await db.getAll(name);
   }
   return data;
@@ -179,7 +180,7 @@ export async function importData(envelope: ExportEnvelope): Promise<ImportResult
   }
 
   const replace = (envelope.scope ?? 'full') === 'full';
-  const known = new Set(Object.keys(STORES));
+  const known = new Set([...Object.keys(STORES), ...LOCAL_STORES]);
   const names = Object.keys(envelope.data).filter((n) => known.has(n));
 
   const db = await getDB();

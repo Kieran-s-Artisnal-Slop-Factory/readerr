@@ -6,25 +6,36 @@
   let open = $state(false);
   let online = $state(true);
   let collectionsOpen = $state(false);
+  let plansOpen = $state(false);
+  let archiveEnabled = $state(false);
 
   onMount(() => {
     // Opportunistic background sync, throttled internally.
     import('../lib/sync').then(({ maybeAutoSync }) => maybeAutoSync());
+    // The Archive collection only appears once archival mode is enabled.
+    import('../lib/services/settings').then(async ({ getUserSettings }) => {
+      archiveEnabled = (await getUserSettings())?.archive_enabled ?? false;
+    });
+    // Trim the hot store in the background when archival is on (throttled).
+    import('../lib/services/archive').then(({ maybeAutoArchive }) => maybeAutoArchive());
 
     online = navigator.onLine;
     const goOnline = () => (online = true);
     const goOffline = () => (online = false);
     window.addEventListener('online', goOnline);
     window.addEventListener('offline', goOffline);
-    // Close the collections dropdown on any outside click.
-    const closeCollections = (e) => {
-      if (!e.target.closest?.('.collections')) collectionsOpen = false;
+    // Close any open dropdown on a click outside the nav dropdowns.
+    const closeMenus = (e) => {
+      if (!e.target.closest?.('.navdrop')) {
+        collectionsOpen = false;
+        plansOpen = false;
+      }
     };
-    window.addEventListener('click', closeCollections);
+    window.addEventListener('click', closeMenus);
     return () => {
       window.removeEventListener('online', goOnline);
       window.removeEventListener('offline', goOffline);
-      window.removeEventListener('click', closeCollections);
+      window.removeEventListener('click', closeMenus);
     };
   });
 
@@ -32,16 +43,21 @@
     { href: href('/'), label: 'Backlog' },
     { href: href('/week/'), label: 'This Week' },
     { href: href('/favourites/'), label: 'Favourites' },
-    { href: href('/plan/'), label: 'Plan' },
     { href: href('/stats/'), label: 'Stats' },
   ];
 
-  const collections = [
+  const plans = [
+    { href: href('/plan/'), label: 'Automation' },
+    { href: href('/upcoming/'), label: 'Upcoming weeks' },
+  ];
+
+  const collections = $derived([
     { href: href('/tags/'), label: 'Tags' },
     { href: href('/topics/'), label: 'Topics' },
     { href: href('/resources/'), label: 'Resources' },
     { href: href('/slush/'), label: 'Slush' },
-  ];
+    ...(archiveEnabled ? [{ href: href('/archive/'), label: 'Archive' }] : []),
+  ]);
 
   const settingsHref = href('/settings/');
 
@@ -51,10 +67,20 @@
   const inCollections = () =>
     collections.some((c) => isCurrent(c.href)) ||
     ['/tag', '/topic', '/resource-list', '/link'].some((p) => normalize(currentPath).startsWith(p));
+  const inPlans = () => plans.some((p) => isCurrent(p.href));
 
+  function toggleCollections() {
+    collectionsOpen = !collectionsOpen;
+    plansOpen = false;
+  }
+  function togglePlans() {
+    plansOpen = !plansOpen;
+    collectionsOpen = false;
+  }
   function closeAll() {
     open = false;
     collectionsOpen = false;
+    plansOpen = false;
   }
 </script>
 
@@ -81,35 +107,47 @@
 
   <nav id="site-nav" class:open>
     {#each links as link}
-      <a
-        href={link.href}
-        aria-current={isCurrent(link.href) ? 'page' : undefined}
-        onclick={closeAll}
-      >
+      <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined} onclick={closeAll}>
         {link.label}
       </a>
     {/each}
 
-    <div class="collections">
+    <div class="navdrop">
       <button
         type="button"
-        class="collections-toggle"
+        class="navdrop-toggle"
+        class:active={inPlans()}
+        aria-expanded={plansOpen}
+        aria-haspopup="true"
+        onclick={togglePlans}
+      >
+        Plans <span class="caret">{plansOpen ? '▴' : '▾'}</span>
+      </button>
+      <span class="navdrop-label">Plans</span>
+      <div class="navdrop-menu" class:open={plansOpen} role="menu">
+        {#each plans as link}
+          <a href={link.href} role="menuitem" aria-current={isCurrent(link.href) ? 'page' : undefined} onclick={closeAll}>
+            {link.label}
+          </a>
+        {/each}
+      </div>
+    </div>
+
+    <div class="navdrop">
+      <button
+        type="button"
+        class="navdrop-toggle"
         class:active={inCollections()}
         aria-expanded={collectionsOpen}
         aria-haspopup="true"
-        onclick={() => (collectionsOpen = !collectionsOpen)}
+        onclick={toggleCollections}
       >
         Collections <span class="caret">{collectionsOpen ? '▴' : '▾'}</span>
       </button>
-      <span class="collections-label">Collections</span>
-      <div class="collections-menu" class:open={collectionsOpen} role="menu">
+      <span class="navdrop-label">Collections</span>
+      <div class="navdrop-menu" class:open={collectionsOpen} role="menu">
         {#each collections as link}
-          <a
-            href={link.href}
-            role="menuitem"
-            aria-current={isCurrent(link.href) ? 'page' : undefined}
-            onclick={closeAll}
-          >
+          <a href={link.href} role="menuitem" aria-current={isCurrent(link.href) ? 'page' : undefined} onclick={closeAll}>
             {link.label}
           </a>
         {/each}
@@ -195,11 +233,11 @@
     color: var(--color-primary-strong);
   }
 
-  .collections {
+  .navdrop {
     position: relative;
   }
 
-  .collections-toggle {
+  .navdrop-toggle {
     border: none;
     background: none;
     color: var(--text-muted-color);
@@ -211,11 +249,11 @@
     font-family: inherit;
   }
 
-  .collections-toggle:hover {
+  .navdrop-toggle:hover {
     color: var(--text-color);
   }
 
-  .collections-toggle.active {
+  .navdrop-toggle.active {
     background: var(--color-primary-soft);
     color: var(--color-primary-strong);
   }
@@ -225,16 +263,16 @@
   }
 
   /* Mobile-only group label; hidden on desktop. */
-  .collections-label {
+  .navdrop-label {
     display: none;
   }
 
-  .collections-menu {
+  .navdrop-menu {
     display: none;
     position: absolute;
     top: calc(100% + var(--space-1));
     right: 0;
-    min-width: 9rem;
+    min-width: 10rem;
     flex-direction: column;
     background: var(--surface-raised-color);
     border: 1px solid var(--border-color);
@@ -244,11 +282,11 @@
     z-index: 20;
   }
 
-  .collections-menu.open {
+  .navdrop-menu.open {
     display: flex;
   }
 
-  .collections-menu a {
+  .navdrop-menu a {
     border-radius: var(--radius-sm);
     padding: var(--space-2) var(--space-3);
   }
@@ -325,12 +363,12 @@
       font-size: var(--font-size-base);
     }
 
-    /* On mobile the dropdown flattens into a labelled group. */
-    .collections-toggle {
+    /* On mobile the dropdowns flatten into labelled groups. */
+    .navdrop-toggle {
       display: none;
     }
 
-    .collections-label {
+    .navdrop-label {
       display: block;
       padding: var(--space-2) var(--space-3) 0;
       font-size: var(--font-size-sm);
@@ -339,7 +377,7 @@
       letter-spacing: 0.08em;
     }
 
-    .collections-menu {
+    .navdrop-menu {
       display: flex;
       position: static;
       border: none;

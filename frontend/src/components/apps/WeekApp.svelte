@@ -569,10 +569,11 @@
     color: var(--color-primary-strong);
   }
 
+  /* A flow sibling at the end of the entry row (not absolute) so it never
+   * overlaps the link's own action buttons. */
   .corner-remove {
-    position: absolute;
-    top: var(--space-2);
-    right: var(--space-2);
+    flex-shrink: 0;
+    align-self: center;
     width: 1.9rem;
     height: 1.9rem;
     display: inline-flex;
