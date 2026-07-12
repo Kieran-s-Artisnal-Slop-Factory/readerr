@@ -1,13 +1,16 @@
 <script lang="ts">
   /**
-   * This week's reading list, in three sections: To read (unfinished
-   * 'reading' entries), Review (unfinished slush re-reads), and Done.
-   * Marking a link read completes its entry; a week whose Monday has
-   * passed closes itself on page load — done links get their outcome
-   * (read/slushed) and everything unfinished returns to the backlog.
+   * The Reading List: a week's links in three sections — To read (unfinished
+   * 'reading' entries), Review (unfinished slush re-reads), and Done. Prev/
+   * Next scroll through weeks; the capture box and the week's own controls
+   * (suggestions, close) apply to the current open week. Marking a link read
+   * completes its entry; a week whose Monday has passed closes itself on
+   * load — done links get their outcome and everything unfinished returns to
+   * the backlog.
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
+  import CaptureBox from '../CaptureBox.svelte';
   import LinkRow from '../LinkRow.svelte';
   import { all, byIndex, get } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
@@ -17,18 +20,25 @@
     addLinkToWeek,
     autoCloseStaleWeeks,
     closeWeek,
+    currentWeekStart,
     ensureOpenWeek,
+    findWeek,
     removeFromWeek,
     reorderEntries,
     setEntryDone,
     suggestLinks,
     weekEntries,
+    weekStartPlus,
     type CloseResult,
     type WeekEntry,
   } from '../../lib/services/weeks';
   import type { Excerpt, Link, Note, Tag, Week, WeekLink } from '../../lib/db/types';
 
+  let loaded = $state(false);
   let week = $state<Week | null>(null);
+  // The actual current open week vs. the week currently being viewed.
+  let openWeekStart = $state(currentWeekStart());
+  let focusStart = $state(currentWeekStart());
   let entries = $state<WeekEntry[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
   let allLinks = $state<Link[]>([]);
@@ -39,6 +49,8 @@
   let triage = $state<EffectiveTriage | null>(null);
   let suggestions = $state<Link[]>([]);
   let focusTagName = $state('');
+
+  const isOpenWeek = $derived(focusStart === openWeekStart);
   /** Notes taken across this week's links (#6). */
   let stats = $state({ linksWithNotes: 0, excerpts: 0 });
 
@@ -91,8 +103,17 @@
     if (autoClosed) {
       message = `Last week ended and was closed automatically: ${describeClose(autoClosed)}.`;
     }
-    week = await ensureOpenWeek();
-    triage = await effectiveTriage(week.week_start);
+    const ow = await ensureOpenWeek();
+    openWeekStart = ow.week_start;
+    focusStart = ow.week_start;
+    await loadWeek();
+    loaded = true;
+  });
+
+  /** Load whichever week `focusStart` points at (may not have a row yet). */
+  async function loadWeek() {
+    week = await findWeek(focusStart);
+    triage = await effectiveTriage(focusStart);
     const names: string[] = [];
     for (const id of triage.focusTagIds) {
       const tag = await get<Tag>('tags', id);
@@ -100,10 +121,22 @@
     }
     focusTagName = names.join(' + ');
     await refresh();
-  });
+  }
+
+  async function navWeek(dir: -1 | 1) {
+    focusStart = weekStartPlus(focusStart, dir);
+    await loadWeek();
+  }
 
   async function refresh() {
-    if (!week) return;
+    if (!week) {
+      entries = [];
+      tagsByLink = new Map();
+      stats = { linksWithNotes: 0, excerpts: 0 };
+      suggestions = [];
+      allLinks = await all<Link>('links');
+      return;
+    }
     const [rows, everything] = await Promise.all([weekEntries(week.id), all<Link>('links')]);
     entries = rows;
     allLinks = everything;
@@ -248,8 +281,10 @@
     try {
       const result = await closeWeek(week);
       message = `Week closed: ${describeClose(result)}.`;
-      week = await ensureOpenWeek();
-      await refresh();
+      const ow = await ensureOpenWeek();
+      openWeekStart = ow.week_start;
+      focusStart = ow.week_start;
+      await loadWeek();
     } finally {
       closing = false;
     }
@@ -298,53 +333,66 @@
   </div>
 {/snippet}
 
-{#if week}
+{#if loaded}
   <div class="stack">
     {#if message}
       <p class="notice">{message}</p>
     {/if}
 
-    <Card title={`Week of ${formatWeek(week.week_start)} — ${done.length}/${entries.length} done`}>
+    <Card title="Capture">
+      <CaptureBox onAdded={() => loadWeek()} />
+    </Card>
+
+    <Card title={`${focusStart === currentWeekStart() ? 'This week' : `Week of ${formatWeek(focusStart)}`} — ${done.length}/${entries.length} done`}>
+      <div class="week-nav">
+        <button class="btn" onclick={() => navWeek(-1)}>← Previous</button>
+        <span class="muted">
+          {isOpenWeek ? 'Current reading week' : `Week of ${formatWeek(focusStart)}`}
+        </span>
+        <button class="btn" onclick={() => navWeek(1)}>Next →</button>
+      </div>
       {#if entries.length > 0}
         <p class="stats">
           Notes on {stats.linksWithNotes} of {entries.length} link{entries.length === 1 ? '' : 's'}
           · {stats.excerpts} excerpt{stats.excerpts === 1 ? '' : 's'}
         </p>
       {/if}
-      <form
-        class="adder"
-        onsubmit={(e) => {
-          e.preventDefault();
-          void addByUrl();
-        }}
-      >
-        <input
-          type="text"
-          placeholder="Paste a URL to add, or search your links…"
-          bind:value={query}
-        />
-        {#if queryIsUrl}
-          <button type="submit" class="btn btn-primary" disabled={adding}>
-            {adding ? 'Adding…' : 'Add link'}
-          </button>
+      {#if isOpenWeek}
+        <form
+          class="adder"
+          onsubmit={(e) => {
+            e.preventDefault();
+            void addByUrl();
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Paste a URL to add, or search your links…"
+            bind:value={query}
+          />
+          {#if queryIsUrl}
+            <button type="submit" class="btn btn-primary" disabled={adding}>
+              {adding ? 'Adding…' : 'Add link'}
+            </button>
+          {/if}
+        </form>
+        {#if matches.length > 0}
+          <ul class="matches">
+            {#each matches as match (match.id)}
+              <li>
+                <button type="button" class="match" onclick={() => addExisting(match)}>
+                  <span class="match-title">{match.title}</span>
+                  <span class="match-domain">{domainOf(match.url)}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {:else if query.trim() && !queryIsUrl}
+          <p class="no-match">No links match — paste a full URL to add a new one.</p>
         {/if}
-      </form>
-      {#if matches.length > 0}
-        <ul class="matches">
-          {#each matches as match (match.id)}
-            <li>
-              <button type="button" class="match" onclick={() => addExisting(match)}>
-                <span class="match-title">{match.title}</span>
-                <span class="match-domain">{domainOf(match.url)}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {:else if query.trim() && !queryIsUrl}
-        <p class="no-match">No links match — paste a full URL to add a new one.</p>
       {/if}
 
-      {#if quota !== null && underQuota > 0 && suggestions.length > 0}
+      {#if isOpenWeek && quota !== null && underQuota > 0 && suggestions.length > 0}
         <div class="suggestions">
           <div class="suggestions-head">
             <span>
@@ -403,11 +451,13 @@
       </Card>
     {/if}
 
-    <div class="close-row">
-      <button class="btn btn-danger" onclick={onCloseWeek} disabled={closing || entries.length === 0}>
-        {closing ? 'Closing…' : 'Close week'}
-      </button>
-    </div>
+    {#if isOpenWeek}
+      <div class="close-row">
+        <button class="btn btn-danger" onclick={onCloseWeek} disabled={closing || entries.length === 0}>
+          {closing ? 'Closing…' : 'Close week'}
+        </button>
+      </div>
+    {/if}
   </div>
 {:else}
   <p class="empty">Loading…</p>
@@ -426,6 +476,20 @@
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-3);
     margin: 0;
+  }
+
+  .week-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .week-nav .muted {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    text-align: center;
   }
 
   .adder {

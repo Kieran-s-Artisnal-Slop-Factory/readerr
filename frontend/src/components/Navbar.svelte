@@ -40,8 +40,8 @@
   });
 
   const links = [
-    { href: href('/'), label: 'Backlog' },
-    { href: href('/week/'), label: 'This Week' },
+    { href: href('/'), label: 'Reading List' },
+    { href: href('/backlog/'), label: 'Backlog' },
     { href: href('/favourites/'), label: 'Favourites' },
     { href: href('/stats/'), label: 'Stats' },
   ];

@@ -3,6 +3,8 @@ import Layout from '../layouts/Layout.astro';
 import WeekApp from '../components/apps/WeekApp.svelte';
 ---
 
-<Layout title="This Week">
+<!-- The Reading List now lives at the homepage; /week is kept as an alias so
+     old bookmarks and links keep working. -->
+<Layout title="Reading List">
   <WeekApp client:only="svelte" />
 </Layout>

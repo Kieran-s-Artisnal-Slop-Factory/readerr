@@ -112,7 +112,7 @@
     <Card title="Defaults">
       <p class="muted" style="margin-bottom: var(--space-3);">
         The quota and focus tag used whenever no plan below covers the week.
-        The This Week page suggests backlog links to fill the quota,
+        The Reading List page suggests backlog links to fill the quota,
         preferring the focus tag.
       </p>
       <div>
@@ -221,8 +221,8 @@
     </Card>
 
     <p class="muted hint-week">
-      The current week starts {currentWeekStart()} — see
-      <a href="../week/">This Week</a> for what's in effect right now.
+      The current week starts {currentWeekStart()} — see the
+      <a href="../">Reading List</a> for what's in effect right now.
     </p>
   </div>
 {/if}

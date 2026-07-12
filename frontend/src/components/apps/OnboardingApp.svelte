@@ -162,7 +162,7 @@
   {:else if step === 2}
     <Card title="The backlog">
       <p>
-        The <strong>Backlog</strong> is home. Paste links one at a time, or batch paste many URLs (one per
+        The <strong>Backlog</strong> is where new links land. Paste links one at a time, or batch paste many URLs (one per
         line <kbd>shift</kbd>+<kbd>enter</kbd> for a new line)
       </p>
       <p><strong>Accepted Formats</strong></p>
@@ -202,10 +202,10 @@
     <TopicsApp/>
     <FavouritesApp/>
   {:else if step === 4}
-    <Card title="This Week">
+    <Card title="Reading List">
       <p>
-        Organization is based around moving links into weekly blocks. 
-        <br>The <strong>This Week</strong> tab is your reading list for the current week. Pick links from the backlog, read them, and close the week when done.
+        Organization is based around moving links into weekly blocks.
+        <br>The <strong>Reading List</strong> is home — your reading for the current week. Pick links from the backlog, read them, and close the week when done. Use <strong>← Previous</strong> / <strong>Next →</strong> to look at other weeks.
       </p>
     </Card>
     <WeekApp/>

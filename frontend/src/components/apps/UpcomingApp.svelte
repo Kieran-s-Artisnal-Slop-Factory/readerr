@@ -191,7 +191,7 @@
         links={entries.map((e) => e.link)}
         {tagsByLink}
         onChange={onRowChange}
-        empty="Nothing scheduled for this week yet — pick links into it from the backlog or This Week."
+        empty="Nothing scheduled for this week yet — pick links into it from the backlog or the Reading List."
       />
     </Card>
   </div>
