@@ -4,14 +4,26 @@
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
+  import Pagination from '../Pagination.svelte';
   import { get, put } from '../../lib/db/repo';
-  import { linksForTag, tagsForLink } from '../../lib/services/links';
+  import { linksForTag, tagsForLinks } from '../../lib/services/links';
   import type { Link, Tag } from '../../lib/db/types';
+
+  const PAGE_SIZE = 100;
 
   let tag = $state<Tag | null>(null);
   let links = $state<Link[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
   let missing = $state(false);
+  let page = $state(0);
+
+  const visible = $derived(links.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+
+  // Resolve tag chips for the visible page only (scaling.md phase A).
+  $effect(() => {
+    const slice = visible;
+    void tagsForLinks(slice).then((m) => (tagsByLink = m));
+  });
 
   onMount(async () => {
     const id = new URLSearchParams(location.search).get('id');
@@ -23,11 +35,6 @@
     const rows = await linksForTag(tag.id);
     rows.sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
     links = rows;
-    const byLink = new Map<string, Tag[]>();
-    for (const link of rows) {
-      byLink.set(link.id, await tagsForLink(link.id));
-    }
-    tagsByLink = byLink;
   });
 
   async function saveNotes(md: string) {
@@ -53,8 +60,9 @@
         onChange={saveNotes}
       />
     </Card>
-    <Card title={`Links (${links.length})`}>
-      <LinkList {links} {tagsByLink} onChange={onRowChange} empty="No links carry this tag yet." />
+    <Card title={`Links (${links.length.toLocaleString()})`}>
+      <LinkList links={visible} {tagsByLink} onChange={onRowChange} empty="No links carry this tag yet." />
+      <Pagination total={links.length} pageSize={PAGE_SIZE} bind:page label="links" />
     </Card>
   </div>
 {:else}

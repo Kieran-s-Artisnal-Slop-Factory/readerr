@@ -2,7 +2,7 @@
   /**
    * The slush archive: read links that weren't part of a topic or
    * favourited when their week closed. Each row can be re-scheduled
-   * ("reviewed") into an upcoming week. Paginated at 100 with page-scoped
+   * ("reviewed") into an upcoming week. Paginated at 250 with page-scoped
    * labels (scaling.md phase A).
    */
   import { onMount } from 'svelte';
@@ -15,7 +15,7 @@
   import { reviewLink, upcomingWeekOptions } from '../../lib/services/weeks';
   import type { Link, Tag } from '../../lib/db/types';
 
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 250;
 
   let links = $state<Link[]>([]);
   let pageTags = $state<Map<string, Tag[]>>(new Map());

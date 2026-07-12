@@ -9,11 +9,14 @@
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
+  import Pagination from '../Pagination.svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
-  import { assignTopic, domainOf, linksForTopic, tagsForLink } from '../../lib/services/links';
+  import { assignTopic, domainOf, linksForTopic, tagsForLinks } from '../../lib/services/links';
   import { href } from '../../lib/paths';
   import type { Link, LinkTopic, Tag, Topic } from '../../lib/db/types';
+
+  const PAGE_SIZE = 100;
 
   let topic = $state<Topic | null>(null);
   let links = $state<Link[]>([]);
@@ -22,6 +25,15 @@
   let allLinks = $state<Link[]>([]);
   let query = $state('');
   let adding = $state(false);
+  let page = $state(0);
+
+  const visible = $derived(links.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+
+  // Resolve tag chips for the visible page only (scaling.md phase A).
+  $effect(() => {
+    const slice = visible;
+    void tagsForLinks(slice).then((m) => (tagsByLink = m));
+  });
 
   const assignedIds = $derived(new Set(links.map((l) => l.id)));
 
@@ -60,11 +72,6 @@
     rows.sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
     links = rows;
     allLinks = everything;
-    const byLink = new Map<string, Tag[]>();
-    for (const link of rows) {
-      byLink.set(link.id, await tagsForLink(link.id));
-    }
-    tagsByLink = byLink;
   }
 
   async function saveBody(md: string) {
@@ -131,7 +138,7 @@
       exportName={topic.name}
       onChange={saveBody}
     />
-    <Card title={`Referenced links (${links.length})`}>
+    <Card title={`Referenced links (${links.length.toLocaleString()})`}>
       <form
         class="adder"
         onsubmit={(e) => {
@@ -165,11 +172,12 @@
         <p class="no-match">No unassigned links match — paste a full URL to add a new one.</p>
       {/if}
       <LinkList
-        {links}
+        links={visible}
         {tagsByLink}
         onChange={onRowChange}
         empty="No links yet — paste a URL above or search your existing links."
       />
+      <Pagination total={links.length} pageSize={PAGE_SIZE} bind:page label="links" />
     </Card>
   </div>
 {:else}
