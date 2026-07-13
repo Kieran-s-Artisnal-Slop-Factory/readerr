@@ -34,9 +34,6 @@
   let page = $state(0);
   let query = $state('');
 
-  // A search box appears once the list is long enough to be unwieldy.
-  const SEARCH_THRESHOLD = 100;
-  const searchable = $derived(items.length > SEARCH_THRESHOLD);
   const matched = $derived(
     query.trim()
       ? items.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()))
@@ -71,14 +68,12 @@
 </script>
 
 <div class="chip-select">
-  {#if searchable}
     <input
       type="search"
       class="chip-search"
       placeholder={`Search ${pageLabel}…`}
       bind:value={query}
     />
-  {/if}
   <div class="chips">
     {#each [...offPageSelected, ...pageItems] as item (item.id)}
       <button
