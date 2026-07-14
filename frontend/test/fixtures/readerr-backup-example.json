@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 5,
+  "exportedAt": "2026-07-14T22:06:12.467Z",
+  "scope": "full",
+  "data": {
+    "user_settings": [
+      {
+        "id": "cce28f63-b583-4f48-8d5b-1a904aa8c41d",
+        "updated_at": "2026-07-12T23:36:38.189Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "name": null,
+        "articles_per_week": null,
+        "focus_tag_id": null,
+        "onboarding_completed_at": "2026-07-09T16:46:42.885Z",
+        "strip_query_params": "trackers",
+        "strip_whitelist": [],
+        "default_week": "current",
+        "default_week_offset": 0
+      }
+    ],
+    "plans": [],
+    "links": [
+      {
+        "id": "000bccad-ca9a-40a8-98af-a6de19788be0",
+        "updated_at": "2026-07-13T01:44:41.837Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "url": "https://www.youtube.com/watch?v=Zj1mBNjpZ88",
+        "title": "The Hard Drive Cartel | Criminal Conspiracy & Price Fixing",
+        "title_fetched": true,
+        "added_at": "2026-07-13T01:44:38.255Z",
+        "read_at": "2026-07-13T01:44:38.258Z",
+        "favourite": true,
+        "is_resource": false,
+        "slushed_at": null
+      },
+      {
+        "id": "016dc16e-6bc4-4408-a488-89e935cfb08e",
+        "updated_at": "2026-07-13T13:53:55.726Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "url": "https://www.youtube.com/watch?v=W52tVLQHlms",
+        "title": "Help! my TV is drowning in AI - LG C6H",
+        "title_fetched": true,
+        "added_at": "2026-07-13T01:28:32.203Z",
+        "read_at": "2026-07-13T01:28:32.206Z",
+        "favourite": false,
+        "is_resource": false,
+        "slushed_at": "2026-07-13T13:53:55.726Z"
+      },
+      {
+        "id": "01896684-419b-483f-aea3-9b2466340056",
+        "updated_at": "2026-07-13T04:32:36.184Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "url": "https://manualmeida.dev/articles/gin-simple-over-easy/",
+        "title": "Building Gin: Simple Over Easy — Manu Martínez-Almeida",
+        "title_fetched": true,
+        "added_at": "2026-07-13T04:32:36.181Z",
+        "read_at": null,
+        "favourite": false,
+        "is_resource": false,
+        "slushed_at": null
+      }
+    ],
+    "tags": [
+      {
+        "id": "2a4fe525-0a02-483d-b731-5e7bb60e4267",
+        "updated_at": "2026-07-09T20:07:58.694Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "name": "documentary",
+        "notes_md": ""
+      },
+      {
+        "id": "bf108348-2fa9-48d8-a0a3-04b1a38fcc57",
+        "updated_at": "2026-07-13T01:44:28.223Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "name": "drama",
+        "notes_md": ""
+      },
+      {
+        "id": "bf99f248-ddb5-4888-88b7-50176673046d",
+        "updated_at": "2026-07-09T20:34:31.387Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "name": "hardware",
+        "notes_md": ""
+      },
+      {
+        "id": "d77293fd-9c87-42e4-a812-77a8a1a81128",
+        "updated_at": "2026-07-11T20:46:08.599Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "name": "golang",
+        "notes_md": ""
+      }
+    ],
+    "link_tags": [
+      {
+        "id": "01d23f98-63d9-4fe9-9f37-7a35bd57d8f2",
+        "updated_at": "2026-07-13T01:44:38.256Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "link_id": "000bccad-ca9a-40a8-98af-a6de19788be0",
+        "tag_id": "2a4fe525-0a02-483d-b731-5e7bb60e4267"
+      },
+      {
+        "id": "294b86ec-9142-4936-9672-69b9dfcf1f86",
+        "updated_at": "2026-07-13T01:44:38.255Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "link_id": "000bccad-ca9a-40a8-98af-a6de19788be0",
+        "tag_id": "bf99f248-ddb5-4888-88b7-50176673046d"
+      },
+      {
+        "id": "2b16cdfc-9e8f-45dd-8abd-99804c977afc",
+        "updated_at": "2026-07-13T04:32:36.189Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "link_id": "01896684-419b-483f-aea3-9b2466340056",
+        "tag_id": "d77293fd-9c87-42e4-a812-77a8a1a81128"
+      },
+      {
+        "id": "b81f16c9-e603-4848-8bd9-fce21b0df833",
+        "updated_at": "2026-07-13T01:44:38.256Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "link_id": "000bccad-ca9a-40a8-98af-a6de19788be0",
+        "tag_id": "bf108348-2fa9-48d8-a0a3-04b1a38fcc57"
+      },
+      {
+        "id": "c86e2850-fd9f-48ae-952e-729bd129a655",
+        "updated_at": "2026-07-13T01:28:32.204Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "link_id": "016dc16e-6bc4-4408-a488-89e935cfb08e",
+        "tag_id": "bf99f248-ddb5-4888-88b7-50176673046d"
+      }
+    ],
+    "topics": [],
+    "link_topics": [],
+    "notes": [],
+    "excerpts": [],
+    "resource_lists": [],
+    "resource_list_links": [],
+    "weeks": [
+      {
+        "id": "336ed4f8-3c4c-4f7d-8277-a354e9ee03d3",
+        "updated_at": "2026-07-13T13:53:55.754Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "week_start": "2026-07-06",
+        "closed_at": "2026-07-13T13:53:55.754Z"
+      }
+    ],
+    "week_links": [
+      {
+        "id": "28af271c-c145-44a6-90be-a988794d3bc2",
+        "updated_at": "2026-07-13T13:53:55.729Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "week_id": "336ed4f8-3c4c-4f7d-8277-a354e9ee03d3",
+        "link_id": "000bccad-ca9a-40a8-98af-a6de19788be0",
+        "position": 141,
+        "kind": "reading",
+        "done_at": "2026-07-13T01:44:38.258Z",
+        "outcome": "read"
+      },
+      {
+        "id": "d9219a12-03e3-4c48-8fdd-08fc1396ae53",
+        "updated_at": "2026-07-13T13:53:55.725Z",
+        "deleted_at": null,
+        "server_seq": null,
+        "week_id": "336ed4f8-3c4c-4f7d-8277-a354e9ee03d3",
+        "link_id": "016dc16e-6bc4-4408-a488-89e935cfb08e",
+        "position": 135,
+        "kind": "reading",
+        "done_at": "2026-07-13T01:28:32.206Z",
+        "outcome": "slushed"
+      }
+    ],
+    "archived_links": []
+  }
+}

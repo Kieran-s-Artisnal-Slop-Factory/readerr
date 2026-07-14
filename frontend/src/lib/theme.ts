@@ -13,6 +13,7 @@
  * theme.css keeps the gruvbox values as its defaults, so gruvbox with no
  * overrides compiles to no CSS at all.
  */
+import { importKindOf } from './importKind';
 
 export type ThemeName = 'forest'|'gruvbox' | 'dracula' ;
 export type Mode = 'light' | 'dark';
@@ -352,6 +353,13 @@ export function importTheme(text: string): ThemeConfig {
     raw = JSON.parse(text);
   } catch {
     throw new Error('Not valid JSON.');
+  }
+  // A data backup fed to the theme importer deserves directions, not a
+  // cryptic format error — the two import buttons sit a card apart.
+  if (importKindOf(raw) === 'backup') {
+    throw new Error(
+      'This is a readerr data backup, not a theme — import it under Settings → Backup → Import JSON.'
+    );
   }
   const r = raw as Record<string, unknown>;
   if (r?.format !== EXPORT_MARKER) {

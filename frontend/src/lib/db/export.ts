@@ -17,6 +17,7 @@
  */
 import { getDB, DB_NAME, DB_VERSION, LOCAL_STORES } from './db';
 import { STORES } from './types';
+import { importKindOf } from '../importKind';
 import type { Excerpt, Link, LinkTag, LinkTopic, Note, SyncFields } from './types';
 
 export type ExportScope = 'full' | 'curated' | 'range' | 'template';
@@ -166,6 +167,13 @@ export interface ImportResult {
  * stores first — a restore. Curated/range files merge rows in by id.
  */
 export async function importData(envelope: ExportEnvelope): Promise<ImportResult> {
+  // A theme export fed to the data importer deserves directions, not a
+  // generic rejection — the two import buttons sit a card apart in Settings.
+  if (importKindOf(envelope) === 'theme') {
+    throw new Error(
+      'This is a theme export, not a data backup — import it under Settings → Appearance → Import theme file.'
+    );
+  }
   if (
     typeof envelope !== 'object' ||
     typeof envelope.schemaVersion !== 'number' ||

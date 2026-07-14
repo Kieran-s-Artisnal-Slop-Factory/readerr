@@ -238,7 +238,7 @@
         Apply pasted theme
       </button>
       <label class="btn" style="margin-bottom: 0;">
-        Import file
+        Import theme file
         <input type="file" accept="application/json" onchange={onImportFile} hidden />
       </label>
     </div>
