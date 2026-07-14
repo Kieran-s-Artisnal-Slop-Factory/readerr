@@ -5,7 +5,19 @@
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
   import { seedDataset } from '../../lib/db/seed';
   import { archivableCount, archivedCount, archiveNow } from '../../lib/services/archive';
-  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
+  import { syncNow, getSyncMode, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
+  import {
+    clearSyncLog,
+    getSyncLogPrefs,
+    getSyncLogStats,
+    listSyncEvents,
+    pruneSyncLog,
+    saveSyncLogPrefs,
+    type SyncLogEvent,
+    type SyncLogPrefs,
+    type SyncLogStats,
+  } from '../../lib/services/syncLog';
+  import Pagination from '../Pagination.svelte';
   import { cleanUrl } from '../../lib/services/capture';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
   import { href } from '../../lib/paths';
@@ -30,6 +42,7 @@
   // 'custom' is a UI-only mode: stored as default_week='current' + an offset.
   let defaultWeekMode = $state<'none' | 'current' | 'custom'>('none');
   let defaultWeekOffset = $state(1);
+  let captureTagSort = $state<'recent' | 'alpha'>('recent');
   // Archival
   let archiveEnabled = $state(false);
   let archiveMonths = $state(24);
@@ -89,6 +102,11 @@
     message = 'Link handling saved.';
   }
 
+  async function saveTagSort() {
+    await saveUserSettings({ capture_tag_sort: captureTagSort });
+    message = 'Link handling saved.';
+  }
+
   async function saveDefaultWeek() {
     if (defaultWeekMode === 'none') {
       await saveUserSettings({ default_week: 'none', default_week_offset: 0 });
@@ -126,6 +144,7 @@
         : `Sync complete: pushed ${result.pushed}, pulled ${result.pulled}.`
       : `Sync failed: ${result.error}`;
     syncStatus = await getSyncStatus();
+    await refreshSyncLog();
   }
 
   function saveSyncUrl() {
@@ -138,6 +157,37 @@
 
   let testing = $state(false);
   let syncTest = $state<{ ok: boolean; message: string } | null>(null);
+
+  // Sync history (local-only log; see services/syncLog.ts).
+  let syncEnabled = $state(true);
+  let logPrefs = $state<SyncLogPrefs>({ errorTracking: 'all', retentionDays: 30, trackSuccess: false });
+  let logStats = $state<SyncLogStats>({ errors: 0, successes: 0, lastSyncedAt: null });
+  let logEvents = $state<SyncLogEvent[]>([]);
+  let logPage = $state(0);
+  const LOG_PAGE_SIZE = 30;
+  const logVisible = $derived(logEvents.slice(logPage * LOG_PAGE_SIZE, (logPage + 1) * LOG_PAGE_SIZE));
+
+  async function refreshSyncLog() {
+    logStats = getSyncLogStats();
+    logEvents = await listSyncEvents();
+  }
+
+  async function saveLogPrefs() {
+    logPrefs = {
+      ...logPrefs,
+      retentionDays: Math.max(1, Math.round(logPrefs.retentionDays) || 30),
+    };
+    saveSyncLogPrefs({ ...logPrefs });
+    await pruneSyncLog(); // a shorter retention applies immediately
+    await refreshSyncLog();
+    message = 'Sync history settings saved.';
+  }
+
+  async function clearHistory() {
+    if (!confirm('Clear the sync history log? The error/success counters stay.')) return;
+    await clearSyncLog();
+    await refreshSyncLog();
+  }
 
   async function testSyncServer() {
     testing = true;
@@ -154,6 +204,10 @@
     theme = stored === 'light' || stored === 'dark' ? stored : 'system';
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
+    syncEnabled = getSyncMode() === 'sync';
+    logPrefs = getSyncLogPrefs();
+    await pruneSyncLog();
+    await refreshSyncLog();
     const userSettings = await getUserSettings();
     stripMode = userSettings?.strip_query_params ?? 'off';
     whitelistText = (userSettings?.strip_whitelist ?? []).join('\n');
@@ -164,6 +218,7 @@
     defaultWeekOffset = off > 0 ? off : 1;
     archiveEnabled = userSettings?.archive_enabled ?? false;
     archiveMonths = userSettings?.archive_after_months ?? 24;
+    captureTagSort = userSettings?.capture_tag_sort ?? 'recent';
     void refreshArchiveCounts();
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
@@ -376,6 +431,19 @@
           <span class="muted">(1–12; captured links preselect that week)</span>
         </div>
       {/if}
+
+      <div style="margin-top: var(--space-4);">
+        <label for="set-tag-sort">Capture box tag ordering</label>
+        <select id="set-tag-sort" bind:value={captureTagSort} onchange={saveTagSort}>
+          <option value="recent">Most recently used first</option>
+          <option value="alpha">Alphabetical</option>
+        </select>
+        <p class="muted" style="margin-top: var(--space-1); font-size: var(--font-size-sm);">
+          How the tag chips under the capture box are ordered on each page.
+          Recently-used keeps the tags you reach for most on the first page;
+          alphabetical is easier to scan when you know the name.
+        </p>
+      </div>
     </Card>
 
     <Card title="Storage">
@@ -435,6 +503,73 @@
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
       </div>
+
+      {#if syncEnabled}
+        <details class="sync-history">
+          <summary>Sync history</summary>
+          <p class="log-stats">
+            <strong>{logStats.errors.toLocaleString()}</strong> error{logStats.errors === 1 ? '' : 's'}
+            · <strong>{logStats.successes.toLocaleString()}</strong> successful
+            sync{logStats.successes === 1 ? '' : 's'}
+            · last synced {logStats.lastSyncedAt ? formatTimestamp(logStats.lastSyncedAt) : 'never'}
+          </p>
+
+          <div class="log-options">
+            <div>
+              <label for="set-log-errors">Track errors</label>
+              <select id="set-log-errors" bind:value={logPrefs.errorTracking} onchange={saveLogPrefs}>
+                <option value="all">Track all errors</option>
+                <option value="explicit">Only explicit errors (ignore offline failures)</option>
+                <option value="none">Do not track errors</option>
+              </select>
+            </div>
+            <div class="week-offset-row">
+              <label for="set-log-days">Keep history for</label>
+              <input
+                id="set-log-days"
+                type="number"
+                min="1"
+                bind:value={logPrefs.retentionDays}
+                onchange={saveLogPrefs}
+              />
+              <span class="muted">days</span>
+            </div>
+            <label class="check">
+              <input type="checkbox" bind:checked={logPrefs.trackSuccess} onchange={saveLogPrefs} />
+              Track successful syncs too
+            </label>
+            <p class="muted" style="margin: 0; font-size: var(--font-size-sm);">
+              ⚠️ Background sync runs on nearly every page load — logging
+              successes grows the history quickly and uses noticeably more
+              storage. Errors and the counters above are tracked regardless.
+            </p>
+          </div>
+
+          {#if logEvents.length === 0}
+            <p class="empty-log">No sync events logged yet.</p>
+          {:else}
+            <ul class="log-list">
+              {#each logVisible as evt (evt.id)}
+                <li class:err={!evt.ok}>
+                  <span class="log-icon">{evt.ok ? '✅' : '⚠️'}</span>
+                  <span class="log-time">{formatTimestamp(evt.at)}</span>
+                  <span class="log-detail">
+                    {#if evt.ok}
+                      pushed {evt.pushed} · pulled {evt.pulled}
+                    {:else}
+                      {evt.error}{evt.offline ? ' (offline)' : ''}
+                    {/if}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+            <Pagination total={logEvents.length} pageSize={LOG_PAGE_SIZE} bind:page={logPage} label="events" />
+            <div class="actions" style="margin-top: var(--space-3);">
+              <button class="btn" onclick={clearHistory}>Clear history</button>
+            </div>
+          {/if}
+        </details>
+      {/if}
     </Card>
 
     <Card title="Backup">
@@ -706,6 +841,77 @@
 
   .week-offset-row input {
     width: 5rem;
+  }
+
+  .sync-history {
+    margin-top: var(--space-4);
+    border-top: 1px solid var(--border-color);
+    padding-top: var(--space-3);
+  }
+
+  .sync-history summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-color);
+  }
+
+  .log-stats {
+    margin: var(--space-3) 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+
+  .log-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .log-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--font-size-sm);
+  }
+
+  .log-list li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .log-list li:last-child {
+    border-bottom: none;
+  }
+
+  .log-icon {
+    flex-shrink: 0;
+  }
+
+  .log-time {
+    flex-shrink: 0;
+    color: var(--text-muted-color);
+    white-space: nowrap;
+  }
+
+  .log-detail {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .log-list li.err .log-detail {
+    color: var(--color-danger);
+  }
+
+  .empty-log {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0;
   }
 
   .seed-slider {

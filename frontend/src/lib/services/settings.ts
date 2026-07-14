@@ -25,6 +25,7 @@ export async function saveUserSettings(
       | 'default_week_offset'
       | 'archive_enabled'
       | 'archive_after_months'
+      | 'capture_tag_sort'
     >
   >
 ): Promise<UserSettings> {
@@ -44,6 +45,7 @@ export async function saveUserSettings(
       default_week_offset: 0,
       archive_enabled: false,
       archive_after_months: 24,
+      capture_tag_sort: 'recent' as const,
       ...changes,
     })
   );

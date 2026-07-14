@@ -42,9 +42,21 @@ export async function byIndex<T extends SyncFields>(
   return rows.filter((r) => !r.deleted_at);
 }
 
+/**
+ * Rows must survive IndexedDB's structured clone, but Svelte 5 `$state`
+ * values are Proxies, which structured clone rejects — so a component
+ * passing reactive state into a row (e.g. an array of selected tag ids)
+ * made `put` reject with DataCloneError, silently in fire-and-forget
+ * handlers. Rows are JSON-shaped by design (they sync as JSON), so a JSON
+ * round-trip both strips reactivity and guarantees clonability.
+ */
+function toPlain<T>(row: T): T {
+  return JSON.parse(JSON.stringify(row)) as T;
+}
+
 /** Insert or update, stamping updated_at. Returns the stamped row. */
 export async function put<T extends SyncFields>(store: StoreName, row: T): Promise<T> {
-  const stamped = { ...row, updated_at: nowIso() };
+  const stamped = toPlain({ ...row, updated_at: nowIso() });
   await (await getDB()).put(store, stamped);
   return stamped;
 }
@@ -52,7 +64,7 @@ export async function put<T extends SyncFields>(store: StoreName, row: T): Promi
 export async function bulkPut<T extends SyncFields>(store: StoreName, rows: T[]): Promise<T[]> {
   const db = await getDB();
   const tx = db.transaction(store, 'readwrite');
-  const stamped = rows.map((r) => ({ ...r, updated_at: nowIso() }));
+  const stamped = rows.map((r) => toPlain({ ...r, updated_at: nowIso() }));
   for (const row of stamped) tx.store.put(row);
   await tx.done;
   return stamped;

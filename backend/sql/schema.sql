@@ -32,6 +32,8 @@ CREATE TABLE user_settings (
     default_week_offset     INTEGER NOT NULL DEFAULT 0,  -- weeks ahead when 'current'
     archive_enabled         INTEGER NOT NULL DEFAULT 0,  -- yearly-archival mode
     archive_after_months    INTEGER NOT NULL DEFAULT 24, -- slushed-link archival age
+    capture_tag_sort        TEXT NOT NULL DEFAULT 'recent' -- capture box tag chip order
+                            CHECK (capture_tag_sort IN ('recent', 'alpha')),
     updated_at              TEXT NOT NULL,
     deleted_at              TEXT,
     server_seq              INTEGER

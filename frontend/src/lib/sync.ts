@@ -16,6 +16,7 @@
 import { getDB } from './db/db';
 import { STORES } from './db/types';
 import type { SyncFields } from './db/types';
+import { recordSyncEvent } from './services/syncLog';
 
 const SYNC_URL_KEY = 'readerr-sync-url';
 const AUTO_SYNC_AT_KEY = 'readerr-last-auto-sync';
@@ -210,6 +211,7 @@ export async function syncNow(): Promise<SyncResult> {
     await setMeta('lastSyncAt', new Date().toISOString());
     await setMeta('lastError', null);
     const result = { ok: true, pushed: pushJson.accepted.length, pulled };
+    void recordSyncEvent(result);
     window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: result }));
     return result;
   } catch (err) {
@@ -220,6 +222,12 @@ export async function syncNow(): Promise<SyncResult> {
       // storage unavailable — nothing else to do
     }
     const result = { ok: false, pushed: 0, pulled: 0, error: message };
+    void recordSyncEvent({
+      ...result,
+      error: message,
+      // Offline failures are implicit — the 'explicit' tracking mode skips them.
+      offline: typeof navigator !== 'undefined' && !navigator.onLine,
+    });
     window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: result }));
     return result;
   }

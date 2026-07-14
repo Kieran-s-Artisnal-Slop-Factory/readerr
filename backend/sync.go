@@ -56,7 +56,8 @@ var tables = map[string]tableMeta{
 	"user_settings": {
 		columns: cols("id", "name", "articles_per_week", "focus_tag_ids",
 			"onboarding_completed_at", "strip_query_params", "strip_whitelist", "auto_title",
-			"default_week", "default_week_offset", "archive_enabled", "archive_after_months"),
+			"default_week", "default_week_offset", "archive_enabled", "archive_after_months",
+			"capture_tag_sort"),
 		jsonCols: set("strip_whitelist", "focus_tag_ids"),
 		boolCols: set("auto_title", "archive_enabled"),
 	},

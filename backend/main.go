@@ -10,6 +10,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -59,6 +60,17 @@ func main() {
 	mux.HandleFunc("GET /sync/pull", srv.handlePull)
 	mux.HandleFunc("GET /backup", srv.handleBackup)
 	mux.HandleFunc("GET /title", srv.handleTitle)
+	// On-disk database size (main file + WAL), for the client's stats page.
+	mux.HandleFunc("GET /dbsize", func(w http.ResponseWriter, r *http.Request) {
+		var total int64
+		for _, p := range []string{dbPath, dbPath + "-wal"} {
+			if fi, err := os.Stat(p); err == nil {
+				total += fi.Size()
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"bytes":%d}`, total)
+	})
 
 	if staticDir := envOr("STATIC_DIR", ""); staticDir != "" {
 		if _, err := os.Stat(staticDir); err == nil {

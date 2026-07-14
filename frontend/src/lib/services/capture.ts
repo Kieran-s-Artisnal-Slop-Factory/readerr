@@ -10,11 +10,11 @@
  * false are retried by retryMissingTitles() on backlog mount — the whole
  * retry mechanism, no queue needed.
  */
-import { all, byIndex, bulkPut, put, withSyncFields } from '../db/repo';
+import { all, byIndex, bulkPut, get, put, withSyncFields } from '../db/repo';
 import type { Link, StripMode } from '../db/types';
-import { assignTag, assignTopic, markLinkDone } from './links';
+import { assignTag, assignTopic, markLinkDone, tagsForLink, topicsForLink } from './links';
 import { getUserSettings } from './settings';
-import { setLinkWeek } from './weeks';
+import { reviewLink, setLinkWeek, weekHistoryForLink } from './weeks';
 import { getSyncMode, getSyncUrl } from '../sync';
 
 /** Query params that only exist to track you — safe to drop from any URL. */
@@ -69,6 +69,8 @@ export interface CaptureResult {
   added: Link[];
   /** URLs skipped because a live link with the same URL already exists. */
   duplicates: string[];
+  /** Existing links that had capture options merged into them. */
+  merged: Link[];
   /** Non-empty lines that don't parse as http(s) URLs. */
   invalid: string[];
 }
@@ -104,9 +106,11 @@ export function parseUrls(text: string): { entries: ParsedLine[]; invalid: strin
     if (!trimmed) continue;
     // Strip a leading list bullet: -, *, or •.
     trimmed = trimmed.replace(/^[-*•]\s+/, '');
+    // TODO: Add ordered lists
 
     const md = trimmed.match(/^\[(.+)\]\((\S+)\)$/);
     const url = toHttpUrl(md ? md[2] : trimmed);
+    // TODO: Extras parsing
     if (!url) {
       invalid.push(trimmed);
       continue;
@@ -129,6 +133,61 @@ export interface CaptureAssign {
   autoTitle?: boolean;
   /** Flag every captured link as a resource. */
   isResource?: boolean;
+  /** Favourite every captured link (merges into existing links too). */
+  favourite?: boolean;
+}
+
+/**
+ * Re-capturing a URL that already exists merges the capture options into
+ * the existing link instead of just skipping it: tags/topics are appended,
+ * favourite/resource only ever upgrade (a re-capture never clears a flag),
+ * and a selected week adds the link as a 'review' entry — unless the link
+ * already has an entry (reading or review) in that week. Returns the
+ * updated link, or null when nothing needed to change.
+ */
+async function mergeIntoExisting(link: Link, assign?: CaptureAssign): Promise<Link | null> {
+  if (!assign) return null;
+  let changed = false;
+
+  // Append labels the link doesn't already carry.
+  const tagIds = new Set((await tagsForLink(link.id)).map((t) => t.id));
+  for (const tagId of assign.tagIds ?? []) {
+    if (tagIds.has(tagId)) continue;
+    await assignTag(link.id, tagId);
+    changed = true;
+  }
+  const topicIds = new Set((await topicsForLink(link.id)).map((t) => t.id));
+  for (const topicId of assign.topicIds ?? []) {
+    if (topicIds.has(topicId)) continue;
+    await assignTopic(link.id, topicId); // also rescues from the slush
+    changed = true;
+  }
+  // assignTopic may have rewritten the links row — work from the fresh one.
+  if (changed) link = (await get<Link>('links', link.id)) ?? link;
+
+  // Flags only upgrade.
+  if ((assign.favourite && !link.favourite) || (assign.isResource && !link.is_resource)) {
+    link = await put('links', {
+      ...link,
+      favourite: link.favourite || !!assign.favourite,
+      // Favouriting rescues from the slush archive (as toggleFavourite does).
+      slushed_at: assign.favourite ? null : link.slushed_at,
+      is_resource: link.is_resource || !!assign.isResource,
+    });
+    changed = true;
+  }
+
+  // A selected week the link was never part of adds it for another look.
+  if (assign.weekStart) {
+    const history = await weekHistoryForLink(link.id);
+    const already = history.some((h) => h.week.week_start === assign.weekStart);
+    if (!already) {
+      link = await reviewLink(link, assign.weekStart);
+      changed = true;
+    }
+  }
+
+  return changed ? link : null;
 }
 
 /**
@@ -141,6 +200,7 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
   const stripMode = assign?.stripMode ?? settings?.strip_query_params ?? 'off';
   const whitelist = settings?.strip_whitelist ?? [];
   const duplicates: string[] = [];
+  const merged: Link[] = [];
   const fresh: Link[] = [];
   const seen = new Set<string>();
 
@@ -154,6 +214,9 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
     const existing = await byIndex<Link>('links', 'url', url);
     if (existing.length > 0) {
       duplicates.push(url);
+      // Not a new link, but the capture options still apply to it.
+      const updated = await mergeIntoExisting(existing[0], assign);
+      if (updated) merged.push(updated);
       continue;
     }
     fresh.push(
@@ -164,7 +227,7 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
         title_fetched: title !== null,
         added_at: new Date().toISOString(),
         read_at: null,
-        favourite: false,
+        favourite: assign?.favourite ?? false,
         is_resource: assign?.isResource ?? false,
         slushed_at: null,
       })
@@ -184,7 +247,7 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
   // links keep their URL as the title.
   const autoTitle = assign?.autoTitle ?? settings?.auto_title ?? true;
   if (autoTitle) void fetchTitles(added.filter((l) => !l.title_fetched));
-  return { added, duplicates, invalid };
+  return { added, duplicates, merged, invalid };
 }
 
 const TITLE_ATTEMPTS = 3;

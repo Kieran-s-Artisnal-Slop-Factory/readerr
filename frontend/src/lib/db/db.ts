@@ -59,6 +59,15 @@ const MIGRATIONS: Migration[] = [
       store.createIndex('slushed_at', 'slushed_at', { multiEntry: false });
     }
   },
+  // v6 — sync history log (Settings → Sync). Local diagnostics: never
+  // synced, and deliberately not in LOCAL_STORES either — logs are ephemeral
+  // telemetry, not data worth backing up.
+  (db) => {
+    if (!db.objectStoreNames.contains('sync_log')) {
+      const store = db.createObjectStore('sync_log', { keyPath: 'id' });
+      store.createIndex('at', 'at', { multiEntry: false });
+    }
+  },
 ];
 
 /** Local-only stores that live in IndexedDB but never sync or appear in STORES. */

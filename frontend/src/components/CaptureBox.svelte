@@ -34,6 +34,8 @@
   let stripUrls = $state(false);
   let defaultStripMode = $state<StripMode>('trackers');
   let autoTitle = $state(true);
+  // Tag chip ordering (Settings → Link handling); topics stay recency-sorted.
+  let tagSort = $state<'recent' | 'alpha'>('recent');
 
   const selectionCount = $derived(
     selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
@@ -47,6 +49,7 @@
     stripUrls = mode !== 'off';
     if (mode !== 'off') defaultStripMode = mode;
     autoTitle = settings?.auto_title ?? true;
+    tagSort = settings?.capture_tag_sort ?? 'recent';
     // Preselect the configured default week (this week, or N weeks ahead).
     if (settings?.default_week === 'current') {
       const offset = Math.max(0, settings.default_week_offset ?? 0);
@@ -58,8 +61,10 @@
 
   async function refreshOptions() {
     // Most-recently-assigned first, so frequent labels stay on the first
-    // page once the lists grow long enough to paginate.
+    // page once the lists grow long enough to paginate — unless the user
+    // prefers tags alphabetical (Settings → Link handling).
     [tags, topics] = await Promise.all([tagsByRecentUse(), topicsByRecentUse()]);
+    if (tagSort === 'alpha') tags = [...tags].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async function createTag(name: string): Promise<string> {
@@ -78,7 +83,7 @@
     if (!text.trim() || busy) return;
     busy = true;
     try {
-      const { added, duplicates, invalid } = await captureLinks(text, {
+      const { added, duplicates, merged, invalid } = await captureLinks(text, {
         tagIds: selectedTagIds,
         topicIds: selectedTopicIds,
         weekStart: selectedWeek || null,
@@ -94,6 +99,7 @@
       if (isResource && added.length > 0) parts.push('as resources');
       if (markDone && added.length > 0) parts.push('marked done');
       if (duplicates.length > 0) parts.push(`${duplicates.length} already saved`);
+      if (merged.length > 0) parts.push(`${merged.length} existing updated`);
       if (invalid.length > 0) parts.push(`${invalid.length} not a link`);
       report = parts.join(' · ');
       text = '';

@@ -53,6 +53,8 @@ export interface UserSettings extends SyncFields {
   archive_enabled: boolean;
   /** Slushed links older than this many months are archivable. */
   archive_after_months: number;
+  /** Capture box tag chip ordering: most recently used, or alphabetical. */
+  capture_tag_sort: 'recent' | 'alpha';
 }
 
 export type PlanPeriod = 'week' | 'month';

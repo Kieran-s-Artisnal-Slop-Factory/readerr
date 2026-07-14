@@ -125,6 +125,11 @@ ALTER TABLE user_settings ADD COLUMN default_week_offset INTEGER NOT NULL DEFAUL
 ALTER TABLE user_settings ADD COLUMN archive_enabled INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE user_settings ADD COLUMN archive_after_months INTEGER NOT NULL DEFAULT 24;
 `,
+	// v12 → v13: how the capture box orders its tag chips.
+	`
+ALTER TABLE user_settings ADD COLUMN capture_tag_sort TEXT NOT NULL DEFAULT 'recent'
+    CHECK (capture_tag_sort IN ('recent', 'alpha'));
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

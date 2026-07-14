@@ -1,0 +1,17 @@
+1. Create a new page called `/editor-v2-test` which is a page that just includes a new variant of the `CaptureBox` for testing. The point of the new capture box is to test out a potential workflow that when someone pastes in a link (or links), parse them to a preview/staging area to allow for more dynamic behaviours before adding to backlog
+	1. Pressing ctrl+enter should allow for this parsing/staging mode
+		1. add helptext under the box
+		2. add a button on mobile sizes that says `Stage links` that is disabled when no characters are entered
+	2. clear after parsing
+		1. Do not clear the field unless *ALL* links are parsed and there's no errors
+	3. The preview field should be a view similar to the backlog section right underneath the capture system, but it should allow you to do per-link overrides on top of batch operations. For example let's say I post 10 liks, and I want to tag them all with a databases tag, but I also want to tag the third one with a postgres tag, favourite it, and add it as a resource, I should be able to do that.
+		1. The options available should take precedence over what's set in the current capture window and should allow you to
+			1. set the link as a favourite
+			2. set the link as a resource
+			3. set the link as done
+			4. assign additional tags, should append to the set of tags added by the batch settings
+			5. change the title
+			6. Cancel adding the link
+		2. This is basically all the behaviours of the existing `LinkRow` used in the `WeekApp`, except without the Notes & details link (since the link isn't actually added yet)
+2. Create a new page called `/editor-v3-recently-added` on this page make no changes to the actual capture system logic, but show a `LinkRow` of the most recently added link, directly under the `Add to backlog` area
+3. Create a new page called `/fab-test` that includes the new FAB mentioned in `capture FAB.md`. ONLY add it to this page, and do not make any breaking changes to other pages to set this up. I just want to be able to test it out .
