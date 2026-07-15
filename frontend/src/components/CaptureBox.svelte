@@ -14,7 +14,16 @@
   import { upcomingWeekOptions } from '../lib/services/weeks';
   import type { Link, StripMode, Tag, Topic } from '../lib/db/types';
 
-  let { onAdded }: { onAdded: (links: Link[]) => void } = $props();
+  let {
+    onAdded,
+    chipPageSize = 50,
+    addLabel = 'Add to backlog',
+  }: {
+    onAdded: (links: Link[]) => void;
+    /** Tag/topic chips per page — compact hosts (the FAB) pass fewer. */
+    chipPageSize?: number;
+    addLabel?: string;
+  } = $props();
 
   let text = $state('');
   let busy = $state(false);
@@ -33,7 +42,6 @@
   // when checked is whatever that default says (falling back to trackers).
   let stripUrls = $state(false);
   let defaultStripMode = $state<StripMode>('trackers');
-  let autoTitle = $state(true);
   // Tag chip ordering (Settings → Link handling); topics stay recency-sorted.
   let tagSort = $state<'recent' | 'alpha'>('recent');
 
@@ -48,7 +56,6 @@
     const mode = settings?.strip_query_params ?? 'off';
     stripUrls = mode !== 'off';
     if (mode !== 'off') defaultStripMode = mode;
-    autoTitle = settings?.auto_title ?? true;
     tagSort = settings?.capture_tag_sort ?? 'recent';
     // Preselect the configured default week (this week, or N weeks ahead).
     if (settings?.default_week === 'current') {
@@ -83,6 +90,8 @@
     if (!text.trim() || busy) return;
     busy = true;
     try {
+      // autoTitle deliberately not passed — captureLinks falls back to the
+      // Settings → Link handling default (the toggle moved there).
       const { added, duplicates, merged, invalid, badOptions } = await captureLinks(text, {
         tagIds: selectedTagIds,
         topicIds: selectedTopicIds,
@@ -90,7 +99,6 @@
         markDone,
         isResource,
         stripMode: stripUrls ? defaultStripMode : 'off',
-        autoTitle,
       });
       const parts = [`${added.length} added`];
       const labels = selectedTagIds.length + selectedTopicIds.length;
@@ -157,6 +165,7 @@
           bind:selected={selectedTagIds}
           createPlaceholder="New tag…"
           pageLabel="tags"
+          pageSize={chipPageSize}
           onCreate={createTag}
         />
       </div>
@@ -167,6 +176,7 @@
           bind:selected={selectedTopicIds}
           createPlaceholder="New topic…"
           pageLabel="topics"
+          pageSize={chipPageSize}
           onCreate={createTopic}
         />
       </div>
@@ -188,22 +198,30 @@
         : 'Remove tracking params (utm_*, ref, si, …) from pasted URLs (configure in Settings → Link handling).'}
     >
       <input type="checkbox" bind:checked={stripUrls} />
-      Clean URLs
+      Clean
     </label>
-    <label class="done-check" title="Fetch page titles for links pasted without one (configure the default in Settings → Link handling).">
-      <input type="checkbox" bind:checked={autoTitle} />
-      Auto-title
-    </label>
-    <label class="done-check" title="Flag these as resources (tools, apps, references) rather than articles to read.">
-      <input type="checkbox" bind:checked={isResource} />
-      Resource
-    </label>
-    <label class="done-check" title="Already read these? They join this week as done.">
-      <input type="checkbox" bind:checked={markDone} />
-      Mark as done
-    </label>
+    <button
+      type="button"
+      class="icon-btn"
+      class:active={isResource}
+      aria-pressed={isResource}
+      title="Flag these as resources (tools, apps, references) rather than articles to read."
+      onclick={() => (isResource = !isResource)}
+    >
+      ⚒
+    </button>
+    <button
+      type="button"
+      class="icon-btn"
+      class:active={markDone}
+      aria-pressed={markDone}
+      title="Already read these? They join this week as done."
+      onclick={() => (markDone = !markDone)}
+    >
+      ✓
+    </button>
     <button class="btn btn-primary" onclick={add} disabled={busy || !text.trim()}>
-      {busy ? 'Adding…' : 'Add to backlog'}
+      {busy ? 'Adding…' : addLabel}
     </button>
   </div>
   {#if report}
@@ -261,6 +279,33 @@
   .done-check input {
     width: auto;
     margin: 0;
+  }
+
+  /* Same flag toggles as LinkRow: ✓ done, ⚒ resource. */
+  .icon-btn {
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    font-size: var(--font-size-base);
+    flex-shrink: 0;
+  }
+
+  .icon-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+  }
+
+  .icon-btn.active {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
   }
 
   .organize-toggle {

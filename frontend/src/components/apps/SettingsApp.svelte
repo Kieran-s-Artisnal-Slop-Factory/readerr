@@ -403,10 +403,10 @@
       </label>
       <p class="muted" style="margin-top: var(--space-1); font-size: var(--font-size-sm);">
         When a link is pasted without a title, fetch the page and use its
-        title (retrying a few times). This is the default for the "Auto-title"
-        checkbox on the capture box. With a sync server the fetch runs on the
-        backend; offline it's attempted in the browser (many sites block it).
-        Off keeps bare links showing their URL.
+        title (retrying a few times). This applies to every capture box in
+        the app. With a sync server the fetch runs on the backend; in
+        offline mode titles aren't fetched. Off keeps bare links showing
+        their URL.
       </p>
 
       <div style="margin-top: var(--space-4);">

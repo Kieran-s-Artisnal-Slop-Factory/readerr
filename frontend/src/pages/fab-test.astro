@@ -1,0 +1,45 @@
+---
+import Layout from '../layouts/Layout.astro';
+import CaptureFab from '../components/CaptureFab.svelte';
+---
+
+<!-- Self-contained experiment for the capture FAB (capture FAB.md). The FAB
+     island is mounted here and ONLY here — no Layout/Navbar changes — so the
+     rest of the app is untouched until the experiment graduates. -->
+<Layout title="FAB test">
+  <div class="card">
+    <h2>Capture FAB experiment</h2>
+    <p>
+      This page exists to try out the floating capture button described in
+      <code>capture FAB.md</code>. The ＋ button in the bottom-right corner
+      opens the full capture box — same paste formats, per-line
+      <code>!options</code>, tag/topic chips, reading-week select, and
+      toggles as the inline one.
+    </p>
+    <ul>
+      <li>Click the ＋ (or tab to it and press Enter) to open the panel.</li>
+      <li>Escape, the backdrop, or the ✕ closes it; focus returns to the button.</li>
+      <li>The panel stays open after an add so you can paste several batches.</li>
+      <li>Narrow the window under 48rem to see the bottom-sheet layout.</li>
+    </ul>
+    <p>
+      Captured links land in the backlog as usual — check the
+      <a href="../backlog/">Backlog</a> after adding. Nothing else in the app
+      knows this page or component exists.
+    </p>
+  </div>
+  <CaptureFab client:only="svelte" />
+</Layout>
+
+<style>
+  .card {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+  }
+
+  h2 {
+    margin-top: 0;
+  }
+</style>
