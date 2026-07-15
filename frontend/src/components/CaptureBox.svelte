@@ -5,11 +5,12 @@
    * Optional tag/topic chips apply to every link in the paste and reset
    * after each add (so a stale selection can't mislabel the next dump).
    */
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import ChipSelect from './ChipSelect.svelte';
   import LinkRow from './LinkRow.svelte';
   import { all, get, put, withSyncFields } from '../lib/db/repo';
   import { captureLinks } from '../lib/services/capture';
+  import { dslSuggestions, type DslSuggestion } from '../lib/services/dslSuggest';
   import { tagsByRecentUse, topicsByRecentUse } from '../lib/services/links';
   import { getUserSettings } from '../lib/services/settings';
   import { upcomingWeekOptions } from '../lib/services/weeks';
@@ -49,6 +50,41 @@
   // after adding it, even when it went to a future week or the backlog.
   let justAdded = $state<Link[]>([]);
   const JUST_ADDED_MAX = 10;
+
+  // DSL autocomplete: !command suggestions and tag/topic name completion,
+  // driven by the caret position (see lib/services/dslSuggest.ts).
+  let textareaEl = $state<HTMLTextAreaElement | null>(null);
+  let caret = $state(0);
+  let suggestIndex = $state(0);
+  let suggestDismissed = $state(false);
+
+  const suggestions = $derived(
+    suggestDismissed
+      ? []
+      : dslSuggestions(text, caret, tags.map((t) => t.name), topics.map((t) => t.name))
+  );
+
+  // A new suggestion list highlights its first entry.
+  $effect(() => {
+    void suggestions;
+    suggestIndex = 0;
+  });
+
+  function syncCaret() {
+    suggestDismissed = false;
+    caret = textareaEl?.selectionStart ?? 0;
+  }
+
+  async function acceptSuggestion(s: DslSuggestion) {
+    text = text.slice(0, s.start) + s.insert + text.slice(caret);
+    const target = s.start + s.insert.length + s.caretOffset;
+    // Wait for the binding to write the new value into the DOM — setting
+    // the selection any earlier gets clobbered back to the end.
+    await tick();
+    textareaEl?.focus();
+    textareaEl?.setSelectionRange(target, target);
+    caret = target;
+  }
 
   const selectionCount = $derived(
     selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
@@ -151,6 +187,29 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
+    // With the suggestion menu open, the keyboard drives it first.
+    if (suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        suggestIndex = (suggestIndex + 1) % suggestions.length;
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        suggestIndex = (suggestIndex - 1 + suggestions.length) % suggestions.length;
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        void acceptSuggestion(suggestions[suggestIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        suggestDismissed = true; // until the next keystroke/click
+        return;
+      }
+    }
     // Enter adds; Shift+Enter makes a new line for multi-URL pastes.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -163,9 +222,34 @@
   <textarea
     placeholder="Paste links here. One per line. Plain URLs, bullet lists (- url), or [Title](url)"
     rows="3"
+    bind:this={textareaEl}
     bind:value={text}
     onkeydown={onKeydown}
+    oninput={syncCaret}
+    onclick={syncCaret}
+    onkeyup={syncCaret}
   ></textarea>
+  {#if suggestions.length > 0}
+    <ul class="dsl-menu" role="listbox" aria-label="DSL suggestions">
+      {#each suggestions as s, i (s.label)}
+        <li>
+          <button
+            type="button"
+            role="option"
+            aria-selected={i === suggestIndex}
+            class:active={i === suggestIndex}
+            onmousedown={(e) => {
+              e.preventDefault(); // keep textarea focus
+              void acceptSuggestion(s);
+            }}
+          >
+            <code>{s.label}</code>
+            <span class="dsl-hint-text">{s.hint}</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   <span class="helptext"><kbd>Enter</kbd> to add, <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>
   <span
     class="helptext"
@@ -404,6 +488,43 @@
     text-align: right;
     font-size: var(--font-size-sm);
     color: var(--text-muted-color);
+  }
+
+  .dsl-menu {
+    list-style: none;
+    margin: 0;
+    padding: var(--space-1);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised-color);
+    box-shadow: var(--shadow-2);
+    max-width: 28rem;
+  }
+
+  .dsl-menu button {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-color);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .dsl-menu button.active,
+  .dsl-menu button:hover {
+    background: var(--color-primary-soft);
+  }
+
+  .dsl-hint-text {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    white-space: nowrap;
   }
 
   .just-added {

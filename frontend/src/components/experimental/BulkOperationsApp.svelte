@@ -180,58 +180,6 @@
     <p class="notice">{message}</p>
   {/if}
 
-  {#if selectedIds.length > 0}
-    <Card title={`Bulk operations — ${selectedIds.length} selected`}>
-      <div class="op-group">
-        <span class="op-label">Tags</span>
-        <ChipSelect items={allTags} bind:selected={tagIdsToApply} createPlaceholder="New tag…" pageLabel="tags" onCreate={createTag} />
-        <div class="op-actions">
-          <button class="btn" disabled={busy || tagIdsToApply.length === 0} onclick={addTags}>Add to selected</button>
-          <button class="btn btn-danger" disabled={busy || tagIdsToApply.length === 0} onclick={removeTags}>Remove from selected</button>
-        </div>
-      </div>
-
-      <div class="op-group">
-        <span class="op-label">Topics</span>
-        <ChipSelect items={allTopics} bind:selected={topicIdsToApply} createPlaceholder="New topic…" pageLabel="topics" onCreate={createTopic} />
-        <div class="op-actions">
-          <button class="btn" disabled={busy || topicIdsToApply.length === 0} onclick={addTopics}>Add to selected</button>
-          <button class="btn btn-danger" disabled={busy || topicIdsToApply.length === 0} onclick={removeTopics}>Remove from selected</button>
-        </div>
-      </div>
-
-      <div class="op-group">
-        <span class="op-label">Flags</span>
-        <div class="op-actions">
-          <button class="btn" disabled={busy} onclick={() => setFavourite(true)}>★ Favourite</button>
-          <button class="btn" disabled={busy} onclick={() => setFavourite(false)}>Unfavourite</button>
-          <button class="btn" disabled={busy} onclick={() => setResource(true)}>⚒ Resource</button>
-          <button class="btn" disabled={busy} onclick={() => setResource(false)}>Not a resource</button>
-          <button class="btn" disabled={busy} onclick={() => setDone(true)}>✓ Mark done</button>
-          <button class="btn" disabled={busy} onclick={() => setDone(false)}>Mark unread</button>
-        </div>
-      </div>
-
-      <div class="op-group">
-        <span class="op-label">Reading week</span>
-        <div class="op-actions">
-          <select bind:value={weekChoice}>
-            <option value="">None (backlog only)</option>
-            {#each weekOptions as opt (opt.value)}
-              <option value={opt.value}>{opt.label}</option>
-            {/each}
-          </select>
-          <button class="btn" disabled={busy} onclick={setWeek}>Set week</button>
-          <button class="btn" disabled={busy} onclick={clearWeek}>Clear week</button>
-        </div>
-      </div>
-
-      <div class="op-actions">
-        <button class="btn" disabled={busy} onclick={() => (selectedIds = [])}>Clear selection</button>
-      </div>
-    </Card>
-  {/if}
-
   <Card title={`All links (${filtered.length.toLocaleString()})`}>
     <div class="controls">
       <SearchInput bind:value={search} />
@@ -246,6 +194,61 @@
         <input type="checkbox" checked={allVisibleSelected} onchange={togglePageSelection} />
         Select all on this page ({visible.length})
       </label>
+
+      <!-- The actions live WITH the list, WordPress-style: right where the
+           selection happens, appearing as soon as anything is checked. -->
+      {#if selectedIds.length > 0}
+        <div class="bulk-panel" role="region" aria-label="Bulk operations">
+          <div class="bulk-head">
+            <strong>Bulk operations — {selectedIds.length} selected</strong>
+            <button class="btn" disabled={busy} onclick={() => (selectedIds = [])}>Clear selection</button>
+          </div>
+
+          <div class="op-group">
+            <span class="op-label">Tags</span>
+            <ChipSelect items={allTags} bind:selected={tagIdsToApply} createPlaceholder="New tag…" pageLabel="tags" pageSize={10} onCreate={createTag} />
+            <div class="op-actions">
+              <button class="btn" disabled={busy || tagIdsToApply.length === 0} onclick={addTags}>Add to selected</button>
+              <button class="btn btn-danger" disabled={busy || tagIdsToApply.length === 0} onclick={removeTags}>Remove from selected</button>
+            </div>
+          </div>
+
+          <div class="op-group">
+            <span class="op-label">Topics</span>
+            <ChipSelect items={allTopics} bind:selected={topicIdsToApply} createPlaceholder="New topic…" pageLabel="topics" pageSize={10} onCreate={createTopic} />
+            <div class="op-actions">
+              <button class="btn" disabled={busy || topicIdsToApply.length === 0} onclick={addTopics}>Add to selected</button>
+              <button class="btn btn-danger" disabled={busy || topicIdsToApply.length === 0} onclick={removeTopics}>Remove from selected</button>
+            </div>
+          </div>
+
+          <div class="op-group">
+            <span class="op-label">Flags</span>
+            <div class="op-actions">
+              <button class="btn" disabled={busy} onclick={() => setFavourite(true)}>★ Favourite</button>
+              <button class="btn" disabled={busy} onclick={() => setFavourite(false)}>Unfavourite</button>
+              <button class="btn" disabled={busy} onclick={() => setResource(true)}>⚒ Resource</button>
+              <button class="btn" disabled={busy} onclick={() => setResource(false)}>Not a resource</button>
+              <button class="btn" disabled={busy} onclick={() => setDone(true)}>✓ Mark done</button>
+              <button class="btn" disabled={busy} onclick={() => setDone(false)}>Mark unread</button>
+            </div>
+          </div>
+
+          <div class="op-group last">
+            <span class="op-label">Reading week</span>
+            <div class="op-actions">
+              <select bind:value={weekChoice}>
+                <option value="">None (backlog only)</option>
+                {#each weekOptions as opt (opt.value)}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+              <button class="btn" disabled={busy} onclick={setWeek}>Set week</button>
+              <button class="btn" disabled={busy} onclick={clearWeek}>Clear week</button>
+            </div>
+          </div>
+        </div>
+      {/if}
       <div class="rows">
         {#each visible as link (link.id)}
           <div class="row" class:selected={selectedSet.has(link.id)}>
@@ -295,6 +298,24 @@
     padding: var(--space-5) 0;
   }
 
+  .bulk-panel {
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    background: var(--color-primary-soft);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+
+  .bulk-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+  }
+
   .op-group {
     display: flex;
     flex-direction: column;
@@ -302,6 +323,12 @@
     padding-bottom: var(--space-3);
     margin-bottom: var(--space-3);
     border-bottom: 1px solid var(--border-color);
+  }
+
+  .op-group.last {
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: none;
   }
 
   .op-label {
