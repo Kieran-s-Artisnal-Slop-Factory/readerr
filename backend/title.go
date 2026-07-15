@@ -30,9 +30,34 @@ var (
 )
 
 const (
-	maxBodyBytes  = 256 * 1024 // <title> lives in <head>; don't read whole pages
+	// Read in chunks, stopping as soon as a title matches. The cap must be
+	// generous: modern YouTube watch pages put <title> past byte 640,000
+	// (hundreds of KB of inline CSS/JSON come first).
+	chunkBytes    = 256 * 1024
+	maxBodyBytes  = 2 * 1024 * 1024
 	maxTitleChars = 300
 )
+
+// readTitle scans the body chunk by chunk, extracting as soon as a title
+// shows up so small pages never pull the full cap.
+func readTitle(body io.Reader) (string, error) {
+	limited := io.LimitReader(body, maxBodyBytes)
+	var page []byte
+	buf := make([]byte, chunkBytes)
+	for {
+		n, err := io.ReadFull(limited, buf)
+		page = append(page, buf[:n]...)
+		if title := extractTitle(string(page)); title != "" {
+			return title, nil
+		}
+		if err != nil { // io.EOF / io.ErrUnexpectedEOF: body exhausted (or cap hit)
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				return "", nil
+			}
+			return "", err
+		}
+	}
+}
 
 func (s *server) handleTitle(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("url")
@@ -65,14 +90,12 @@ func (s *server) handleTitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-	if err != nil || len(body) == 0 {
-		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "empty/unreadable body")
+	title, err := readTitle(resp.Body)
+	if err != nil {
+		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "unreadable body: "+err.Error())
 		writeJSON(w, map[string]any{"ok": false})
 		return
 	}
-
-	title := extractTitle(string(body))
 	if title == "" {
 		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "no title in page")
 		writeJSON(w, map[string]any{"ok": false})
