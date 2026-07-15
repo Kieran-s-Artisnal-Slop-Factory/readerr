@@ -19,6 +19,7 @@
     type ListMember,
     type ListExportFormat,
   } from '../../lib/services/resourceLists';
+  import { downloadListHtml } from '../../lib/services/resourceListExport';
   import type { Link, ResourceList, Tag } from '../../lib/db/types';
 
   let list = $state<ResourceList | null>(null);
@@ -187,12 +188,15 @@
       <p class="hint">
         Markdown gives a <code>- [title](url)</code> list; txt is one bare URL
         per line; csv has title,url columns; JSON includes the description.
+        HTML is a self-contained themed page with a searchable link list and
+        per-link notes/excerpts — the same page the mass export produces.
       </p>
       <div class="export-actions">
         <button class="btn" onclick={() => exportAs('md')}>Markdown</button>
         <button class="btn" onclick={() => exportAs('txt')}>Plain txt</button>
         <button class="btn" onclick={() => exportAs('csv')}>CSV</button>
         <button class="btn" onclick={() => exportAs('json')}>JSON</button>
+        <button class="btn" onclick={() => list && downloadListHtml(list)}>HTML</button>
       </div>
     </Card>
   </div>

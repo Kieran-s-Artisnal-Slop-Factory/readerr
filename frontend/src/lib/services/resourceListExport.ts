@@ -118,14 +118,16 @@ footer { color: var(--text-muted-color); font-size: var(--font-size-sm); text-al
 `;
 }
 
-function page(title: string, body: string): string {
+/** Zip pages share a style.css; standalone files inline the CSS instead. */
+function page(title: string, body: string, inlineCss?: string): string {
+  const styles = inlineCss ? `<style>\n${inlineCss}</style>` : '<link rel="stylesheet" href="style.css">';
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="stylesheet" href="style.css">
+${styles}
 </head>
 <body>
 <main>
@@ -161,7 +163,11 @@ interface MemberDetail {
   excerpts: Excerpt[];
 }
 
-function listHtml(list: ResourceList, details: MemberDetail[]): string {
+function listHtml(
+  list: ResourceList,
+  details: MemberDetail[],
+  opts: { standalone?: boolean; css?: string } = {}
+): string {
   const rows = details
     .map(({ member, notes, excerpts }) => {
       const { link } = member;
@@ -188,8 +194,9 @@ function listHtml(list: ResourceList, details: MemberDetail[]): string {
     })
     .join('\n');
 
-  const body = `<p class="crumb"><a href="index.html">← All resource lists</a></p>
-<h1>${esc(list.name)}</h1>
+  // A standalone file has no index.html beside it — skip the crumb.
+  const crumb = opts.standalone ? '' : '<p class="crumb"><a href="index.html">← All resource lists</a></p>\n';
+  const body = `${crumb}<h1>${esc(list.name)}</h1>
 ${list.description_md ? `<div class="desc">${md(list.description_md)}</div>` : ''}
 <input class="search" type="search" placeholder="Filter links by title or URL…" id="q">
 <ul class="links" id="links">
@@ -203,7 +210,30 @@ document.getElementById('q').addEventListener('input', (e) => {
   }
 });
 </script>`;
-  return page(`${list.name} · Resource lists`, body);
+  return page(`${list.name} · Resource lists`, body, opts.css);
+}
+
+/** Notes + excerpts for each member (the <details> content). */
+async function memberDetails(members: ListMember[]): Promise<MemberDetail[]> {
+  const details: MemberDetail[] = [];
+  for (const member of members) {
+    details.push({
+      member,
+      notes: await byIndex<Note>('notes', 'link_id', member.link.id),
+      excerpts: await byIndex<Excerpt>('excerpts', 'link_id', member.link.id),
+    });
+  }
+  return details;
+}
+
+/**
+ * One list as a single self-contained themed HTML file — the same page the
+ * mass export produces, with the stylesheet inlined and no index crumb.
+ */
+export async function downloadListHtml(list: ResourceList): Promise<void> {
+  const details = await memberDetails(await listMembers(list.id));
+  const html = listHtml(list, details, { standalone: true, css: themeCss() });
+  download(new Blob([html], { type: 'text/html' }), `${safeName(list.name)}.html`);
 }
 
 function download(blob: Blob, filename: string): void {
@@ -247,14 +277,7 @@ export async function downloadAllLists(format: MassExportFormat): Promise<void> 
     const indexEntries: { list: ResourceList; count: number; file: string }[] = [];
     for (const list of lists) {
       const members = await listMembers(list.id);
-      const details: MemberDetail[] = [];
-      for (const member of members) {
-        details.push({
-          member,
-          notes: await byIndex<Note>('notes', 'link_id', member.link.id),
-          excerpts: await byIndex<Excerpt>('excerpts', 'link_id', member.link.id),
-        });
-      }
+      const details = await memberDetails(members);
       const file = `${safeName(list.name)}.html`;
       zip.file(file, listHtml(list, details));
       indexEntries.push({ list, count: members.length, file });

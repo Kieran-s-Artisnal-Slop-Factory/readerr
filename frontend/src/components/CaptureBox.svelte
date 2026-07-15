@@ -129,9 +129,14 @@
         justAdded = [...added, ...merged, ...justAdded.filter(
           (l) => !added.some((a) => a.id === l.id) && !merged.some((m) => m.id === l.id)
         )].slice(0, JUST_ADDED_MAX);
-        // Auto-title resolves fire-and-forget in the DB; refresh our copies
-        // once it has had a moment so rows don't sit titled with raw URLs.
-        setTimeout(refreshJustAdded, 2500);
+        // Auto-title resolves fire-and-forget in the DB; once it has had a
+        // moment, refresh our copies AND re-fire onAdded so the host list
+        // re-renders too — otherwise rows sit titled with raw URLs until
+        // the next navigation ("auto-title isn't working").
+        setTimeout(async () => {
+          await refreshJustAdded();
+          onAdded([]);
+        }, 2500);
       }
       onAdded(added);
     } finally {

@@ -16,6 +16,7 @@
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import { domainOf, tagsForLink } from '../../lib/services/links';
   import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
+  import { href } from '../../lib/paths';
   import {
     addLinkToWeek,
     autoCloseStaleWeeks,
@@ -337,6 +338,12 @@
   <div class="stack">
     {#if message}
       <p class="notice">{message}</p>
+    {/if}
+
+    {#if allLinks.length === 0}
+      <p class="notice onboard-hint">
+        Not sure what to do, <a href={href('/onboarding/')}>try the onboarding process</a>
+      </p>
     {/if}
 
     <Card title="Capture">

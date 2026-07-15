@@ -15,6 +15,7 @@
   import { all } from '../../lib/db/repo';
   import { retryMissingTitles } from '../../lib/services/capture';
   import { matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
+  import { href } from '../../lib/paths';
   import type { Link, Tag } from '../../lib/db/types';
 
   const PAGE_SIZE = 100;
@@ -80,6 +81,12 @@
 </script>
 
 <div class="stack">
+  {#if !loading && links.length === 0}
+    <p class="onboard-hint">
+      Not sure what to do, <a href={href('/onboarding/')}>try the onboarding process</a>
+    </p>
+  {/if}
+
   <Card title="Capture">
     <CaptureBox onAdded={() => refresh().then(() => retryMissingTitles().then(refresh))} />
   </Card>
@@ -119,5 +126,13 @@
     color: var(--text-muted-color);
     text-align: center;
     padding: var(--space-5) 0;
+  }
+
+  .onboard-hint {
+    background: var(--color-primary-soft);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin: 0;
   }
 </style>

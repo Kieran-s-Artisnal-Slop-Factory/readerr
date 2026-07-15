@@ -9,6 +9,7 @@
   import Card from '../Card.svelte';
   import { all, put, withSyncFields } from '../../lib/db/repo';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
+  import { importData } from '../../lib/db/export';
   import { requestPersistentStorage } from '../../lib/db/persistence';
   import { setSyncUrl, setSyncMode, syncNow, testConnection } from '../../lib/sync';
   import {
@@ -75,6 +76,39 @@
   let restoreUrl = $state('');
   let restoring = $state(false);
   let restoreMessage = $state('');
+  // Welcome-page import path: load a JSON export/backup file.
+  let importMessage = $state('');
+
+  /**
+   * Onboard from an exported JSON file (full backups replace, partial
+   * exports merge — onboarding starts empty so both amount to "load it").
+   */
+  async function onImportFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    importMessage = '';
+    let envelope: unknown;
+    try {
+      envelope = JSON.parse(await file.text());
+    } catch {
+      importMessage = 'Import failed: that file is not valid JSON.';
+      input.value = '';
+      return;
+    }
+    try {
+      const result = await importData(envelope as Parameters<typeof importData>[0]);
+      importMessage = `Imported ${result.rows.toLocaleString()} rows.`;
+      const settings = await getUserSettings();
+      if (!settings?.onboarding_completed_at) {
+        await saveUserSettings({ onboarding_completed_at: new Date().toISOString() });
+      }
+      location.href = href('/');
+    } catch (err) {
+      importMessage = `Import failed: ${err instanceof Error ? err.message : err}`;
+      input.value = '';
+    }
+  }
 
   onMount(async () => {
     themeChoice = loadThemeConfig().base;
@@ -189,10 +223,17 @@
         <button class="btn" aria-expanded={restoreOpen} onclick={() => (restoreOpen = !restoreOpen)}>
           Sync from existing server
         </button>
+        <label class="btn" style="margin-bottom: 0;">
+          Import a backup file
+          <input type="file" accept="application/json" onchange={onImportFile} hidden />
+        </label>
         <p class="muted">
         <small>You can come back from settings page later</small>
       </p>
       </div>
+      {#if importMessage}
+        <p class="muted restore-msg">{importMessage}</p>
+      {/if}
       {#if restoreOpen}
         <div class="restore">
           <p class="muted">

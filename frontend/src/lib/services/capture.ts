@@ -360,6 +360,12 @@ async function fetchTitle(link: Link, base: string): Promise<void> {
       await new Promise((r) => setTimeout(r, TITLE_RETRY_MS));
     }
   }
+  // Silent failure made "auto-title isn't working" undiagnosable — say why
+  // it stopped (the backend also logs each /title request and its outcome).
+  console.warn(
+    `[readerr] title fetch gave up for ${link.url} after ${TITLE_ATTEMPTS} attempts ` +
+      `(server: ${base || 'same origin'}). It retries when the backlog next loads.`
+  );
 }
 
 /**

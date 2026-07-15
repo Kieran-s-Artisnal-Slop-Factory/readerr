@@ -3,6 +3,7 @@ package main
 import (
 	"html"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -43,6 +44,7 @@ func (s *server) handleTitle(w http.ResponseWriter, r *http.Request) {
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
 	if err != nil {
+		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "bad request: "+err.Error())
 		writeJSON(w, map[string]any{"ok": false})
 		return
 	}
@@ -52,26 +54,31 @@ func (s *server) handleTitle(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := titleClient.Do(req)
 	if err != nil {
+		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "fetch failed: "+err.Error())
 		writeJSON(w, map[string]any{"ok": false})
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "remote status", "status", resp.StatusCode)
 		writeJSON(w, map[string]any{"ok": false})
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil || len(body) == 0 {
+		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "empty/unreadable body")
 		writeJSON(w, map[string]any{"ok": false})
 		return
 	}
 
 	title := extractTitle(string(body))
 	if title == "" {
+		slog.Warn("title fetch", "url", raw, "ok", false, "reason", "no title in page")
 		writeJSON(w, map[string]any{"ok": false})
 		return
 	}
+	slog.Info("title fetch", "url", raw, "ok", true, "title", title)
 	writeJSON(w, map[string]any{"ok": true, "title": title})
 }
 
