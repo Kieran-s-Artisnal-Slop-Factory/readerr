@@ -29,7 +29,7 @@ The FAB is **not** a reduced quick-add. It must carry everything
 `CaptureBox` does today, because the whole point is to not regress:
 
 - Multi-line paste — one URL per line, plain URLs, `- bullet` lists, or
-  `[Title](url)` markdown links; dedupe + invalid reporting.
+  `[Title](url)` markdown links; dedupe + invalid reporting. With the new DSL for per-link changes when dumping multiple files
 - Tag chips and Topic chips (`ChipSelect`), including inline create of a new
   tag/topic on the fly.
 - Reading-week select, preselected from the Settings default
