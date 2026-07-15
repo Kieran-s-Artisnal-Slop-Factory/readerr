@@ -6,6 +6,7 @@
    * lazily loads the full tag map on first keystroke.
    */
   import { onMount } from 'svelte';
+  import BulkActionsPanel from '../BulkActionsPanel.svelte';
   import Card from '../Card.svelte';
   import CaptureBox from '../CaptureBox.svelte';
   import ChipFilter from '../ChipFilter.svelte';
@@ -27,6 +28,8 @@
   let search = $state('');
   let page = $state(0);
   let loading = $state(true);
+  // Bulk operations selection (checkboxes come from LinkList's selectable mode).
+  let selectedIds = $state<string[]>([]);
 
   const FILTER_OPTIONS = [
     { value: 'favourite', label: 'Favourites' },
@@ -65,6 +68,9 @@
       .filter((l) => !l.slushed_at)
       .sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
     searchTags = null; // stale after any data change
+    // Selections whose links left the backlog (done/slushed) drop off.
+    const ids = new Set(links.map((l) => l.id));
+    selectedIds = selectedIds.filter((id) => ids.has(id));
   }
 
   onMount(async () => {
@@ -99,8 +105,16 @@
     {#if loading}
       <p class="empty">Loading…</p>
     {:else}
+      {#if selectedIds.length > 0}
+        <BulkActionsPanel
+          links={links.filter((l) => selectedIds.includes(l.id))}
+          onApplied={() => void refresh()}
+          onClearSelection={() => (selectedIds = [])}
+        />
+      {/if}
       <LinkList links={visible} tagsByLink={pageTags} onChange={onRowChange}
         onAssignmentsChange={() => void refresh()}
+        selectable bind:selectedIds
         empty="No links yet — paste some above to get started." />
       <Pagination total={ordered.length} pageSize={PAGE_SIZE} bind:page label="links" />
     {/if}

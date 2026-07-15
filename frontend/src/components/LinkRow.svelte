@@ -9,7 +9,7 @@
   import { href } from '../lib/paths';
   import { put } from '../lib/db/repo';
   import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../lib/services/links';
-  import { pendingWeeksForLink, setLinkWeek, upcomingWeekOptions } from '../lib/services/weeks';
+  import { currentWeekStart, pendingWeeksForLink, setLinkWeek, upcomingWeekOptions } from '../lib/services/weeks';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
@@ -18,6 +18,7 @@
     topics = [],
     onChange,
     onAssignmentsChange,
+    showWeek = true,
   }: {
     link: Link;
     tags?: Tag[];
@@ -25,7 +26,28 @@
     onChange: (updated: Link) => void;
     /** Enables the inline label editor; fired after assignments change. */
     onAssignmentsChange?: () => void;
+    /** Badge the week(s) the link is scheduled for — the Reading List turns
+     *  this off since the week is the page's own context. */
+    showWeek?: boolean;
   } = $props();
+
+  // The link's pending week assignments, shown as 📅 chips in the meta row.
+  let scheduledWeeks = $state<string[]>([]);
+
+  $effect(() => {
+    if (!showWeek) return;
+    const id = link.id;
+    void link.updated_at; // re-check after any row change (done, week move…)
+    void pendingWeeksForLink(id).then((pending) => {
+      scheduledWeeks = pending.map(({ week }) => week.week_start);
+    });
+  });
+
+  function weekLabel(weekStart: string): string {
+    if (weekStart === currentWeekStart()) return 'This week';
+    const d = new Date(`${weekStart}T00:00:00`);
+    return `Week of ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  }
 
   let labelsOpen = $state(false);
 
@@ -58,6 +80,11 @@
 
   async function changeWeek() {
     await setLinkWeek(link.id, pendingWeek || null);
+    // Refresh the 📅 badge (the effect only re-runs when the row changes).
+    if (showWeek) {
+      const pending = await pendingWeeksForLink(link.id);
+      scheduledWeeks = pending.map(({ week }) => week.week_start);
+    }
     onAssignmentsChange?.();
   }
 
@@ -97,6 +124,9 @@
     {/if}
     <div class="meta">
       <span class="domain">{domainOf(link.url)}</span>
+      {#each scheduledWeeks as ws (ws)}
+        <span class="week-chip" title="Scheduled reading week">📅 {weekLabel(ws)}</span>
+      {/each}
       {#each tags as tag (tag.id)}
         <a class="tag-chip" href={href(`/tag/?id=${tag.id}`)}>{tag.name}</a>
       {/each}
@@ -300,6 +330,16 @@
 
   .topic-chip {
     border-style: dashed;
+  }
+
+  .week-chip {
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    color: var(--color-primary-strong);
+    background: var(--color-primary-soft);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
   }
 
   .row-actions {

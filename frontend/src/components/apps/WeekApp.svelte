@@ -9,6 +9,7 @@
    * the backlog.
    */
   import { onMount } from 'svelte';
+  import BulkActionsPanel from '../BulkActionsPanel.svelte';
   import Card from '../Card.svelte';
   import CaptureBox from '../CaptureBox.svelte';
   import LinkRow from '../LinkRow.svelte';
@@ -52,6 +53,18 @@
   let focusTagName = $state('');
 
   const isOpenWeek = $derived(focusStart === openWeekStart);
+
+  // Bulk operations over this week's entries (checkboxes on each row).
+  let selectedIds = $state<string[]>([]);
+  const selectedLinks = $derived(
+    entries.filter((e) => selectedIds.includes(e.link.id)).map((e) => e.link)
+  );
+
+  function toggleSelect(id: string) {
+    selectedIds = selectedIds.includes(id)
+      ? selectedIds.filter((s) => s !== id)
+      : [...selectedIds, id];
+  }
   /** Notes taken across this week's links (#6). */
   let stats = $state({ linksWithNotes: 0, excerpts: 0 });
 
@@ -152,6 +165,8 @@
     }
     tagsByLink = byLink;
     stats = { linksWithNotes, excerpts: excerptCount };
+    // Selections whose entries left this week drop off.
+    selectedIds = selectedIds.filter((id) => rows.some((r) => r.link.id === id));
     await refreshSuggestions();
   }
 
@@ -309,8 +324,16 @@
         class="entry"
         class:dragging={drag?.section === sectionKey && drag.index === i}
         class:drag-over={drag?.section === sectionKey && dragOver === i && drag.index !== i}
+        class:bulk-selected={selectedIds.includes(link.id)}
         role="listitem"
       >
+        <input
+          type="checkbox"
+          class="entry-check"
+          checked={selectedIds.includes(link.id)}
+          onchange={() => toggleSelect(link.id)}
+          aria-label={`Select ${link.title}`}
+        />
         <span
           class="handle"
           title="Drag to reorder"
@@ -321,7 +344,7 @@
           ⠿
         </span>
         <div class="entry-row">
-          <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
+          <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} showWeek={false} />
         </div>
         {#if withReviewed}
           <button class="btn review-done" onclick={() => completeReview(entry)}>Reviewed</button>
@@ -363,6 +386,14 @@
           Notes on {stats.linksWithNotes} of {entries.length} link{entries.length === 1 ? '' : 's'}
           · {stats.excerpts} excerpt{stats.excerpts === 1 ? '' : 's'}
         </p>
+      {/if}
+
+      {#if selectedLinks.length > 0}
+        <BulkActionsPanel
+          links={selectedLinks}
+          onApplied={() => void loadWeek()}
+          onClearSelection={() => (selectedIds = [])}
+        />
       {/if}
       {#if isOpenWeek}
         <form
@@ -445,9 +476,16 @@
       <Card title={`Done (${done.length})`}>
         <div class="entries">
           {#each done as { entry, link } (entry.id)}
-            <div class="entry done-entry">
+            <div class="entry done-entry" class:bulk-selected={selectedIds.includes(link.id)}>
+              <input
+                type="checkbox"
+                class="entry-check"
+                checked={selectedIds.includes(link.id)}
+                onchange={() => toggleSelect(link.id)}
+                aria-label={`Select ${link.title}`}
+              />
               <div class="entry-row">
-                <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} />
+                <LinkRow {link} tags={tagsByLink.get(link.id) ?? []} onChange={onRowChange} showWeek={false} />
               </div>
               <button class="corner-remove" title="Remove from this week" onclick={() => remove(entry.id)}>
                 ✕
@@ -491,6 +529,17 @@
     justify-content: space-between;
     gap: var(--space-2);
     margin-bottom: var(--space-3);
+  }
+
+  .entry-check {
+    flex-shrink: 0;
+    width: auto;
+    margin: 0;
+    align-self: center;
+  }
+
+  .entry.bulk-selected {
+    background: var(--color-primary-soft);
   }
 
   .week-nav .muted {
