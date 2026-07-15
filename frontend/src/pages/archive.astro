@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import ArchiveApp from '../components/apps/ArchiveApp.svelte';
 ---
 
-<Layout title="Archive">
+<Layout title="Archive" hasCapture={false}>
   <ArchiveApp client:only="svelte" />
 </Layout>

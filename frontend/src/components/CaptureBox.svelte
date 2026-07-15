@@ -17,7 +17,7 @@
   let {
     onAdded,
     chipPageSize = 50,
-    addLabel = 'Add to backlog',
+    addLabel = 'Add Link(s)',
   }: {
     onAdded: (links: Link[]) => void;
     /** Tag/topic chips per page — compact hosts (the FAB) pass fewer. */

@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import LinkApp from '../components/apps/LinkApp.svelte';
 ---
 
-<Layout title="Link">
+<Layout title="Link" hasCapture={false}>
   <LinkApp client:only="svelte" />
 </Layout>

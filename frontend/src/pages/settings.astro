@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import SettingsApp from '../components/apps/SettingsApp.svelte';
 ---
 
-<Layout title="Settings">
+<Layout title="Settings" hasCapture={false}>
   <SettingsApp client:only="svelte" />
 </Layout>

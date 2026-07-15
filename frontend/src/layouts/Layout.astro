@@ -3,14 +3,17 @@ import '../styles/theme.css';
 import '../styles/global.css';
 import Navbar from '../components/Navbar.svelte';
 import ArchiveSuggestModal from '../components/ArchiveSuggestModal.svelte';
+import CaptureFab from '../components/CaptureFab.svelte';
 import { href } from '../lib/paths';
 
 interface Props {
   title: string;
   noNav?: boolean;
+  /** The page renders its own inline CaptureBox, so no floating FAB. */
+  hasCapture?: boolean;
 }
 
-const { title, noNav } = Astro.props;
+const { title, noNav, hasCapture } = Astro.props;
 const currentPath = Astro.url.pathname;
 // Base-aware asset/SW URLs (host under a sub-path).
 const iconUrl = href('/icon.svg');
@@ -78,6 +81,7 @@ const swScope = href('/');
       }
     </script>
     {!noNav && <ArchiveSuggestModal client:load />}
+    {!noNav && !hasCapture && <CaptureFab client:only="svelte" />}
     <main class="page">
       <slot />
     </main>

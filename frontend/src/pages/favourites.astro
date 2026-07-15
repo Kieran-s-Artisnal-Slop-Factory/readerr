@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import FavouritesApp from '../components/apps/FavouritesApp.svelte';
 ---
 
-<Layout title="Favourites">
+<Layout title="Favourites" hasCapture={false}>
   <FavouritesApp client:only="svelte" />
 </Layout>

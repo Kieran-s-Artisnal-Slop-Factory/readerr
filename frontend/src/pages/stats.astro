@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import StatsApp from '../components/apps/StatsApp.svelte';
 ---
 
-<Layout title="Stats">
+<Layout title="Stats" hasCapture={false}>
   <StatsApp client:only="svelte" />
 </Layout>

@@ -51,7 +51,7 @@
     bind:this={panelEl}
   >
     <!-- Compact host: fewer chips per page, generic add label. -->
-    <CaptureBox onAdded={onCaptured} chipPageSize={10} addLabel="Add Link(s)" />
+    <CaptureBox onAdded={onCaptured} chipPageSize={10} addLabel="Add" />
   </div>
 {/if}
 

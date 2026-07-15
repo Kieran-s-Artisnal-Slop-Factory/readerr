@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import TagApp from '../components/apps/TagApp.svelte';
 ---
 
-<Layout title="Tag">
+<Layout title="Tag" hasCapture={false}>
   <TagApp client:only="svelte" />
 </Layout>

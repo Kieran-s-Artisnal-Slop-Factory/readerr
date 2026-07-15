@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import UpcomingApp from '../components/apps/UpcomingApp.svelte';
 ---
 
-<Layout title="Upcoming weeks">
+<Layout title="Upcoming weeks" hasCapture={false}>
   <UpcomingApp client:only="svelte" />
 </Layout>

@@ -3,6 +3,6 @@ import Layout from '../layouts/Layout.astro';
 import TopicsApp from '../components/apps/TopicsApp.svelte';
 ---
 
-<Layout title="Topics">
+<Layout title="Topics" hasCapture={false}>
   <TopicsApp client:only="svelte" />
 </Layout>

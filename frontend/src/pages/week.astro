@@ -5,6 +5,6 @@ import WeekApp from '../components/apps/WeekApp.svelte';
 
 <!-- The Reading List now lives at the homepage; /week is kept as an alias so
      old bookmarks and links keep working. -->
-<Layout title="Reading List">
+<Layout title="Reading List" hasCapture>
   <WeekApp client:only="svelte" />
 </Layout>
