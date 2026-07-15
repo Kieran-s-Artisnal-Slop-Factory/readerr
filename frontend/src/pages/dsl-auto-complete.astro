@@ -1,0 +1,41 @@
+---
+import Layout from '../layouts/Layout.astro';
+import DslAutocompleteBox from '../components/experimental/DslAutocompleteBox.svelte';
+---
+
+<!-- EXPERIMENT (experiments.md #1): DSL autocomplete, isolated from the real
+     CaptureBox. Delete this page + components/experimental/DslAutocompleteBox.svelte
+     to remove it entirely. hasCapture suppresses the FAB — this page IS a
+     capture surface. -->
+<Layout title="DSL autocomplete test" hasCapture>
+  <div class="card">
+    <h2>DSL autocomplete experiment</h2>
+    <p>
+      The capture box below suggests per-line <code>!options</code> as you
+      type. Things to try:
+    </p>
+    <ul>
+      <li>Type <code>https://example.com !t</code> — a menu offers <code>!tags=[]</code> and <code>!topics=[]</code>.</li>
+      <li>Accept <code>!tags=[]</code> — the caret lands inside the brackets; start typing a letter and existing tag names matching it appear.</li>
+      <li>Commas continue the list: after <code>rust,</code> the menu suggests again for the next item.</li>
+      <li>The parse preview underneath shows exactly what each line resolves to; <strong>Add Link(s)</strong> captures for real.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <DslAutocompleteBox client:only="svelte" />
+  </div>
+</Layout>
+
+<style>
+  .card {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    margin-bottom: var(--space-4);
+  }
+
+  h2 {
+    margin-top: 0;
+  }
+</style>

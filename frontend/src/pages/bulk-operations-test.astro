@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import BulkOperationsApp from '../components/experimental/BulkOperationsApp.svelte';
+---
+
+<!-- EXPERIMENT (experiments.md #2): WordPress/Drupal-style bulk operations
+     over existing links. Delete this page +
+     components/experimental/BulkOperationsApp.svelte to remove it. -->
+<Layout title="Bulk operations test">
+  <BulkOperationsApp client:only="svelte" />
+</Layout>
