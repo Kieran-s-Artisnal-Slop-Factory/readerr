@@ -17,6 +17,7 @@
     listMemberCounts,
     listResourceLists,
   } from '../../lib/services/resourceLists';
+  import { downloadAllLists, type MassExportFormat } from '../../lib/services/resourceListExport';
   import { href } from '../../lib/paths';
   import type { Link, ResourceList, Tag } from '../../lib/db/types';
 
@@ -31,6 +32,17 @@
   let lists = $state<ResourceList[]>([]);
   let listCounts = $state<Map<string, number>>(new Map());
   let newListName = $state('');
+  let exportFormat = $state<MassExportFormat>('html');
+  let exporting = $state(false);
+
+  async function exportAll() {
+    exporting = true;
+    try {
+      await downloadAllLists(exportFormat);
+    } finally {
+      exporting = false;
+    }
+  }
 
   const filtered = $derived(
     links.filter((l) => matchesSearch(l, searchTags?.get(l.id) ?? [], search))
@@ -114,6 +126,19 @@
         </li>
       {/each}
     </ul>
+    <div class="export-row">
+      <label for="lists-export-format">Export all lists as</label>
+      <select id="lists-export-format" bind:value={exportFormat}>
+        <option value="html">HTML pages (themed, searchable)</option>
+        <option value="md">Markdown (zip)</option>
+        <option value="txt">Plain text (zip)</option>
+        <option value="csv">CSV (zip)</option>
+        <option value="json">JSON (single file)</option>
+      </select>
+      <button class="btn" onclick={exportAll} disabled={exporting}>
+        {exporting ? 'Exporting…' : 'Export all'}
+      </button>
+    </div>
   {/if}
 </Card>
 
@@ -210,5 +235,25 @@
 
   .row-actions {
     margin-left: auto;
+  }
+
+  .export-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .export-row label {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+
+  .export-row select {
+    width: auto;
   }
 </style>

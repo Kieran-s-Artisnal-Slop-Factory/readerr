@@ -58,6 +58,8 @@ func main() {
 	})
 	mux.HandleFunc("POST /sync/push", srv.handlePush)
 	mux.HandleFunc("GET /sync/pull", srv.handlePull)
+	mux.HandleFunc("GET /sync/stats", srv.handleSyncStats)
+	mux.HandleFunc("POST /sync/reset", srv.handleSyncReset)
 	mux.HandleFunc("GET /backup", srv.handleBackup)
 	mux.HandleFunc("GET /title", srv.handleTitle)
 	// On-disk database size (main file + WAL), for the client's stats page.

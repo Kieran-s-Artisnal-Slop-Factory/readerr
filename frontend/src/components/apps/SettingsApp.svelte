@@ -1,11 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
-  import { downloadExport, importData, clearAllData } from '../../lib/db/export';
+  import { downloadExport, importData, clearAllData, wipeLocalData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
   import { seedDataset } from '../../lib/db/seed';
   import { archivableCount, archivedCount, archiveNow } from '../../lib/services/archive';
-  import { syncNow, getSyncMode, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
+  import {
+    syncNow,
+    getSyncMode,
+    getSyncStatus,
+    getSyncUrl,
+    setSyncUrl,
+    setSyncMode,
+    testConnection,
+    serverHasData,
+    resetServer,
+    resetLocalSyncState,
+    localHasData,
+    type SyncStatus,
+  } from '../../lib/sync';
   import {
     clearSyncLog,
     getSyncLogPrefs,
@@ -147,12 +160,96 @@
     await refreshSyncLog();
   }
 
-  function saveSyncUrl() {
+  // Conflict resolution when a newly configured server AND this device both
+  // already hold data (see docs/sync.md).
+  let conflictOpen = $state(false);
+  let resolving = $state(false);
+
+  async function saveSyncUrl() {
+    const previous = getSyncUrl();
     setSyncUrl(syncUrl);
     syncUrl = getSyncUrl();
     if (syncUrl) setSyncMode('sync'); // configuring a server opts back into syncing
+    syncEnabled = getSyncMode() === 'sync';
     message = 'Sync server saved.';
     syncTest = null; // a URL change invalidates the last test result
+    conflictOpen = false;
+    if (!syncUrl || syncUrl === previous) return;
+
+    // A different server: find out what exists on each side.
+    const server = await serverHasData(syncUrl);
+    if (server === null) {
+      message =
+        "Sync server saved — couldn't probe it for existing data (unreachable, or an older backend). The next sync merges normally.";
+      return;
+    }
+    const local = await localHasData();
+    if (server && local) {
+      conflictOpen = true; // both sides have data — the user decides
+      return;
+    }
+    if (server && !local) {
+      // Nothing local yet: adopting the server copy is the default.
+      await resolveConflict('replace-local');
+      return;
+    }
+    // Empty server: forget any old server's bookkeeping and push everything.
+    await resetLocalSyncState();
+    await runSync();
+  }
+
+  async function resolveConflict(option: 'replace-local' | 'replace-server' | 'merge') {
+    resolving = true;
+    try {
+      if (option === 'replace-local') {
+        if (
+          (await localHasData()) &&
+          !confirm(
+            'Replace ALL local data with the server copy? Local-only rows (like archived links) are cleared too — export a backup first if in doubt.'
+          )
+        ) {
+          return;
+        }
+        await wipeLocalData();
+        const r = await syncNow();
+        if (!r.ok) {
+          message = `Sync failed: ${r.error}`;
+          return;
+        }
+        message = `Server data pulled: ${r.pulled.toLocaleString()} rows. Reloading…`;
+        location.reload();
+        return;
+      }
+      if (option === 'replace-server') {
+        if (
+          !confirm(
+            "Wipe ALL data on the server and replace it with this device's copy? Any other device syncing to it will pull this dataset."
+          )
+        ) {
+          return;
+        }
+        await resetServer();
+        await resetLocalSyncState();
+        const r = await syncNow();
+        message = r.ok
+          ? `Server wiped and repopulated: pushed ${r.pushed.toLocaleString()} rows.`
+          : `Sync failed: ${r.error}`;
+      } else {
+        // merge: push all local (server keeps per-row newest), pull all server.
+        await resetLocalSyncState();
+        const r = await syncNow();
+        message = r.ok
+          ? `Merged: pushed ${r.pushed.toLocaleString()}, pulled ${r.pulled.toLocaleString()} rows.`
+          : `Sync failed: ${r.error}`;
+      }
+      conflictOpen = false;
+      syncStatus = await getSyncStatus();
+      await refreshSyncLog();
+    } catch (err) {
+      message = `Failed: ${err instanceof Error ? err.message : err}`;
+    } finally {
+      resolving = false;
+    }
   }
 
   let testing = $state(false);
@@ -493,6 +590,35 @@
         <div class="test-banner" class:ok={syncTest.ok} role="status">
           {syncTest.ok ? '✅' : '⚠️'}
           {syncTest.message}
+        </div>
+      {/if}
+      {#if conflictOpen}
+        <div class="conflict" role="alertdialog" aria-label="Resolve sync data conflict">
+          <p>
+            <strong>Both this device and that server already have data.</strong>
+            Choose how to combine them:
+          </p>
+          <div class="conflict-option">
+            <button class="btn btn-primary" disabled={resolving} onclick={() => resolveConflict('merge')}>
+              Merge both
+            </button>
+            <span class="muted">
+              Download the server's data, combine it with what's here (newest
+              edit wins per item), and push the result back. Recommended.
+            </span>
+          </div>
+          <div class="conflict-option">
+            <button class="btn" disabled={resolving} onclick={() => resolveConflict('replace-local')}>
+              Use server data
+            </button>
+            <span class="muted">Wipe this device and replace everything with the server copy.</span>
+          </div>
+          <div class="conflict-option">
+            <button class="btn btn-danger" disabled={resolving} onclick={() => resolveConflict('replace-server')}>
+              Use local data
+            </button>
+            <span class="muted">Wipe the server and replace everything with this device's copy.</span>
+          </div>
         </div>
       {/if}
       <div class="actions">
@@ -851,6 +977,36 @@
 
   .week-offset-row input {
     width: 5rem;
+  }
+
+  .conflict {
+    border: 1px solid var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .conflict p {
+    margin: 0;
+  }
+
+  .conflict-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .conflict-option .btn {
+    flex-shrink: 0;
+    min-width: 9.5rem;
+  }
+
+  .conflict-option .muted {
+    font-size: var(--font-size-sm);
   }
 
   .sync-history {

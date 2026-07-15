@@ -7,7 +7,8 @@
    */
   import { onMount } from 'svelte';
   import ChipSelect from './ChipSelect.svelte';
-  import { all, put, withSyncFields } from '../lib/db/repo';
+  import LinkRow from './LinkRow.svelte';
+  import { all, get, put, withSyncFields } from '../lib/db/repo';
   import { captureLinks } from '../lib/services/capture';
   import { tagsByRecentUse, topicsByRecentUse } from '../lib/services/links';
   import { getUserSettings } from '../lib/services/settings';
@@ -44,6 +45,10 @@
   let defaultStripMode = $state<StripMode>('trackers');
   // Tag chip ordering (Settings → Link handling); topics stay recency-sorted.
   let tagSort = $state<'recent' | 'alpha'>('recent');
+  // The most recent captures, newest first — so a link is easy to find right
+  // after adding it, even when it went to a future week or the backlog.
+  let justAdded = $state<Link[]>([]);
+  const JUST_ADDED_MAX = 10;
 
   const selectionCount = $derived(
     selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
@@ -120,10 +125,24 @@
       selectedWeek = defaultWeek;
       markDone = false;
       isResource = false;
+      if (added.length > 0 || merged.length > 0) {
+        justAdded = [...added, ...merged, ...justAdded.filter(
+          (l) => !added.some((a) => a.id === l.id) && !merged.some((m) => m.id === l.id)
+        )].slice(0, JUST_ADDED_MAX);
+        // Auto-title resolves fire-and-forget in the DB; refresh our copies
+        // once it has had a moment so rows don't sit titled with raw URLs.
+        setTimeout(refreshJustAdded, 2500);
+      }
       onAdded(added);
     } finally {
       busy = false;
     }
+  }
+
+  async function refreshJustAdded() {
+    justAdded = await Promise.all(
+      justAdded.map(async (l) => (await get<Link>('links', l.id)) ?? l)
+    );
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -226,6 +245,20 @@
   </div>
   {#if report}
     <div class="report">{report}</div>
+  {/if}
+  {#if justAdded.length > 0}
+    <div class="just-added">
+      <span class="organize-label">Just Added</span>
+      <div class="just-added-list">
+        {#each justAdded as link (link.id)}
+          <LinkRow
+            {link}
+            onChange={(updated) =>
+              (justAdded = justAdded.map((l) => (l.id === updated.id ? updated : l)))}
+          />
+        {/each}
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -366,5 +399,17 @@
     text-align: right;
     font-size: var(--font-size-sm);
     color: var(--text-muted-color);
+  }
+
+  .just-added {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .just-added-list {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-top: var(--space-1);
   }
 </style>

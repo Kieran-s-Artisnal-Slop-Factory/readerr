@@ -8,9 +8,9 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import { all, put, withSyncFields } from '../../lib/db/repo';
-  import { saveUserSettings } from '../../lib/services/settings';
+  import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
   import { requestPersistentStorage } from '../../lib/db/persistence';
-  import { setSyncUrl, setSyncMode, testConnection } from '../../lib/sync';
+  import { setSyncUrl, setSyncMode, syncNow, testConnection } from '../../lib/sync';
   import {
     loadThemeConfig,
     saveThemeConfig,
@@ -32,7 +32,13 @@
 
   // Step 0 is the welcome/choice screen; 1..N are the walkthrough.
   const STEPS = ['Welcome', 'Appearance', 'Capture', 'Organize', 'Weekly flow', 'Plan ahead', 'Sync & backup'];
-  let step = $state(0);
+  // Deep link: /onboarding?page=N opens straight on a walkthrough step. Read
+  // synchronously at init — the URL-sync effect below would otherwise strip
+  // the param before an async read got to it.
+  const initialPage = parseInt(new URLSearchParams(location.search).get('page') ?? '', 10);
+  let step = $state(
+    Number.isFinite(initialPage) ? Math.max(0, Math.min(STEPS.length - 1, initialPage)) : 0
+  );
 
   // Appearance step — applies live so the choice previews itself.
   let themeChoice = $state<ThemeName>('gruvbox');
@@ -64,6 +70,12 @@
   let syncTestResult = $state('');
   let testing = $state(false);
 
+  // Welcome-page restore path: connect to an existing backend and pull.
+  let restoreOpen = $state(false);
+  let restoreUrl = $state('');
+  let restoring = $state(false);
+  let restoreMessage = $state('');
+
   onMount(async () => {
     themeChoice = loadThemeConfig().base;
     tags = (await all<Tag>('tags')).sort((a, b) => a.name.localeCompare(b.name));
@@ -71,6 +83,48 @@
     // to browser eviction is the worst first impression.
     void requestPersistentStorage();
   });
+
+  // Keep ?page= in the URL so any step can be linked/reloaded directly.
+  $effect(() => {
+    const url = new URL(location.href);
+    if (step === 0) url.searchParams.delete('page');
+    else url.searchParams.set('page', String(step));
+    history.replaceState(null, '', url);
+  });
+
+  /**
+   * Onboard against an existing backend: point sync at it, pull everything,
+   * and land on the reading list. The pulled settings usually carry their
+   * own onboarding stamp; a fresh server-side row gets stamped here so the
+   * first-launch gate can't bounce us back.
+   */
+  async function syncFromServer() {
+    if (restoring) return;
+    restoring = true;
+    restoreMessage = '';
+    try {
+      const test = await testConnection(restoreUrl);
+      if (!test.ok) {
+        restoreMessage = test.message;
+        return;
+      }
+      setSyncUrl(restoreUrl);
+      setSyncMode('sync');
+      const result = await syncNow();
+      if (!result.ok) {
+        restoreMessage = `Sync failed: ${result.error}`;
+        return;
+      }
+      restoreMessage = `Connected — pulled ${result.pulled.toLocaleString()} rows.`;
+      const settings = await getUserSettings();
+      if (!settings?.onboarding_completed_at) {
+        await saveUserSettings({ onboarding_completed_at: new Date().toISOString() });
+      }
+      location.href = href('/');
+    } finally {
+      restoring = false;
+    }
+  }
 
   async function finish() {
     // Persist the optional walkthrough choices, then mark complete. A blank
@@ -132,11 +186,44 @@
       <div class="choice">
         <button class="btn btn-primary" onclick={() => (step = 1)}>Show me around</button>
         <button class="btn" onclick={startFromScratch}>Start from scratch</button>
+        <button class="btn" aria-expanded={restoreOpen} onclick={() => (restoreOpen = !restoreOpen)}>
+          Sync from existing server
+        </button>
         <p class="muted">
         <small>You can come back from settings page later</small>
       </p>
       </div>
-      
+      {#if restoreOpen}
+        <div class="restore">
+          <p class="muted">
+            Already running a readerr backend? Point this device at it and
+            everything syncs down — links, notes, settings, the lot.
+          </p>
+          <div class="restore-row">
+            <input
+              type="text"
+              placeholder="e.g. http://192.168.1.10:8080"
+              bind:value={restoreUrl}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void syncFromServer();
+                }
+              }}
+            />
+            <button
+              class="btn btn-primary"
+              onclick={syncFromServer}
+              disabled={restoring || !restoreUrl.trim()}
+            >
+              {restoring ? 'Syncing…' : 'Connect & sync'}
+            </button>
+          </div>
+          {#if restoreMessage}
+            <p class="muted restore-msg">{restoreMessage}</p>
+          {/if}
+        </div>
+      {/if}
     </Card>
   {:else if step === 1}
     <Card title="Appearance">
@@ -377,6 +464,27 @@
     gap: var(--space-2);
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+
+  .restore {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .restore-row {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .restore-row input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .restore-msg {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-sm);
   }
 
   .progress {

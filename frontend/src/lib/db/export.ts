@@ -132,6 +132,21 @@ export async function downloadExport(
 }
 
 /**
+ * Empty every data store (synced, local-only, and the sync cursors) while
+ * keeping the database and localStorage prefs (theme, sync URL) intact —
+ * the "replace local with server data" path, where a pull refills
+ * everything right after. Unlike clearAllData this survives without a
+ * reload-and-reonboard, because the connection stays open.
+ */
+export async function wipeLocalData(): Promise<void> {
+  const db = await getDB();
+  const names = [...Object.keys(STORES), ...LOCAL_STORES, 'sync_meta'];
+  const tx = db.transaction(names, 'readwrite');
+  for (const name of names) tx.objectStore(name).clear();
+  await tx.done;
+}
+
+/**
  * Wipe everything on this device: the whole IndexedDB database (deleted,
  * not just cleared — clearing stores leaves the on-disk file allocated, so
  * the browser's usage number never drops), plus readerr's localStorage keys

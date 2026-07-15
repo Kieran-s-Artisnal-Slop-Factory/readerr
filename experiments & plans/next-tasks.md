@@ -1,11 +1,16 @@
 Complete the following tasks **IN ORDER**:
 
-1. In the capture box show a list of `LinkRow`s of the most recently added link(s), directly under the `Add to backlog` area with a `Just Added` header to make it easier to find links, especially when on the page for this week and adding links to future weeks or just the backlog
+
+
+
+2. During onboarding add option to import existing JSON file
+3. While there are no links added, on the reading week and backlog pages show a banner advertising the onboarding process. Something like "not sure what to do, try the onboarding process" with everything after the comma being a link to `/onboarding`
+
+
 2. Allow me to mass export my resource lists to mardkdown, txt, csv, JSON, or a zip containing a set of HTML pages that follow the currently set theme. The pages should be:
     1. an index page with a listing of each resource list, and a truncated portion of their description (to 100 chars)
     2. Sub-pages for each resource with an easily searchable list of the links, where each link has a clickable title to go to the URL, or a dropdown (details element) that can be clicked to see the links notes/excerpts, and the full url.
 3. In the onboarding add the third option to `Sync from existing server` on the very first page that lets someone onboard with their existing backend instance
-4. Allow for deep-linking in the onboarding by specifying query params (e.g. `/onboarding?page=2`)
 5. When someone specifies a sync server in the settings, if the server has existing data, and the local environment does, give them options:
     1. Wipe local data and replace with data on server (default if no data is specified locally yet)
     2. Keep local data and wipe server

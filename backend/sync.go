@@ -306,6 +306,47 @@ func fromDBValue(meta tableMeta, col string, v any) any {
 	return v
 }
 
+// GET /sync/stats — the sync high-water mark. latestSeq > 0 means the
+// server has ever accepted data; the client uses this cheap probe to decide
+// whether configuring this server needs conflict resolution.
+func (s *server) handleSyncStats(w http.ResponseWriter, r *http.Request) {
+	var lastSeq int64
+	if err := s.db.QueryRow("SELECT last_seq FROM sync_state WHERE id = 1").Scan(&lastSeq); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"latestSeq": lastSeq})
+}
+
+// POST /sync/reset — wipe every synced table and restart the sequence. Used
+// by the client's "keep local data, wipe server" conflict option before it
+// re-pushes everything. Single-user LAN posture: no auth, same as the rest.
+func (s *server) handleSyncReset(w http.ResponseWriter, r *http.Request) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+	// Children before parents (reverse of tableOrder) to respect FKs.
+	for i := len(tableOrder) - 1; i >= 0; i-- {
+		if _, err := tx.Exec("DELETE FROM " + tableOrder[i]); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	if _, err := tx.Exec("UPDATE sync_state SET last_seq = 0 WHERE id = 1"); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	slog.Info("sync reset: all server data wiped")
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 // GET /backup — download the sqlite file directly (complements the client's
 // JSON export). Checkpoints WAL first so the file is complete.
 func (s *server) handleBackup(w http.ResponseWriter, r *http.Request) {

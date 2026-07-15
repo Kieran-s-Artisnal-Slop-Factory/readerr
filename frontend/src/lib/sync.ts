@@ -112,6 +112,68 @@ export async function testConnection(url: string): Promise<{ ok: boolean; messag
   return { ok: true, message: 'Connected to sync server successfully.' };
 }
 
+/**
+ * Has the server ever accepted data? (GET /sync/stats; latestSeq > 0.)
+ * null = the probe failed (old backend without the endpoint, or unreachable).
+ */
+export async function serverHasData(url = getSyncUrl()): Promise<boolean | null> {
+  try {
+    const res = await fetch(`${url.trim().replace(/\/+$/, '')}/sync/stats`);
+    if (!res.ok) return null;
+    const json = (await res.json()) as { latestSeq?: number };
+    return (json.latestSeq ?? 0) > 0;
+  } catch {
+    return null;
+  }
+}
+
+/** Wipe everything on the server (POST /sync/reset). Throws on failure. */
+export async function resetServer(url = getSyncUrl()): Promise<void> {
+  const base = url.trim().replace(/\/+$/, '');
+  let res: Response;
+  try {
+    res = await fetch(`${base}/sync/reset`, { method: 'POST' });
+  } catch (err) {
+    throw new Error(describeNetworkError('server reset', err));
+  }
+  if (!res.ok) throw new Error(await describeHttpError('server reset', res));
+}
+
+/**
+ * Forget everything this device knows about its previous sync server: null
+ * every row's server_seq (they were assigned by the OLD server's counter)
+ * and drop the push/pull cursors, so the next sync pushes the full local
+ * dataset and pulls the new server from zero. updated_at is untouched —
+ * this is bookkeeping, not an edit.
+ */
+export async function resetLocalSyncState(): Promise<void> {
+  const db = await getDB();
+  for (const store of Object.keys(STORES)) {
+    const tx = db.transaction(store, 'readwrite');
+    let cursor = await tx.store.openCursor();
+    while (cursor) {
+      const row = cursor.value as SyncFields;
+      if (row.server_seq != null) {
+        row.server_seq = null;
+        void cursor.update(row);
+      }
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+  await db.delete('sync_meta', 'lastPushAt');
+  await db.delete('sync_meta', 'lastPullSeq');
+}
+
+/** Any real local content? (The settings row alone doesn't count.) */
+export async function localHasData(): Promise<boolean> {
+  const db = await getDB();
+  for (const store of ['links', 'tags', 'topics', 'notes', 'weeks']) {
+    if ((await db.count(store)) > 0) return true;
+  }
+  return false;
+}
+
 async function getMeta<T>(key: string): Promise<T | undefined> {
   const row = (await (await getDB()).get('sync_meta', key)) as { value: T } | undefined;
   return row?.value;
