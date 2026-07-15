@@ -12,9 +12,18 @@
  */
 import { all, byIndex, bulkPut, get, put, withSyncFields } from '../db/repo';
 import type { Link, StripMode } from '../db/types';
-import { assignTag, assignTopic, markLinkDone, tagsForLink, topicsForLink } from './links';
+import { parseLineOptions, splitLineOptions, type LineOptions } from './captureDsl';
+import {
+  assignTag,
+  assignTopic,
+  ensureTagIdsByName,
+  ensureTopicIdsByName,
+  markLinkDone,
+  tagsForLink,
+  topicsForLink,
+} from './links';
 import { getUserSettings } from './settings';
-import { reviewLink, setLinkWeek, weekHistoryForLink } from './weeks';
+import { currentWeekStart, reviewLink, setLinkWeek, weekHistoryForLink, weekStartPlus } from './weeks';
 import { getSyncMode, getSyncUrl } from '../sync';
 
 /** Query params that only exist to track you — safe to drop from any URL. */
@@ -73,24 +82,35 @@ export interface CaptureResult {
   merged: Link[];
   /** Non-empty lines that don't parse as http(s) URLs. */
   invalid: string[];
+  /** DSL tokens that didn't parse (unknown command, bad value). */
+  badOptions: string[];
 }
 
 export interface ParsedLine {
   url: string;
   /** Provided by markdown-format lines; null means "fetch it". */
   title: string | null;
+  /** Per-line !option overrides (see captureDsl.ts). */
+  opts: LineOptions;
 }
 
 /**
  * Parse pasted text, one link per line. Whitespace is stripped and three
- * formats are accepted (bullets compose with the others):
+ * formats are accepted (bullets compose with the others), each optionally
+ * followed by per-line !options (see captureDsl.ts):
  *   - plain URL:       https://example.com
  *   - bullet pointed:  - https://example.com
  *   - markdown:        [Title](https://example.com)
+ *   - with options:    [Title](https://example.com) !tags=[a,b] !done
  */
-export function parseUrls(text: string): { entries: ParsedLine[]; invalid: string[] } {
+export function parseUrls(text: string): {
+  entries: ParsedLine[];
+  invalid: string[];
+  badOptions: string[];
+} {
   const entries: ParsedLine[] = [];
   const invalid: string[] = [];
+  const badOptions: string[] = [];
 
   const toHttpUrl = (raw: string): string | null => {
     try {
@@ -108,16 +128,18 @@ export function parseUrls(text: string): { entries: ParsedLine[]; invalid: strin
     trimmed = trimmed.replace(/^[-*•]\s+/, '');
     // TODO: Add ordered lists
 
-    const md = trimmed.match(/^\[(.+)\]\((\S+)\)$/);
-    const url = toHttpUrl(md ? md[2] : trimmed);
-    // TODO: Extras parsing
+    const { link, optionsText } = splitLineOptions(trimmed);
+    const md = link.match(/^\[(.+)\]\((\S+)\)$/);
+    const url = toHttpUrl(md ? md[2] : link);
     if (!url) {
       invalid.push(trimmed);
       continue;
     }
-    entries.push({ url, title: md ? md[1].trim() : null });
+    const { opts, bad } = parseLineOptions(optionsText);
+    badOptions.push(...bad);
+    entries.push({ url, title: md ? md[1].trim() : null, opts });
   }
-  return { entries, invalid };
+  return { entries, invalid, badOptions };
 }
 
 export interface CaptureAssign {
@@ -191,63 +213,119 @@ async function mergeIntoExisting(link: Link, assign?: CaptureAssign): Promise<Li
 }
 
 /**
+ * The per-link settings a line resolves to: the batch (UI) assign with any
+ * per-line DSL options layered on top. Line tags/topics MERGE with the UI
+ * selection (false excludes it); flags and the week override it.
+ */
+async function effectiveAssign(
+  assign: CaptureAssign | undefined,
+  opts: LineOptions
+): Promise<CaptureAssign> {
+  const tagIds =
+    opts.tags === false
+      ? []
+      : opts.tags
+        ? [...new Set([...(assign?.tagIds ?? []), ...(await ensureTagIdsByName(opts.tags))])]
+        : (assign?.tagIds ?? []);
+  const topicIds =
+    opts.topics === false
+      ? []
+      : opts.topics
+        ? [...new Set([...(assign?.topicIds ?? []), ...(await ensureTopicIdsByName(opts.topics))])]
+        : (assign?.topicIds ?? []);
+  const weekStart =
+    opts.week === false
+      ? null
+      : opts.week !== undefined
+        ? weekStartPlus(currentWeekStart(), opts.week)
+        : (assign?.weekStart ?? null);
+  return {
+    tagIds,
+    topicIds,
+    weekStart,
+    markDone: opts.done ?? assign?.markDone ?? false,
+    favourite: opts.favourite ?? assign?.favourite ?? false,
+    isResource: opts.resource ?? assign?.isResource ?? false,
+  };
+}
+
+/**
  * Store pasted URLs as backlog links, skipping duplicates. Any tag/topic
- * ids in `assign` are attached to every newly captured link.
+ * ids in `assign` are attached to every newly captured link; per-line
+ * !options adjust individual lines (see captureDsl.ts).
  */
 export async function captureLinks(text: string, assign?: CaptureAssign): Promise<CaptureResult> {
-  const { entries, invalid } = parseUrls(text);
+  const { entries, invalid, badOptions } = parseUrls(text);
   const settings = await getUserSettings();
-  const stripMode = assign?.stripMode ?? settings?.strip_query_params ?? 'off';
+  const batchStrip = assign?.stripMode ?? settings?.strip_query_params ?? 'off';
+  const settingsStrip = settings?.strip_query_params ?? 'off';
   const whitelist = settings?.strip_whitelist ?? [];
   const duplicates: string[] = [];
   const merged: Link[] = [];
-  const fresh: Link[] = [];
+  const fresh: { row: Link; eff: CaptureAssign }[] = [];
   const seen = new Set<string>();
 
-  for (const { url: rawUrl, title } of entries) {
+  for (const { url: rawUrl, title, opts } of entries) {
+    // !clean=false keeps the URL raw; !clean forces cleaning on even when
+    // the batch has it off (using the configured mode, else trackers).
+    const stripMode =
+      opts.clean === false
+        ? 'off'
+        : opts.clean === true
+          ? batchStrip !== 'off'
+            ? batchStrip
+            : settingsStrip !== 'off'
+              ? settingsStrip
+              : 'trackers'
+          : batchStrip;
     const url = cleanUrl(rawUrl, stripMode, whitelist);
     if (seen.has(url)) {
       duplicates.push(url); // dedupe within the paste itself
       continue;
     }
     seen.add(url);
+    const eff = await effectiveAssign(assign, opts);
     const existing = await byIndex<Link>('links', 'url', url);
     if (existing.length > 0) {
       duplicates.push(url);
-      // Not a new link, but the capture options still apply to it.
-      const updated = await mergeIntoExisting(existing[0], assign);
+      // Not a new link, but the line's capture options still apply to it.
+      const updated = await mergeIntoExisting(existing[0], eff);
       if (updated) merged.push(updated);
       continue;
     }
-    fresh.push(
-      withSyncFields({
+    fresh.push({
+      eff,
+      row: withSyncFields({
         url,
         // A markdown-supplied title is authoritative — don't fetch over it.
         title: title ?? url,
         title_fetched: title !== null,
         added_at: new Date().toISOString(),
         read_at: null,
-        favourite: assign?.favourite ?? false,
-        is_resource: assign?.isResource ?? false,
+        favourite: eff.favourite ?? false,
+        is_resource: eff.isResource ?? false,
         slushed_at: null,
-      })
-    );
+      }),
+    });
   }
 
-  const added = fresh.length > 0 ? await bulkPut('links', fresh) : [];
-  for (const link of added) {
+  const added =
+    fresh.length > 0 ? await bulkPut('links', fresh.map((f) => f.row)) : [];
+  for (let i = 0; i < added.length; i++) {
+    const link = added[i];
+    const eff = fresh[i].eff; // bulkPut preserves order
     // Labels first: markLinkDone's slush check must see topic assignments.
-    for (const tagId of assign?.tagIds ?? []) await assignTag(link.id, tagId);
-    for (const topicId of assign?.topicIds ?? []) await assignTopic(link.id, topicId);
-    if (assign?.weekStart) await setLinkWeek(link.id, assign.weekStart);
+    for (const tagId of eff.tagIds ?? []) await assignTag(link.id, tagId);
+    for (const topicId of eff.topicIds ?? []) await assignTopic(link.id, topicId);
+    if (eff.weekStart) await setLinkWeek(link.id, eff.weekStart);
     // Done from capture doesn't slush immediately (week-close still can).
-    if (assign?.markDone) await markLinkDone(link, false);
+    if (eff.markDone) await markLinkDone(link, false);
   }
   // Only chase titles when auto-title is on (default true); otherwise bare
   // links keep their URL as the title.
   const autoTitle = assign?.autoTitle ?? settings?.auto_title ?? true;
   if (autoTitle) void fetchTitles(added.filter((l) => !l.title_fetched));
-  return { added, duplicates, merged, invalid };
+  return { added, duplicates, merged, invalid, badOptions };
 }
 
 const TITLE_ATTEMPTS = 3;

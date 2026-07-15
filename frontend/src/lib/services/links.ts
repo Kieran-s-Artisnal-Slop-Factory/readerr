@@ -71,6 +71,42 @@ export async function linksForTopic(topicId: string): Promise<Link[]> {
   return links.filter((l): l is Link => !!l);
 }
 
+/**
+ * Resolve tag names to ids (case-insensitive), creating any that don't
+ * exist yet — the capture DSL names tags by text, and a typo'd new name is
+ * still a valid new tag, same as the capture box's inline create.
+ */
+export async function ensureTagIdsByName(names: string[]): Promise<string[]> {
+  const tags = await all<Tag>('tags');
+  const byName = new Map(tags.map((t) => [t.name.toLowerCase(), t.id]));
+  const ids: string[] = [];
+  for (const name of names) {
+    let id = byName.get(name.toLowerCase());
+    if (!id) {
+      id = (await put('tags', withSyncFields({ name, notes_md: '' }))).id;
+      byName.set(name.toLowerCase(), id);
+    }
+    ids.push(id);
+  }
+  return ids;
+}
+
+/** Topic-name twin of ensureTagIdsByName. */
+export async function ensureTopicIdsByName(names: string[]): Promise<string[]> {
+  const topics = await all<Topic>('topics');
+  const byName = new Map(topics.map((t) => [t.name.toLowerCase(), t.id]));
+  const ids: string[] = [];
+  for (const name of names) {
+    let id = byName.get(name.toLowerCase());
+    if (!id) {
+      id = (await put('topics', withSyncFields({ name, body_md: '' }))).id;
+      byName.set(name.toLowerCase(), id);
+    }
+    ids.push(id);
+  }
+  return ids;
+}
+
 export async function assignTag(linkId: string, tagId: string): Promise<void> {
   const existing = await byIndex<LinkTag>('link_tags', 'link_id', linkId);
   if (existing.some((j) => j.tag_id === tagId)) return;

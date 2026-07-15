@@ -171,6 +171,7 @@
   - https://kieranwood.ca
   [Kieran's site](https://kieranwood.ca)
   - [Kieran's site](https://kieranwood.ca)
+  - [Kieran's site](https://kieranwood.ca) !tags=[dev, blog] !week=1 !done
       </pre>
 
       <p class="muted">

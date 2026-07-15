@@ -83,7 +83,7 @@
     if (!text.trim() || busy) return;
     busy = true;
     try {
-      const { added, duplicates, merged, invalid } = await captureLinks(text, {
+      const { added, duplicates, merged, invalid, badOptions } = await captureLinks(text, {
         tagIds: selectedTagIds,
         topicIds: selectedTopicIds,
         weekStart: selectedWeek || null,
@@ -101,6 +101,9 @@
       if (duplicates.length > 0) parts.push(`${duplicates.length} already saved`);
       if (merged.length > 0) parts.push(`${merged.length} existing updated`);
       if (invalid.length > 0) parts.push(`${invalid.length} not a link`);
+      if (badOptions.length > 0) {
+        parts.push(`${badOptions.length} option${badOptions.length === 1 ? '' : 's'} not understood (${badOptions.join(' ')})`);
+      }
       report = parts.join(' · ');
       text = '';
       selectedTagIds = [];
@@ -132,6 +135,14 @@
     onkeydown={onKeydown}
   ></textarea>
   <span class="helptext"><kbd>Enter</kbd> to add, <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>
+  <span
+    class="helptext"
+    title={'Per-line options override the selections below for just that line. Commands match by prefix (!ta, !to, !f, !d, !r, !c, !w). !tags=false skips the selected tags; !week=0 is this week, !week=false none; \\, escapes a comma inside a name.'}
+  >
+    Per-line options: <code>!tags=[a,b]</code> <code>!topics=[x]</code>
+    <code>!week=2</code> <code>!favourite</code> <code>!done</code>
+    <code>!resource</code> <code>!clean=false</code>
+  </span>
   <hr style="margin: 0 auto; border: none; border-top: 1px solid var(--border-color); width:85%;padding: var(--space-2) 0;" />
     <div class="organize">
       <div class="organize-group">
