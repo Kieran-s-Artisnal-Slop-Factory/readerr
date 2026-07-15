@@ -688,6 +688,11 @@
       </div>
     </Card>
 
+    <Card title="Onboarding">
+    If you wish to re-do the onboarding experience, or accidentally navigated away, click the link below
+      <a class="btn" href="/onboarding">Go back to onboarding</a>
+    </Card>
+
     <Card title="Danger zone">
       <p class="muted" style="margin-bottom: var(--space-3);">
         Load a demo dataset to try the app out (or to feel how it behaves at
@@ -696,16 +701,21 @@
       </p>
       <div class="seed-slider">
         <label for="seed-links">Usage weight: {seedLinksPerWeek} links/week</label>
-        <input id="seed-links" type="range" min="5" max="200" step="5" bind:value={seedLinksPerWeek} />
+        <input id="seed-links" type="range" min="5" max="500" step="5" bind:value={seedLinksPerWeek} />
       </div>
       <div class="seed-slider">
         <label for="seed-weeks">Duration: {seedWeeks} weeks ({seedYearsLabel})</label>
-        <input id="seed-weeks" type="range" min="1" max="520" step="1" bind:value={seedWeeks} />
+        <input id="seed-weeks" type="range" min="1" max="1040" step="1" bind:value={seedWeeks} />
       </div>
       <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--font-size-sm);">
         ≈ {seedEstimate.toLocaleString()} links (notes, topics, favourites,
         and resources scale along).
       </p>
+      {#if seedEstimate >= 75_000}
+      <p class="muted" style="color:var(--color-danger);margin-bottom: var(--space-3); font-size: var(--font-size-sm);">
+        This will take some time to seed, and the app may become slow/unresponsive on some pages afterward
+      </p>
+      {/if}
       <div class="actions">
         <button class="btn" onclick={loadDemoData} disabled={seeding}>
           {seeding ? 'Loading…' : 'Load demo data'}

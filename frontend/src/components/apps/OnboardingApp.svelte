@@ -132,7 +132,11 @@
       <div class="choice">
         <button class="btn btn-primary" onclick={() => (step = 1)}>Show me around</button>
         <button class="btn" onclick={startFromScratch}>Start from scratch</button>
+        <p class="muted">
+        <small>You can come back from settings page later</small>
+      </p>
       </div>
+      
     </Card>
   {:else if step === 1}
     <Card title="Appearance">
@@ -171,18 +175,101 @@
   - https://kieranwood.ca
   [Kieran's site](https://kieranwood.ca)
   - [Kieran's site](https://kieranwood.ca)
-  - [Kieran's site](https://kieranwood.ca) !tags=[dev, blog] !week=1 !done
       </pre>
 
       <p class="muted">
-        You can attach tags and topics at capture time ("Tags &amp; topics"
-        under the box), or later with the <strong>#</strong> button on any
+        You can attach tags and topics at capture time, or later with the <strong>#</strong> button on any
         row. Nothing needs triaging up front; that's what the backlog is for.
       </p>
     </Card>
 
     <h3 style="margin-bottom: var(--space-3);"><strong>Try adding your first link below!</strong></h3>
     <BacklogApp/>
+    <Card title="Per-link Batch Changes">
+    <p><strong>This part is more advanced, so feel free to skip it</strong><br><br>On top of being able to batch-add links, you can also specify changes for single links directly inline! The format is:</p>
+    <code>&lt;link&gt; !&lt;setting&gt;=&lt;value&gt; !&lt;setting&gt;=&lt;value&gt;</code>
+
+    <p><br>For example, let's say I have 2 links I want to add, I want them both to have <code>tag1</code>, but I want to add 1 of them to my favourites and I also want to give it <code>tag2</code>. I can set my normal capture settings, including <button
+        type="button"
+        class="chip selected"
+      >
+        tag1
+      </button> 
+      but then when entering the URL's I can put:</p>
+      <code>
+<pre>
+[Link 1 (just defaults)](https://kieranwood.ca)
+[Link 2 (with overrides)](https://kieranwood.ca) !tags=[tag2] !favourite
+</pre>
+      </code>
+    <p>There are many overrides available, below are details:</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <td>Setting</td>
+            <td>Description</td>
+            <td>Values</td>
+            <td>Example</td>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ta(gs)</td>
+            <td>Which tags to assign. Use \ to escape commas (e.g. <code>tag\, with comma</code>)</td>
+            <td>array (comma delimited), or false to exclude all tags</td>
+            <td><code>!ta=[tag1, tag\, with comma]</code></td>
+          </tr>
+
+          <tr>
+            <td>to(pics)</td>
+            <td>Which topics to assign. Use \ to escape commas (e.g. <code>topic\, with comma</code>)</td>
+            <td>array (comma delimited), or false to exclude all tags</td>
+            <td><code>!to=[topic 1, topic\, with comma]</code></td>
+          </tr>
+          <tr>
+            <td>f(avorite)</td>
+            <td>Add the link to favourites</td>
+            <td>true(implicit), false</td>
+            <td><code>!f</code></td>
+          </tr>
+          <tr>
+            <td>d(one)</td>
+            <td>Set the link to done</td>
+            <td>true(implicit), false</td>
+            <td><code>!d</code></td>
+          </tr>
+          <tr>
+            <td>r(esources)</td>
+            <td>Set the link to be a resource</td>
+            <td>true(implicit), false</td>
+            <td><code>!r=false</code></td>
+          </tr>
+          <tr>
+            <td>c(lean)</td>
+            <td>Whether to apply the cleaning set in the settings</td>
+            <td>true(implicit), false</td>
+            <td><code>!c</code></td>
+          </tr>
+          <tr>
+            <td>w(eeks)</td>
+            <td>The number of weeks from now to schedule the link for</td>
+            <td>0(current week) to 52, or false for just backlog</td>
+            <td><code>!weeks=0</code></td>
+          </tr>
+
+        </tbody>
+    </table>
+    </div>
+
+    <div class="muted"><strong>Notes:</strong>
+    <ul>
+      <li>Can use the full name, or abbreviation when using (e.g. <code>!w=false</code> is the same as <code>!weeks=false</code>)</li>
+      <li>boolean values have multiple options. <code>true</code>, <code>yes</code>, and <code>1</code> are all equivalent, as are <code>false</code>, <code>no</code>, and <code>0</code></li>
+    </ul>
+    </div>
+        
+    </Card>
   {:else if step === 3}
     <Card title="Organize — tags, topics, flags">
       <p>
@@ -195,7 +282,7 @@
       </p>
       <br>
       <p style="font-size: var(--font-size-md); color: var(--color-danger);">
-        <strong>Please note, clicking a tag or topic will end the onboarding process</strong>
+        <strong>Please note, clicking a tag or topic link after creating it will end the onboarding process, you can re-navigate to it from the settings</strong>
       </p>
     </Card>
 
@@ -387,5 +474,77 @@
 
   .test-result {
     margin-top: var(--space-2);
+  }
+    .table-wrap {
+      margin-top:var(--space-4);
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+  }
+
+  th,
+  td {
+    text-align: right;
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+  }
+
+  th:first-child,
+  td:first-child {
+    padding-left: var(--space-2);
+  }
+
+  th:last-child,
+  td:last-child {
+    padding-right: var(--space-2);
+  }
+
+  th.origin,
+  td.origin {
+    text-align: left;
+    max-width: 18rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  th {
+    color: var(--text-muted-color);
+    font-weight: 600;
+  }
+
+  tbody tr:hover {
+    background: var(--color-primary-soft);
+  }
+
+  tfoot td {
+    border-bottom: none;
+    font-weight: 700;
+  }
+
+    .chip {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    background: var(--surface-color);
+    padding: 0 var(--space-3);
+    font-size: var(--font-size-sm);
+    line-height: 1.9;
+    cursor: pointer;
+    color: var(--text-color);
+  }
+
+  .chip:hover {
+    border-color: var(--color-primary);
+  }
+
+  .chip.selected {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+    font-weight: 600;
   }
 </style>
