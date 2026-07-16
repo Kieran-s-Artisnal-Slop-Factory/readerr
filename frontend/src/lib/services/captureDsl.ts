@@ -5,7 +5,8 @@
  *   - [Title](url) !tags=[a, b, with\, comma] !topics=[x] !week=2 !clean=false !done !favourite !resource
  *
  * Commands match by prefix, minimum shown: ta(gs), to(pics), f(avourite),
- * d(one), r(esources), c(lean), w(eeks) — case-insensitive. Booleans accept
+ * d(one), r(esources), c(lean), w(eeks), p(riority) — case-insensitive.
+ * p takes 1 (highest) to 3 (the default for unset links). Booleans accept
  * true/1/yes and false/0/no; a bare flag means true. Arrays are
  * comma-delimited in brackets, items trimmed, `\` escaping the next
  * character (`\,` = a literal comma). tags/topics take an array to MERGE
@@ -29,6 +30,8 @@ export interface LineOptions {
   clean?: boolean;
   /** Weeks ahead of the current week (0 = this week); false = no week. */
   week?: number | false;
+  /** Priority 1 (highest) to 3 (the default for unset links). */
+  priority?: number;
 }
 
 export interface ParsedLineOptions {
@@ -48,6 +51,7 @@ const COMMANDS = [
   { full: 'resources', min: 'r' },
   { full: 'clean', min: 'c' },
   { full: 'weeks', min: 'w' },
+  { full: 'priority', min: 'p' },
 ] as const;
 type Command = (typeof COMMANDS)[number]['full'];
 
@@ -193,6 +197,14 @@ export function parseLineOptions(text: string): ParsedLineOptions {
           opts.week = false;
         } else {
           bad.push(token); // bare !w, !w=true, negatives
+        }
+        break;
+      }
+      case 'priority': {
+        if (raw !== undefined && /^[123]$/.test(raw)) {
+          opts.priority = parseInt(raw, 10);
+        } else {
+          bad.push(token); // bare !p, out-of-range, non-digit
         }
         break;
       }

@@ -82,6 +82,14 @@ describe('parseLineOptions', () => {
     expect(parseLineOptions('!ta=[]').opts).toEqual({ tags: false });
   });
 
+  it('parses priority 1–3 and rejects everything else', () => {
+    expect(parseLineOptions('!p=1').opts).toEqual({ priority: 1 });
+    expect(parseLineOptions('!priority=3').opts).toEqual({ priority: 3 });
+    const { opts, bad } = parseLineOptions('!p !p=0 !p=4 !p=false');
+    expect(opts).toEqual({});
+    expect(bad).toEqual(['!p', '!p=0', '!p=4', '!p=false']);
+  });
+
   it('collects malformed and unknown tokens without failing the rest', () => {
     const { opts, bad } = parseLineOptions('!xyz=1 !t=[a] !w=99 !w=-1 !ta !done stray');
     // !t is ambiguous (tags? topics?), !w=99 is past the 52-week ceiling,

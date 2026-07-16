@@ -67,6 +67,8 @@ CREATE TABLE links (
     favourite     INTEGER NOT NULL DEFAULT 0,-- bool
     is_resource   INTEGER NOT NULL DEFAULT 0,-- bool: tool/app/blog, not an article
     slushed_at    TEXT,                      -- phase 2: set when week-close archives it
+    priority      INTEGER                    -- 1 (highest) to 3; NULL = never set = 3
+                  CHECK (priority IN (1, 2, 3)),
     updated_at    TEXT NOT NULL,
     deleted_at    TEXT,
     server_seq    INTEGER

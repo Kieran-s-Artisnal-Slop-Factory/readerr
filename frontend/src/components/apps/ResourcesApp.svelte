@@ -10,7 +10,7 @@
   import Pagination from '../Pagination.svelte';
   import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
-  import { matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
+  import { comparePriority, matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
   import {
     createResourceList,
     deleteResourceList,
@@ -70,7 +70,7 @@
     ]);
     links = rows
       .filter((l) => l.is_resource)
-      .sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
+      .sort((a, b) => comparePriority(a, b));
     lists = allLists;
     listCounts = counts;
     searchTags = null;

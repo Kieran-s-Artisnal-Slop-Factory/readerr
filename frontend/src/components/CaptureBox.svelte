@@ -37,6 +37,8 @@
   let selectedWeek = $state('');
   let markDone = $state(false);
   let isResource = $state(false);
+  // 3 = the default for unset links, so only 1/2 are passed on explicitly.
+  let selectedPriority = $state(3);
   let organizeOpen = $state(false);
   // Remembers the default so it can be restored after each capture resets.
   let defaultWeek = $state('');
@@ -140,6 +142,9 @@
         markDone,
         isResource,
         stripMode: stripUrls ? defaultStripMode : 'off',
+        // 3 means "unset" — only an explicit 1/2 travels, so re-capturing a
+        // duplicate at the default never resets its stored priority.
+        priority: selectedPriority !== 3 ? selectedPriority : undefined,
       });
       const parts = [`${added.length} added`];
       const labels = selectedTagIds.length + selectedTopicIds.length;
@@ -161,6 +166,7 @@
       selectedWeek = defaultWeek;
       markDone = false;
       isResource = false;
+      selectedPriority = 3;
       if (added.length > 0 || merged.length > 0) {
         justAdded = [...added, ...merged, ...justAdded.filter(
           (l) => !added.some((a) => a.id === l.id) && !merged.some((m) => m.id === l.id)
@@ -256,8 +262,8 @@
     title={'Per-line options override the selections below for just that line. Commands match by prefix (!ta, !to, !f, !d, !r, !c, !w). !tags=false skips the selected tags; !week=0 is this week, !week=false none; \\, escapes a comma inside a name.'}
   >
     Per-line options: <code>!tags=[a,b]</code> <code>!topics=[x]</code>
-    <code>!week=2</code> <code>!favourite</code> <code>!done</code>
-    <code>!resource</code> <code>!clean=false</code>
+    <code>!week=2</code> <code>!priority=1</code> <code>!favourite</code>
+    <code>!done</code> <code>!resource</code> <code>!clean=false</code>
   </span>
   <hr style="margin: 0 auto; border: none; border-top: 1px solid var(--border-color); width:85%;padding: var(--space-2) 0;" />
     <div class="organize">
@@ -295,6 +301,18 @@
           {#each weekOptions as opt (opt.value)}
             <option value={opt.value}>{opt.label}</option>
           {/each}
+        </select>
+      </div>
+      <div class="organize-group">
+        <span class="organize-label">Priority</span>
+        <select
+          class="week-select"
+          bind:value={selectedPriority}
+          title="Lists show priority 1 first; 3 is the default."
+        >
+          <option value={1}>1 — top</option>
+          <option value={2}>2 — soon</option>
+          <option value={3}>3 — default</option>
         </select>
       </div>
     </div>

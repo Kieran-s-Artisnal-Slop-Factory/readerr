@@ -279,6 +279,26 @@ export async function toggleResource(link: Link): Promise<Link> {
   return put('links', { ...link, is_resource: !link.is_resource });
 }
 
+/** A link's priority: 1 (highest) to 3; links never given one are 3. */
+export function effectivePriority(link: Link): number {
+  return link.priority ?? 3;
+}
+
+/**
+ * List ordering: priority first (1 → 3), newest capture within a priority.
+ * Pass a different tiebreak timestamp for lists not ordered by capture time
+ * (e.g. the slush orders by slushed_at).
+ */
+export function comparePriority(
+  a: Link,
+  b: Link,
+  timeOf: (l: Link) => string = (l) => l.added_at
+): number {
+  const byPriority = effectivePriority(a) - effectivePriority(b);
+  if (byPriority !== 0) return byPriority;
+  return timeOf(a) < timeOf(b) ? 1 : timeOf(a) > timeOf(b) ? -1 : 0;
+}
+
 /** Case-insensitive match on title, URL, or any tag name (list-page search). */
 export function matchesSearch(link: Link, tags: Tag[], query: string): boolean {
   const q = query.trim().toLowerCase();

@@ -92,6 +92,8 @@ export interface Link extends SyncFields {
   is_resource: boolean;
   /** Phase 2: set when a closing week archives this read-but-unremarked link. */
   slushed_at: string | null;
+  /** 1 (highest) to 3; null = never set, treated as 3 (effectivePriority). */
+  priority: number | null;
 }
 
 export interface Tag extends SyncFields {

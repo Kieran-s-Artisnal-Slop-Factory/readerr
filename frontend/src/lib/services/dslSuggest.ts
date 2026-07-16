@@ -27,6 +27,7 @@ const COMMAND_SUGGESTIONS = [
   { full: 'resources', insert: '!resource', caretOffset: 0, hint: 'flag as a resource' },
   { full: 'clean', insert: '!clean=false', caretOffset: 0, hint: 'keep the URL exactly as pasted' },
   { full: 'weeks', insert: '!week=', caretOffset: 0, hint: '0 = this week, 1 = next…, false = none' },
+  { full: 'priority', insert: '!priority=', caretOffset: 0, hint: '1 = highest … 3 = default' },
 ] as const;
 
 export function dslSuggestions(

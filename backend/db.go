@@ -130,6 +130,12 @@ ALTER TABLE user_settings ADD COLUMN archive_after_months INTEGER NOT NULL DEFAU
 ALTER TABLE user_settings ADD COLUMN capture_tag_sort TEXT NOT NULL DEFAULT 'recent'
     CHECK (capture_tag_sort IN ('recent', 'alpha'));
 `,
+	// v13 → v14: per-link priority, 1 (highest) to 3. Nullable — NULL means
+	// "never set", which the client treats as 3, so rows from before this
+	// column (and old backups) sync without violating a constraint.
+	`
+ALTER TABLE links ADD COLUMN priority INTEGER CHECK (priority IN (1, 2, 3));
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

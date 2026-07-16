@@ -11,7 +11,7 @@
   import Pagination from '../Pagination.svelte';
   import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
-  import { matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
+  import { comparePriority, matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
   import { reviewLink, upcomingWeekOptions } from '../../lib/services/weeks';
   import type { Link, Tag } from '../../lib/db/types';
 
@@ -49,7 +49,7 @@
     const rows = await all<Link>('links');
     links = rows
       .filter((l) => l.slushed_at)
-      .sort((a, b) => ((a.slushed_at ?? '') < (b.slushed_at ?? '') ? 1 : -1));
+      .sort((a, b) => comparePriority(a, b, (l) => l.slushed_at ?? ''));
     searchTags = null;
     loading = false;
   }

@@ -68,7 +68,7 @@ var tables = map[string]tableMeta{
 	},
 	"links": {
 		columns: cols("id", "url", "title", "title_fetched", "added_at",
-			"read_at", "favourite", "is_resource", "slushed_at"),
+			"read_at", "favourite", "is_resource", "slushed_at", "priority"),
 		boolCols: set("title_fetched", "favourite", "is_resource"),
 	},
 	"tags": {

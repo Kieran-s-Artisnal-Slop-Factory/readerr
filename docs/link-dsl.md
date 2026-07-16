@@ -20,7 +20,7 @@ link-part  := URL | "-" WS URL | "*" WS URL | "•" WS URL
             | markdown | bullet markdown          where markdown = "[" title "](" URL ")"
 option     := "!" command [ "=" value ]           bare command (no "=") means true
 command    := any prefix of a full command word, at least the minimum:
-              ta(gs)  to(pics)  f(avourite)  d(one)  r(esources)  c(lean)  w(eeks)
+              ta(gs)  to(pics)  f(avourite)  d(one)  r(esources)  c(lean)  w(eeks)  p(riority)
 value      := array | bool | int
 array      := "[" item ( "," item )* "]"          items whitespace-trimmed
 bool       := true | 1 | yes | false | 0 | no     (case-insensitive)
@@ -49,6 +49,7 @@ Rules that make it unambiguous:
 | `!resources` | `!r` | bool (bare = true) | flag as a resource |
 | `!clean` | `!c` | bool (bare = true) | override URL cleaning: `false` keeps the URL raw; `true` forces cleaning on (configured mode, else trackers) |
 | `!weeks` | `!w` | int 0–52, or `false` | weeks ahead to schedule (`0` = this week); `false` = backlog only |
+| `!priority` | `!p` | int 1–3 | list priority; 1 sorts first, 3 is the default for unset links |
 
 Unknown tag/topic **names are auto-created** (case-insensitive match against
 existing names first). `!w` digits win over the boolean short forms — `!w=0`

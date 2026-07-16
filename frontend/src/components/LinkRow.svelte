@@ -124,6 +124,11 @@
     {/if}
     <div class="meta">
       <span class="domain">{domainOf(link.url)}</span>
+      {#if (link.priority ?? 3) < 3}
+        <span class="prio-chip" class:top={link.priority === 1} title="Priority {link.priority} (1 = highest; lists sort by priority)">
+          P{link.priority}
+        </span>
+      {/if}
       {#each scheduledWeeks as ws (ws)}
         <span class="week-chip" title="Scheduled reading week">📅 {weekLabel(ws)}</span>
       {/each}
@@ -340,6 +345,21 @@
     background: var(--color-primary-soft);
     font-size: var(--font-size-sm);
     white-space: nowrap;
+  }
+
+  .prio-chip {
+    border: 1px solid var(--color-warning);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    color: var(--color-warning);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .prio-chip.top {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
   }
 
   .row-actions {

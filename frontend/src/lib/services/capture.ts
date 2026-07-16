@@ -157,6 +157,8 @@ export interface CaptureAssign {
   isResource?: boolean;
   /** Favourite every captured link (merges into existing links too). */
   favourite?: boolean;
+  /** Priority 1–3; omitted = unset (treated as 3 everywhere). */
+  priority?: number;
 }
 
 /**
@@ -187,14 +189,20 @@ async function mergeIntoExisting(link: Link, assign?: CaptureAssign): Promise<Li
   // assignTopic may have rewritten the links row — work from the fresh one.
   if (changed) link = (await get<Link>('links', link.id)) ?? link;
 
-  // Flags only upgrade.
-  if ((assign.favourite && !link.favourite) || (assign.isResource && !link.is_resource)) {
+  // Flags only upgrade; an explicit priority replaces the existing one.
+  const priorityChange = assign.priority != null && assign.priority !== (link.priority ?? 3);
+  if (
+    (assign.favourite && !link.favourite) ||
+    (assign.isResource && !link.is_resource) ||
+    priorityChange
+  ) {
     link = await put('links', {
       ...link,
       favourite: link.favourite || !!assign.favourite,
       // Favouriting rescues from the slush archive (as toggleFavourite does).
       slushed_at: assign.favourite ? null : link.slushed_at,
       is_resource: link.is_resource || !!assign.isResource,
+      priority: priorityChange ? assign.priority! : link.priority,
     });
     changed = true;
   }
@@ -246,6 +254,7 @@ async function effectiveAssign(
     markDone: opts.done ?? assign?.markDone ?? false,
     favourite: opts.favourite ?? assign?.favourite ?? false,
     isResource: opts.resource ?? assign?.isResource ?? false,
+    priority: opts.priority ?? assign?.priority,
   };
 }
 
@@ -305,6 +314,7 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
         favourite: eff.favourite ?? false,
         is_resource: eff.isResource ?? false,
         slushed_at: null,
+        priority: eff.priority ?? null,
       }),
     });
   }

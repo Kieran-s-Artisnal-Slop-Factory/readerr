@@ -15,7 +15,7 @@
   import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
   import { retryMissingTitles } from '../../lib/services/capture';
-  import { matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
+  import { comparePriority, matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
   import { href } from '../../lib/paths';
   import type { Link, Tag } from '../../lib/db/types';
 
@@ -63,10 +63,11 @@
 
   async function refresh() {
     const rows = await all<Link>('links');
-    // Slushed links live in the slush archive, not the backlog.
+    // Slushed links live in the slush archive, not the backlog. Priority 1
+    // floats to the top; newest capture wins within a priority.
     links = rows
       .filter((l) => !l.slushed_at)
-      .sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
+      .sort((a, b) => comparePriority(a, b));
     searchTags = null; // stale after any data change
     // Selections whose links left the backlog (done/slushed) drop off.
     const ids = new Set(links.map((l) => l.id));

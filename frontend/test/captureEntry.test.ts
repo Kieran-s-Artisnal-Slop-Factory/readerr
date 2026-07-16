@@ -7,6 +7,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import { captureLinks, parseUrls } from '../src/lib/services/capture';
+import { comparePriority } from '../src/lib/services/links';
 import { all } from '../src/lib/db/repo';
 import { currentWeekStart } from '../src/lib/services/weeks';
 import type { Link, LinkTag, Tag, Week, WeekLink } from '../src/lib/db/types';
@@ -72,7 +73,7 @@ describe('entry shapes with DSL options', () => {
 describe('captureLinks end-to-end with mixed shapes and DSL', () => {
   it('captures a mixed batch and applies each line the way it parsed', async () => {
     const text = [
-      'https://e2e.entry/one',
+      'https://e2e.entry/one !p=1',
       '[Two Titled](https://e2e.entry/two) !f',
       '- https://e2e.entry/three !ta=[gamma]',
       '- [Four Titled](https://e2e.entry/four) !d=no !r',
@@ -100,6 +101,15 @@ describe('captureLinks end-to-end with mixed shapes and DSL', () => {
     expect(byUrl('/four').is_resource).toBe(true);
     expect(byUrl('/four').read_at).toBeNull(); // !d=no
     expect(byUrl('/six').is_resource).toBe(false);
+
+    // !p=1 set a priority on line one only; unset links stay null (= 3).
+    expect(byUrl('/one').priority).toBe(1);
+    expect(byUrl('/two').priority).toBeNull();
+    // …and the list comparator floats it to the front.
+    const ordered = [byUrl('/two'), byUrl('/one'), byUrl('/six')].sort((a, b) =>
+      comparePriority(a, b)
+    );
+    expect(ordered[0].url).toContain('/one');
 
     // !ta=[gamma] auto-created the tag and attached it to line three only.
     const tags = await all<Tag>('tags');

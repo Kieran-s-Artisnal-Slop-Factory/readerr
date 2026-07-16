@@ -190,6 +190,7 @@ export async function seedDataset(
         favourite,
         is_resource: isResource,
         slushed_at: slushed ? doneAt : null,
+        priority: null,
       });
       links.push(link);
 
@@ -243,6 +244,7 @@ export async function seedDataset(
       favourite: false,
       is_resource: true,
       slushed_at: null,
+      priority: null,
     });
     if (i < 6) {
       listLinks.push(withSyncFields({ list_id: list.id, link_id: link.id, position: i }));

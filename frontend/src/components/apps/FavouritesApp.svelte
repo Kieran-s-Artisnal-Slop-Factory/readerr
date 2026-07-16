@@ -11,6 +11,7 @@
   import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
   import {
+    comparePriority,
     matchesSearch,
     tagsByLinkMap,
     tagsForLinks,
@@ -49,7 +50,7 @@
     const rows = await all<Link>('links');
     links = rows
       .filter((l) => l.favourite)
-      .sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
+      .sort((a, b) => comparePriority(a, b));
     loading = false;
   });
 

@@ -17,7 +17,11 @@ describe('command suggestions', () => {
   });
 
   it('offers everything for a bare !', () => {
-    expect(at('https://a.io !').length).toBe(7);
+    expect(at('https://a.io !').length).toBe(8);
+  });
+
+  it('offers priority for !p', () => {
+    expect(at('https://a.io !p').map((s) => s.insert)).toEqual(['!priority=']);
   });
 
   it('narrows by prefix and places the caret inside brackets', () => {
