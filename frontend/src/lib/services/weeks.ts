@@ -209,14 +209,15 @@ export async function reorderEntries(
 
 /**
  * Triage suggestions: unread, un-slushed, non-resource backlog links not
- * already picked, oldest-captured first so the backlog drains front-to-back.
+ * already picked — priority first (1 beats 3), oldest-captured within a
+ * priority so the backlog still drains front-to-back.
  *
  * With focus tags the quota SPLITS across them (#10): 3 across
  * [databases, history] means 2 from databases and 1 from history — earlier
  * tags get the remainder — with no link suggested twice (a link carrying
  * several focus tags counts against the first bucket that takes it). Any
  * bucket that runs dry, and any leftover quota, falls back to the general
- * backlog pool.
+ * backlog pool. Priority ordering applies inside every pool.
  */
 export async function suggestLinks(
   excludeLinkIds: Set<string>,
@@ -225,9 +226,12 @@ export async function suggestLinks(
 ): Promise<Link[]> {
   if (count <= 0) return [];
   const links = await all<Link>('links');
+  // links.ts owns effectivePriority but imports this module — inline the
+  // null-means-3 rule rather than creating an import cycle.
+  const priority = (l: Link) => l.priority ?? 3;
   const candidates = links
     .filter((l) => !l.read_at && !l.slushed_at && !l.is_resource && !excludeLinkIds.has(l.id))
-    .sort((a, b) => a.added_at.localeCompare(b.added_at));
+    .sort((a, b) => priority(a) - priority(b) || a.added_at.localeCompare(b.added_at));
 
   const chosen: Link[] = [];
   const taken = new Set<string>();

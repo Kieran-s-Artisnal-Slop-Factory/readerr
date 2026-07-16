@@ -15,7 +15,7 @@
   import LinkRow from '../LinkRow.svelte';
   import { all, byIndex, get } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
-  import { domainOf, tagsForLink } from '../../lib/services/links';
+  import { domainOf, effectivePriority, tagsForLink } from '../../lib/services/links';
   import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
   import { href } from '../../lib/paths';
   import {
@@ -73,9 +73,17 @@
   let drag = $state<{ section: SectionKey; index: number } | null>(null);
   let dragOver = $state<number | null>(null);
 
-  const toRead = $derived(entries.filter((e) => e.entry.kind === 'reading' && !e.entry.done_at));
-  const review = $derived(entries.filter((e) => e.entry.kind === 'review' && !e.entry.done_at));
-  const done = $derived(entries.filter((e) => !!e.entry.done_at));
+  // Sections order by priority first (1 → 3), then the dragged position —
+  // the sort is stable, so drag order still decides within a priority.
+  const byPriority = (a: WeekEntry, b: WeekEntry) =>
+    effectivePriority(a.link) - effectivePriority(b.link);
+  const toRead = $derived(
+    entries.filter((e) => e.entry.kind === 'reading' && !e.entry.done_at).sort(byPriority)
+  );
+  const review = $derived(
+    entries.filter((e) => e.entry.kind === 'review' && !e.entry.done_at).sort(byPriority)
+  );
+  const done = $derived(entries.filter((e) => !!e.entry.done_at).sort(byPriority));
 
   const quota = $derived(triage?.quota ?? null);
   const underQuota = $derived(quota !== null ? Math.max(0, quota - entries.length) : 0);

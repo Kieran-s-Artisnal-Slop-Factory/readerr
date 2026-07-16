@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { captureLinks, parseUrls } from '../src/lib/services/capture';
 import { comparePriority } from '../src/lib/services/links';
 import { all } from '../src/lib/db/repo';
-import { currentWeekStart } from '../src/lib/services/weeks';
+import { currentWeekStart, suggestLinks } from '../src/lib/services/weeks';
 import type { Link, LinkTag, Tag, Week, WeekLink } from '../src/lib/db/types';
 
 const URL1 = 'https://entry.example/page';
@@ -127,6 +127,25 @@ describe('captureLinks end-to-end with mixed shapes and DSL', () => {
     expect(thisWeek).toBeDefined();
     expect(weekLinks.filter((w) => w.week_id === thisWeek.id).map((w) => w.link_id)).toEqual([
       byUrl('/five').id,
+    ]);
+  });
+});
+
+describe('automation suggestions respect priority', () => {
+  it('suggests priority 1 first even when default-priority links are older', async () => {
+    // Ignore links created by the other tests in this file.
+    const existing = new Set((await all<Link>('links')).map((l) => l.id));
+
+    // Captured oldest-first — without priorities, old-default would lead.
+    await captureLinks('https://suggest.example/old-default', { autoTitle: false });
+    await captureLinks('https://suggest.example/mid-p2 !p=2', { autoTitle: false });
+    await captureLinks('https://suggest.example/new-p1 !p=1', { autoTitle: false });
+
+    const suggested = await suggestLinks(existing, [], 3);
+    expect(suggested.map((l) => l.url.split('/').pop())).toEqual([
+      'new-p1',
+      'mid-p2',
+      'old-default',
     ]);
   });
 });
