@@ -30,6 +30,15 @@ describe('command suggestions', () => {
   it('does not trigger inside a URL (! must follow whitespace)', () => {
     expect(at('https://a.io/a!t')).toEqual([]);
   });
+
+  it('does not trigger on a ! at the start of the text', () => {
+    expect(at('!')).toEqual([]);
+    expect(at('!t')).toEqual([]);
+  });
+
+  it('does not trigger on a ! at the start of a line', () => {
+    expect(at('https://a.io\n!t')).toEqual([]);
+  });
 });
 
 describe('value suggestions', () => {

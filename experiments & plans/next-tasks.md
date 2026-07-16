@@ -1,9 +1,8 @@
 Complete the following tasks **IN ORDER**:
 
-1. Ammend the autocomplete for `!` so that it only appears if it's after a space, and not in the first letter of the textbox
-2. Review `scaling.md`, see if any of the points are still relevant, and if the plan needs any changes, make them
-3. Implement the useful changes from `scaling.md`
-4. Add a selection of tests
+1. Review `scaling.md`, see if any of the points are still relevant, and if the plan needs any changes, make them
+2. Implement the useful changes from `scaling.md`
+3. Add a selection of tests
     1. Backup testing; Using a selection of several backups ensure
         1. The backup can be imported in the frontend
         2. After backup the data properly syncs to the backend 

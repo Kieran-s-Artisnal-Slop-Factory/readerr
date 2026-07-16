@@ -38,8 +38,11 @@ export function dslSuggestions(
   const lineStart = text.lastIndexOf('\n', caret - 1) + 1;
   const before = text.slice(lineStart, caret);
 
+  // Options always FOLLOW a link on their line, so a `!` at the start of
+  // the text or of a line is never DSL — suggestions only trigger after a
+  // space (this also keeps the menu quiet while typing ordinary text).
   // Inside an unclosed !tags=[ / !topics=[ value: complete existing names.
-  const value = before.match(/(?:^|\s)!([A-Za-z]+)=\[((?:\\.|[^\]])*)$/);
+  const value = before.match(/\s!([A-Za-z]+)=\[((?:\\.|[^\]])*)$/);
   if (value) {
     const w = value[1].toLowerCase();
     const cmd =
@@ -66,7 +69,9 @@ export function dslSuggestions(
   }
 
   // A bare/partial !command token: offer the commands it could become.
-  const cmd = before.match(/(?:^|\s)(![A-Za-z]*)$/);
+  // Same whitespace rule — a `!` at the very start of the text or line is
+  // ordinary text (a link must come first), so it never suggests.
+  const cmd = before.match(/\s(![A-Za-z]*)$/);
   if (cmd) {
     const start = caret - cmd[1].length;
     const p = cmd[1].slice(1).toLowerCase();
