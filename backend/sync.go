@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -234,21 +235,41 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, pushResponse{Accepted: accepted, LatestSeq: lastSeq})
 }
 
-// GET /sync/pull?since=<server_seq> — return all rows (tombstones included)
-// with server_seq greater than the cursor.
+// GET /sync/pull?since=<server_seq>&limit=<n> — return rows (tombstones
+// included) with server_seq greater than the cursor. With a limit, the n
+// rows with the globally smallest seqs are returned and latestSeq is the
+// last of them, so a client can page through history in bounded requests;
+// without one, everything comes back in a single response (the original
+// behavior — older clients keep working).
 func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 	since, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	if err != nil {
 		since = 0
 	}
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit < 0 {
+		limit = 0 // 0 = unlimited
+	}
 
-	out := map[string][]map[string]any{}
-	var latest int64 = since
+	type entry struct {
+		table string
+		seq   int64
+		row   map[string]any
+	}
+	var entries []entry
 	for _, table := range tableOrder {
 		meta := tables[table]
 		query := "SELECT " + strings.Join(meta.columns, ", ") + " FROM " + table +
 			" WHERE server_seq > ? ORDER BY server_seq"
-		rows, err := s.db.Query(query, since)
+		args := []any{since}
+		if limit > 0 {
+			// Per-table cap: any row cut off here has a larger seq than at
+			// least `limit` returned rows, so the global truncation below
+			// never advances latestSeq past it.
+			query += " LIMIT ?"
+			args = append(args, limit)
+		}
+		rows, err := s.db.Query(query, args...)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -268,15 +289,34 @@ func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 			for i, col := range meta.columns {
 				row[col] = fromDBValue(meta, col, vals[i])
 			}
-			if seq, ok := row["server_seq"].(int64); ok && seq > latest {
-				latest = seq
-			}
-			out[table] = append(out[table], row)
+			seq, _ := row["server_seq"].(int64)
+			entries = append(entries, entry{table: table, seq: seq, row: row})
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+	}
+
+	// Seqs interleave across tables, so a bounded page must be the globally
+	// smallest n — anything else could skip rows forever.
+	if limit > 0 && len(entries) > limit {
+		sort.Slice(entries, func(i, j int) bool { return entries[i].seq < entries[j].seq })
+		entries = entries[:limit]
+	}
+
+	out := map[string][]map[string]any{}
+	var latest int64 = since
+	for _, table := range tableOrder {
+		for _, e := range entries {
+			if e.table != table {
+				continue
+			}
+			out[table] = append(out[table], e.row)
+			if e.seq > latest {
+				latest = e.seq
+			}
 		}
 	}
 

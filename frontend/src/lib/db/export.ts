@@ -219,5 +219,13 @@ export async function importData(envelope: ExportEnvelope): Promise<ImportResult
   }
   await tx.done;
 
+  // Imported rows keep their historical updated_at, which the dirty-tracked
+  // push (sync.ts) would skip — drop the push cursor so the next sync
+  // re-scans everything once. Idempotent and cheap: the server LWW-ignores
+  // whatever it already holds.
+  if (db.objectStoreNames.contains('sync_meta')) {
+    await db.delete('sync_meta', 'lastPushAt');
+  }
+
   return { rows, mode: replace ? 'replaced' : 'merged' };
 }

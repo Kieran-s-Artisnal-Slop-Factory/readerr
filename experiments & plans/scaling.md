@@ -31,6 +31,15 @@ Conclusions up front:
 
 The plan is therefore about *query discipline*, not new infrastructure.
 
+**Update (July 2026):** yearly archival shipped (see `yearly-archival.md`)
+and changes the §1 math for the hot paths: slushed links older than a
+threshold (default 24 months) move out of the `links` store entirely, into a
+local-only archive store the hot pages never read. On the 150/wk projection
+the large majority of links end up slushed, so the *hot* store plateaus in
+the low tens of thousands instead of growing to 78k — the row counts above
+now describe `links + archived_links` combined. Every §2 threshold keyed to
+link count therefore arrives years later than originally estimated.
+
 ## 2. What breaks, and roughly when
 
 | Symptom | Cause | Rough threshold |
@@ -46,6 +55,12 @@ The plan is therefore about *query discipline*, not new infrastructure.
 ## 3. Frontend plan
 
 ### 3.1 Paged reads replace `getAll` (the core change)
+
+> **Status:** render pagination (slicing an in-memory array, not cursor
+> paging) is shipped on every unbounded list — backlog/favourites/archive
+> and tag/topic member lists at 100/page, resources/slush at 250 — with
+> label lookups scoped to the visible page. Combined with archival capping
+> the hot store, cursor-true paging below stays parked in phase B.
 
 Add a paged query API to `repo.ts` built on IndexedDB cursors:
 
@@ -120,26 +135,30 @@ rows; acceptable, or keep a derived `name`-only mirror if it ever matters).
 Compute `originStats` from a single cursor pass (no array materialization)
 and cache the result in `sync_meta` with a row-count+latest-`updated_at`
 stamp; recompute only when stale. At 78k links a pass is ~100–300 ms — cache
-makes repeat visits free.
+makes repeat visits free. The stats page has since grown `historyStats`
+(streaks, bulk-paste records, lifetime averages) — another full scan, same
+one-page tolerance, same caching remedy when the time comes.
 
-## 4. Sync plan
+## 4. Sync plan ✅ shipped (July 2026)
 
 Current engine is LWW on `updated_at` with a global `server_seq` cursor.
 That design survives 10 years unchanged; only the transport needs bounds.
 
-- **Dirty tracking for push.** Today push does `getAll` on every store and
-  filters by `updated_at > lastPushAt`. Add an IDB index on `updated_at` per
-  store and query `IDBKeyRange.lowerBound(lastPushAt, true)` — push cost
-  becomes proportional to changes, not history. (Rows with
-  `server_seq == null` are found the same way since their `updated_at` is
-  recent by construction.)
-- **Chunked push:** send batches of ≤2,000 rows per request (the server
+- **Dirty tracking for push.** ✅ Push queries an `updated_at` IDB index per
+  store (`IDBKeyRange.lowerBound(lastPushAt, true)`, migration v7) instead of
+  `getAll` + filter — push cost is proportional to changes, not history.
+  Rows with `server_seq == null` are found the same way since their
+  `updated_at` is recent by construction; the one exception was imported
+  rows, whose `updated_at` is historical — fixed by having imports clear the
+  push cursor so the next sync re-scans (and re-pushes) everything once.
+- **Chunked push:** ✅ batches of ≤2,000 rows per request (the server
   already transacts per request; multiple requests are fine because LWW is
-  idempotent and `lastPushAt` only advances after all batches succeed).
-- **Chunked pull:** add `limit` to `GET /sync/pull?since=&limit=5000`; the
-  client loops until a short page arrives, advancing its cursor each page.
-  This bounds first-device-sync memory on both ends. Backwards compatible
-  (no `limit` = current behavior).
+  idempotent and `lastPushAt` only advances after all batches succeed —
+  accepted seqs are written back per batch as they land).
+- **Chunked pull:** ✅ `GET /sync/pull?since=&limit=5000`; the client loops
+  until a short page arrives, advancing its cursor each page. This bounds
+  first-device-sync memory on both ends. Backwards compatible (no `limit` =
+  full pull, as before).
 - **Auto-sync stays at 15 min** — with dirty tracking each tick is O(changes
   since last push) ≈ tens of rows.
 
@@ -147,12 +166,14 @@ That design survives 10 years unchanged; only the transport needs bounds.
 
 SQLite with WAL handles this scale trivially; the changes are hygiene:
 
-1. **Index `server_seq` on every synced table** (migration). Pull filters
-   `WHERE server_seq > ?` — today that's a full table scan per table per
-   pull; at 260k rows every 15 min it's the first thing to fix server-side.
-2. **`limit` support in `/sync/pull`** (see §4).
-3. **gzip responses** for pull/backup (stdlib middleware) — sync bodies are
-   highly compressible JSON (~8:1).
+1. ✅ **Index `server_seq` on every synced table** (migration v8). Pull
+   filters `WHERE server_seq > ?` — was a full table scan per table per
+   pull.
+2. ✅ **`limit` support in `/sync/pull`** (see §4).
+3. ✅ **gzip responses** for pull (stdlib middleware) — sync bodies are
+   highly compressible JSON (~8:1). `/backup` deliberately stays plain:
+   `http.ServeFile`'s Content-Length/range handling doesn't mix with
+   on-the-fly compression, and it's a manual, occasional download.
 4. **Tombstone compaction (manual, opt-in).** Deletions must persist as
    tombstones until every device has pulled them. Single-user reality: a
    Settings "Compact" action that (a) confirms all devices have synced,
@@ -167,9 +188,10 @@ SQLite with WAL handles this scale trivially; the changes are hygiene:
 
 | Phase | Trigger | Work |
 |---|---|---|
-| **A — now / preemptive** ✅ shipped | before real multi-year data accumulates | Render pagination (100/page) on backlog/slush/favourites/resources with page-scoped label lookups (tag-name search lazily loads the full map); `server_seq` indexes server-side (migration v8). The cursor-based `page()` repo API moves to phase B alongside the indexes that make it real. |
-| **B — ~10–25k links (year 1–2)** | list pages > ~200 ms or search lags | `status_added` + `slushed_at` + `updated_at` IDB indexes (one migration + backfill); dirty-tracked chunked push; pull `limit`; MiniSearch worker |
-| **C — ~50k+ links (year 4+)** | export jank / stats slow / DB bloat | streamed exports; cached stats; gzip; tombstone compaction |
+| **A — now / preemptive** ✅ shipped | before real multi-year data accumulates | Render pagination on every unbounded list (backlog/favourites/archive and tag/topic member lists at 100, resources/slush at 250) with page-scoped label lookups (tag-name search lazily loads the full map); `server_seq` indexes server-side (migration v8). |
+| **A½ — shipped since the plan** ✅ | — | Yearly archival caps the hot `links` store (`yearly-archival.md`); sync transport bounded end-to-end: `updated_at` IDB indexes + dirty-tracked push (migration v7), chunked push (≤2k rows/request), pull `limit` + client paging loop, gzip on pull; imports clear the push cursor so imported rows always sync. |
+| **B — ~10–25k *hot* links (now years out, thanks to archival)** | list pages > ~200 ms or search lags | Cursor-based `page()` repo API + `status_added` / `slushed_at` IDB indexes (one migration + backfill); MiniSearch worker |
+| **C — ~50k+ links (year 4+)** | export jank / stats slow / DB bloat | streamed exports; cached stats (origin + history); tombstone compaction |
 
 Each phase is independently shippable, touches no wire-format or conflict
 semantics, and every migration follows the existing patterns (append-only

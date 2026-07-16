@@ -195,84 +195,109 @@ export async function getSyncStatus(): Promise<SyncStatus> {
   };
 }
 
+/** Rows per push request — LWW makes multi-request pushes safe (§scaling). */
+const PUSH_CHUNK = 2000;
+/** Rows per pull page; the client loops until a short page arrives. */
+const PULL_LIMIT = 5000;
+
 export async function syncNow(): Promise<SyncResult> {
   try {
     const db = await getDB();
     const base = getSyncUrl();
 
-    // ---- push
+    // ---- push (dirty rows via the per-store updated_at index, so the scan
+    // cost tracks changes since the last push, not history — scaling.md §4)
     const lastPushAt = (await getMeta<string>('lastPushAt')) ?? '';
-    const rows: Record<string, SyncFields[]> = {};
-    let pushed = 0;
+    const range = lastPushAt ? IDBKeyRange.lowerBound(lastPushAt, true) : undefined;
+    const dirty: { store: string; row: SyncFields }[] = [];
     let maxPushedUpdatedAt = lastPushAt;
+    // STORES order puts parents before children, and chunk boundaries keep
+    // that order, so a child never lands in an earlier request than its parent.
     for (const store of Object.keys(STORES)) {
-      const all = (await db.getAll(store)) as SyncFields[];
-      const dirty = all.filter((r) => r.server_seq == null || r.updated_at > lastPushAt);
-      if (dirty.length > 0) {
-        rows[store] = dirty;
-        pushed += dirty.length;
-        for (const r of dirty) {
-          if (r.updated_at > maxPushedUpdatedAt) maxPushedUpdatedAt = r.updated_at;
+      const rows = (await db.getAllFromIndex(store, 'updated_at', range)) as SyncFields[];
+      for (const row of rows) {
+        dirty.push({ store, row });
+        if (row.updated_at > maxPushedUpdatedAt) maxPushedUpdatedAt = row.updated_at;
+      }
+    }
+
+    // Send in bounded batches. Accepted seqs are written back per batch (those
+    // rows really are on the server); lastPushAt only advances once every
+    // batch has landed, so a mid-push failure just re-sends the remainder —
+    // idempotent under LWW.
+    let accepted = 0;
+    for (let offset = 0; offset === 0 || offset < dirty.length; offset += PUSH_CHUNK) {
+      const batch = dirty.slice(offset, offset + PUSH_CHUNK);
+      const rows: Record<string, SyncFields[]> = {};
+      for (const { store, row } of batch) (rows[store] ??= []).push(row);
+
+      let pushRes: Response;
+      try {
+        pushRes = await fetch(`${base}/sync/push`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows }),
+        });
+      } catch (err) {
+        throw new Error(describeNetworkError('push', err));
+      }
+      if (!pushRes.ok) throw new Error(await describeHttpError('push', pushRes));
+      const pushJson = (await pushRes.json()) as {
+        accepted: { table: string; id: string; server_seq: number }[];
+      };
+
+      // Record assigned seqs without touching updated_at (not a user edit).
+      for (const acc of pushJson.accepted) {
+        const row = (await db.get(acc.table, acc.id)) as SyncFields | undefined;
+        if (row) {
+          row.server_seq = acc.server_seq;
+          await db.put(acc.table, row);
         }
       }
-    }
-
-    let pushRes: Response;
-    try {
-      pushRes = await fetch(`${base}/sync/push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
-      });
-    } catch (err) {
-      throw new Error(describeNetworkError('push', err));
-    }
-    if (!pushRes.ok) throw new Error(await describeHttpError('push', pushRes));
-    const pushJson = (await pushRes.json()) as {
-      accepted: { table: string; id: string; server_seq: number }[];
-    };
-
-    // Record assigned seqs without touching updated_at (not a user edit).
-    for (const acc of pushJson.accepted) {
-      const row = (await db.get(acc.table, acc.id)) as SyncFields | undefined;
-      if (row) {
-        row.server_seq = acc.server_seq;
-        await db.put(acc.table, row);
-      }
+      accepted += pushJson.accepted.length;
     }
     await setMeta('lastPushAt', maxPushedUpdatedAt);
 
-    // ---- pull
-    const since = (await getMeta<number>('lastPullSeq')) ?? 0;
-    let pullRes: Response;
-    try {
-      pullRes = await fetch(`${base}/sync/pull?since=${since}`);
-    } catch (err) {
-      throw new Error(describeNetworkError('pull', err));
-    }
-    if (!pullRes.ok) throw new Error(await describeHttpError('pull', pullRes));
-    const pullJson = (await pullRes.json()) as {
-      rows: Record<string, SyncFields[]>;
-      latestSeq: number;
-    };
-
+    // ---- pull, one bounded page at a time; the cursor advances per page so
+    // an interrupted first sync resumes where it stopped.
     let pulled = 0;
-    for (const [store, incoming] of Object.entries(pullJson.rows ?? {})) {
-      if (!(store in STORES)) continue;
-      for (const row of incoming) {
-        const local = (await db.get(store, row.id)) as SyncFields | undefined;
-        // LWW: apply unless we hold something strictly newer (which the next
-        // push will send).
-        if (!local || row.updated_at >= local.updated_at) {
-          await db.put(store, row);
-          pulled++;
+    for (;;) {
+      const since = (await getMeta<number>('lastPullSeq')) ?? 0;
+      let pullRes: Response;
+      try {
+        pullRes = await fetch(`${base}/sync/pull?since=${since}&limit=${PULL_LIMIT}`);
+      } catch (err) {
+        throw new Error(describeNetworkError('pull', err));
+      }
+      if (!pullRes.ok) throw new Error(await describeHttpError('pull', pullRes));
+      const pullJson = (await pullRes.json()) as {
+        rows: Record<string, SyncFields[]>;
+        latestSeq: number;
+      };
+
+      let received = 0;
+      for (const [store, incoming] of Object.entries(pullJson.rows ?? {})) {
+        if (!(store in STORES)) continue;
+        for (const row of incoming) {
+          received++;
+          const local = (await db.get(store, row.id)) as SyncFields | undefined;
+          // LWW: apply unless we hold something strictly newer (which the next
+          // push will send).
+          if (!local || row.updated_at >= local.updated_at) {
+            await db.put(store, row);
+            pulled++;
+          }
         }
       }
+      const latest = pullJson.latestSeq ?? since;
+      await setMeta('lastPullSeq', latest);
+      // A short page means we're caught up; a stuck cursor means an old
+      // backend that ignores limit and returned everything at once.
+      if (received < PULL_LIMIT || latest <= since) break;
     }
-    await setMeta('lastPullSeq', pullJson.latestSeq ?? since);
     await setMeta('lastSyncAt', new Date().toISOString());
     await setMeta('lastError', null);
-    const result = { ok: true, pushed: pushJson.accepted.length, pulled };
+    const result = { ok: true, pushed: accepted, pulled };
     void recordSyncEvent(result);
     window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: result }));
     return result;

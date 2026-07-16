@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 5,
+  "exportedAt": "2026-07-09T08:00:00.000Z",
+  "scope": "full",
+  "data": {
+    "user_settings": [
+      {
+        "id": "min-us-1", "updated_at": "2026-07-08T08:00:00.000Z", "deleted_at": null, "server_seq": null,
+        "name": null, "articles_per_week": null, "focus_tag_id": null,
+        "onboarding_completed_at": "2026-07-08T08:00:00.000Z",
+        "strip_query_params": "off", "strip_whitelist": [],
+        "default_week": "none", "default_week_offset": 0
+      }
+    ],
+    "plans": [],
+    "links": [
+      { "id": "min-l-1", "updated_at": "2026-07-08T08:01:00.000Z", "deleted_at": null, "server_seq": null, "url": "https://min.example/a", "title": "Minimal A", "title_fetched": true, "added_at": "2026-07-08T08:01:00.000Z", "read_at": null, "favourite": true, "is_resource": false, "slushed_at": null },
+      { "id": "min-l-2", "updated_at": "2026-07-08T08:02:00.000Z", "deleted_at": null, "server_seq": null, "url": "https://min.example/b", "title": "https://min.example/b", "title_fetched": false, "added_at": "2026-07-08T08:02:00.000Z", "read_at": null, "favourite": false, "is_resource": false, "slushed_at": null }
+    ],
+    "tags": [],
+    "link_tags": [],
+    "topics": [],
+    "link_topics": [],
+    "notes": [],
+    "excerpts": [],
+    "resource_lists": [],
+    "resource_list_links": [],
+    "weeks": [],
+    "week_links": [],
+    "archived_links": []
+  }
+}

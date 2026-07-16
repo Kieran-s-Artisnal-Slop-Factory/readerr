@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 7,
+  "exportedAt": "2026-07-14T12:00:00.000Z",
+  "scope": "full",
+  "data": {
+    "user_settings": [
+      {
+        "id": "us-1", "updated_at": "2026-07-10T10:00:00.000Z", "deleted_at": null, "server_seq": 1,
+        "name": null, "articles_per_week": 4, "focus_tag_ids": ["tag-1"],
+        "onboarding_completed_at": "2026-07-01T09:00:00.000Z",
+        "strip_query_params": "trackers", "strip_whitelist": ["youtube.com"],
+        "auto_title": true, "default_week": "current", "default_week_offset": 1,
+        "archive_enabled": false, "archive_after_months": 24, "capture_tag_sort": "recent"
+      }
+    ],
+    "plans": [
+      {
+        "id": "plan-1", "updated_at": "2026-07-10T10:01:00.000Z", "deleted_at": null, "server_seq": 2,
+        "period": "week", "starts_on": "2026-07-20", "articles_per_week": 3,
+        "focus_tag_ids": ["tag-2"], "note": "compilers deep-dive"
+      }
+    ],
+    "links": [
+      { "id": "l-1", "updated_at": "2026-07-10T10:02:00.000Z", "deleted_at": null, "server_seq": 3, "url": "https://ks.example/one", "title": "One (fav, tagged, topic, note)", "title_fetched": true, "added_at": "2026-07-02T10:00:00.000Z", "read_at": null, "favourite": true, "is_resource": false, "slushed_at": null },
+      { "id": "l-2", "updated_at": "2026-07-10T10:03:00.000Z", "deleted_at": null, "server_seq": 4, "url": "https://ks.example/two", "title": "Two (fav + resource)", "title_fetched": true, "added_at": "2026-07-03T10:00:00.000Z", "read_at": null, "favourite": true, "is_resource": true, "slushed_at": null },
+      { "id": "l-3", "updated_at": "2026-07-10T10:04:00.000Z", "deleted_at": null, "server_seq": 5, "url": "https://ks.example/three", "title": "Three (resource, listed)", "title_fetched": true, "added_at": "2026-07-04T10:00:00.000Z", "read_at": null, "favourite": false, "is_resource": true, "slushed_at": null },
+      { "id": "l-4", "updated_at": "2026-07-10T10:05:00.000Z", "deleted_at": null, "server_seq": 6, "url": "https://ks.example/four", "title": "Four (read + slushed)", "title_fetched": true, "added_at": "2026-07-05T10:00:00.000Z", "read_at": "2026-07-08T10:00:00.000Z", "favourite": false, "is_resource": false, "slushed_at": "2026-07-08T10:00:00.000Z" },
+      { "id": "l-5", "updated_at": "2026-07-10T10:06:00.000Z", "deleted_at": null, "server_seq": 7, "url": "https://ks.example/five", "title": "Five (queued this week)", "title_fetched": true, "added_at": "2026-07-06T10:00:00.000Z", "read_at": null, "favourite": false, "is_resource": false, "slushed_at": null },
+      { "id": "l-6", "updated_at": "2026-07-10T10:07:00.000Z", "deleted_at": null, "server_seq": 8, "url": "https://ks.example/six", "title": "Six (plain backlog)", "title_fetched": false, "added_at": "2026-07-07T10:00:00.000Z", "read_at": null, "favourite": false, "is_resource": false, "slushed_at": null }
+    ],
+    "tags": [
+      { "id": "tag-1", "updated_at": "2026-07-10T10:08:00.000Z", "deleted_at": null, "server_seq": 9, "name": "security", "notes_md": "tag notes" },
+      { "id": "tag-2", "updated_at": "2026-07-10T10:09:00.000Z", "deleted_at": null, "server_seq": 10, "name": "compilers", "notes_md": "" },
+      { "id": "tag-3", "updated_at": "2026-07-10T10:10:00.000Z", "deleted_at": null, "server_seq": 11, "name": "history", "notes_md": "" }
+    ],
+    "link_tags": [
+      { "id": "lt-1", "updated_at": "2026-07-10T10:11:00.000Z", "deleted_at": null, "server_seq": 12, "link_id": "l-1", "tag_id": "tag-1" },
+      { "id": "lt-2", "updated_at": "2026-07-10T10:12:00.000Z", "deleted_at": null, "server_seq": 13, "link_id": "l-2", "tag_id": "tag-2" },
+      { "id": "lt-3", "updated_at": "2026-07-10T10:13:00.000Z", "deleted_at": null, "server_seq": 14, "link_id": "l-4", "tag_id": "tag-3" }
+    ],
+    "topics": [
+      { "id": "top-1", "updated_at": "2026-07-10T10:14:00.000Z", "deleted_at": null, "server_seq": 15, "name": "Custom OS", "body_md": "# Doc" },
+      { "id": "top-2", "updated_at": "2026-07-10T10:15:00.000Z", "deleted_at": null, "server_seq": 16, "name": "Bloom filters", "body_md": "" }
+    ],
+    "link_topics": [
+      { "id": "lto-1", "updated_at": "2026-07-10T10:16:00.000Z", "deleted_at": null, "server_seq": 17, "link_id": "l-1", "topic_id": "top-1" }
+    ],
+    "notes": [
+      { "id": "note-1", "updated_at": "2026-07-10T10:17:00.000Z", "deleted_at": null, "server_seq": 18, "link_id": "l-1", "body_md": "**important** note" }
+    ],
+    "excerpts": [
+      { "id": "ex-1", "updated_at": "2026-07-10T10:18:00.000Z", "deleted_at": null, "server_seq": 19, "link_id": "l-1", "content_md": "> a quote", "position": 0 }
+    ],
+    "resource_lists": [
+      { "id": "rl-1", "updated_at": "2026-07-10T10:19:00.000Z", "deleted_at": null, "server_seq": 20, "name": "CLI tools", "description_md": "handy things" }
+    ],
+    "resource_list_links": [
+      { "id": "rll-1", "updated_at": "2026-07-10T10:20:00.000Z", "deleted_at": null, "server_seq": 21, "list_id": "rl-1", "link_id": "l-3", "position": 0 }
+    ],
+    "weeks": [
+      { "id": "w-1", "updated_at": "2026-07-10T10:21:00.000Z", "deleted_at": null, "server_seq": 22, "week_start": "2026-07-13", "closed_at": null }
+    ],
+    "week_links": [
+      { "id": "wl-1", "updated_at": "2026-07-10T10:22:00.000Z", "deleted_at": null, "server_seq": 23, "week_id": "w-1", "link_id": "l-5", "position": 0, "kind": "reading", "done_at": null, "outcome": null },
+      { "id": "wl-2", "updated_at": "2026-07-10T10:23:00.000Z", "deleted_at": null, "server_seq": 24, "week_id": "w-1", "link_id": "l-4", "position": 1, "kind": "review", "done_at": "2026-07-09T10:00:00.000Z", "outcome": null }
+    ],
+    "archived_links": []
+  }
+}

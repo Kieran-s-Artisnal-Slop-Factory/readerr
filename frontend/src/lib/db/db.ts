@@ -68,6 +68,17 @@ const MIGRATIONS: Migration[] = [
       store.createIndex('at', 'at', { multiEntry: false });
     }
   },
+  // v7 — updated_at index on every synced store (scaling.md §4): push asks
+  // "what changed since lastPushAt" with an IDBKeyRange instead of scanning
+  // whole stores, so its cost tracks edits, not history.
+  (_db, tx) => {
+    for (const name of Object.keys(STORES)) {
+      const store = tx.objectStore(name);
+      if (!store.indexNames.contains('updated_at')) {
+        store.createIndex('updated_at', 'updated_at', { multiEntry: false });
+      }
+    }
+  },
 ];
 
 /** Local-only stores that live in IndexedDB but never sync or appear in STORES. */

@@ -10,10 +10,13 @@
 package main
 
 import (
+	"compress/gzip"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func envOr(key, fallback string) string {
@@ -21,6 +24,30 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) { return w.Writer.Write(b) }
+
+// withGzip compresses the response when the client accepts it. Applied to
+// /sync/pull only — its JSON bodies compress ~8:1 (scaling.md §5), while
+// /backup goes through http.ServeFile, whose Content-Length and range
+// handling don't mix with on-the-fly compression.
+func withGzip(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		next.ServeHTTP(gzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
+	})
 }
 
 // Permissive CORS so a separately-hosted frontend (or dev server) can sync.
@@ -57,7 +84,7 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 	mux.HandleFunc("POST /sync/push", srv.handlePush)
-	mux.HandleFunc("GET /sync/pull", srv.handlePull)
+	mux.Handle("GET /sync/pull", withGzip(http.HandlerFunc(srv.handlePull)))
 	mux.HandleFunc("GET /sync/stats", srv.handleSyncStats)
 	mux.HandleFunc("POST /sync/reset", srv.handleSyncReset)
 	mux.HandleFunc("GET /backup", srv.handleBackup)
