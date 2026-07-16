@@ -40,11 +40,3 @@ the backend on one origin and the sync URL stays blank.
 ```sh
 docker compose up --build       # :8080, data on the readerr-data volume
 ```
-
-## Roadmap
-
-Phase 2: weekly reading list (pick from backlog, roll-over on week close,
-slush archive), favourites and resources views — the schema for these
-(`weeks`, `week_links`, `links.slushed_at`) already ships.
-Phase 3: triage automation (weekly focus tag, articles-per-week quota) via
-the columns on `user_settings`.

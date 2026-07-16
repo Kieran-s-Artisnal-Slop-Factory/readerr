@@ -1,0 +1,223 @@
+# Data model
+
+The client's IndexedDB is the source of truth; the backend's SQLite is a
+sync/backup mirror of the same tables. Three definitions describe the model
+and **must stay in lockstep**:
+
+1. [backend/sql/schema.sql](../backend/sql/schema.sql) — the canonical DDL
+2. [frontend/src/lib/db/types.ts](../frontend/src/lib/db/types.ts) — the TS
+   interfaces and the `STORES` map (IndexedDB object stores + indexes)
+3. the `tables` map in [backend/sync.go](../backend/sync.go) — column list +
+   bool/JSON wire conversion per table
+
+Adding a field means touching all three, plus a migration on each side
+(append-only: `migrations` in [backend/db.go](../backend/db.go) stepping
+`PRAGMA user_version`, and `MIGRATIONS` in
+[frontend/src/lib/db/db.ts](../frontend/src/lib/db/db.ts)). Grep an existing
+column like `capture_tag_sort` to see every touch point.
+
+## The sync trio
+
+Every synced row carries:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | TEXT (UUID v4) | client-generated primary key |
+| `updated_at` | TEXT (UTC ISO 8601) | client-set on every write; **last-write-wins compares this** |
+| `deleted_at` | TEXT \| null | tombstone — soft-delete only, so deletions sync; every read filters these out |
+| `server_seq` | INTEGER \| null | server-assigned global cursor position; null until first accepted |
+
+[repo.ts](../frontend/src/lib/db/repo.ts) is the only code that manages
+these: `withSyncFields()` mints them, `put`/`bulkPut` re-stamp `updated_at`,
+`softDelete`/`softDeleteMany` write tombstones, and `all`/`get`/`byIndex`
+filter tombstones. It also runs every row through a JSON round-trip before
+writing, because Svelte 5 `$state` proxies fail IndexedDB's structured clone.
+
+## Entities
+
+```mermaid
+erDiagram
+    user_settings ||--o{ tags : "focus_tag_ids[]"
+    plans }o--o{ tags : "focus_tag_ids[]"
+    links ||--o| notes : "one, lazily created"
+    links ||--o{ excerpts : "many, ordered"
+    links ||--o{ link_tags : ""
+    tags  ||--o{ link_tags : ""
+    links ||--o{ link_topics : ""
+    topics ||--o{ link_topics : ""
+    links ||--o{ resource_list_links : ""
+    resource_lists ||--o{ resource_list_links : ""
+    weeks ||--o{ week_links : ""
+    links ||--o{ week_links : ""
+
+    user_settings {
+        int articles_per_week "weekly quota, null = off"
+        json focus_tag_ids "suggestion focus"
+        text onboarding_completed_at "null = show onboarding"
+        text strip_query_params "off | trackers | all"
+        json strip_whitelist "domains exempt from 'all'"
+        bool auto_title
+        text default_week "none | current (+offset)"
+        bool archive_enabled
+        int archive_after_months
+        text capture_tag_sort "recent | alpha"
+    }
+    plans {
+        text period "week | month"
+        text starts_on "Monday / YYYY-MM-01"
+        int articles_per_week "null = inherit"
+        json focus_tag_ids "empty = inherit"
+        text note
+    }
+    links {
+        text url
+        text title "= url until fetched"
+        bool title_fetched "false triggers retry"
+        text added_at
+        text read_at "null = unread"
+        bool favourite
+        bool is_resource
+        text slushed_at "in the slush archive"
+    }
+    notes { text body_md }
+    excerpts { text content_md
+               int position }
+    tags { text name
+           text notes_md }
+    topics { text name
+             text body_md "the long-form document" }
+    resource_lists { text name
+                     text description_md }
+    weeks { text week_start "local Monday"
+            text closed_at "null = open" }
+    week_links {
+        int position
+        text kind "reading | review"
+        text done_at "entry-level completion"
+        text outcome "read | rolled | slushed, null while open"
+    }
+```
+
+Design decisions embedded here:
+
+- **Notes are a separate table, not a column on links.** Sync is row-level
+  LWW, so the hot `links` row (flag toggles, maybe from a phone) must not
+  fight editor autosaves (desktop). Topic bodies and tag notes stay inline
+  (`topics.body_md`, `tags.notes_md`) because those rows have no competing
+  hot fields.
+- **`read_at` is a timestamp, not a boolean** — the week-close logic needs
+  it and it's free history. Same for `slushed_at`.
+- **Link state is derived, not a status column.** Backlog = `!read_at &&
+  !slushed_at`; slush = `slushed_at != null`; the weekly list comes from
+  `week_links` rows. The transitions live in
+  [links.ts](../frontend/src/lib/services/links.ts) (`markLinkDone`,
+  `toggleRead`, `toggleFavourite`) and
+  [weeks.ts](../frontend/src/lib/services/weeks.ts) (`closeWeek`,
+  `reviewLink`, `setLinkWeek`).
+- **`week_links` rows are permanent history.** Closing a week stamps each
+  entry's `outcome` rather than deleting it; a link's whole reading history
+  is queryable (`weekHistoryForLink`).
+- **Joins are their own tables** (`link_tags`, `link_topics`,
+  `resource_list_links`) with soft-deleted rows, so label changes sync.
+
+## IndexedDB layout
+
+`STORES` in types.ts defines one object store per SQL table (keyPath `id`)
+plus its indexes; migration v1 creates them all, later migrations add stores
+and indexes append-only. Current version: **7**.
+
+| Store | Indexes | Notes |
+|---|---|---|
+| `user_settings` | `updated_at` | singleton row, created lazily |
+| `plans` | `starts_on`, `updated_at` | |
+| `links` | `url`, `added_at`, `updated_at` | `url` powers capture dedupe |
+| `tags`, `topics`, `resource_lists` | `updated_at` | |
+| `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
+| `notes`, `excerpts` | `link_id`, `updated_at` | |
+| `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
+| `weeks` | `week_start`, `updated_at` | |
+| `week_links` | `week_id`, `link_id`, `updated_at` | |
+
+The `updated_at` index on every synced store (migration v7) powers the
+dirty-tracked sync push — see [sync.md](sync.md).
+
+Boolean filters (unread/favourite/resource) are `getAll` + in-memory filter:
+booleans aren't valid IDB keys, and render pagination keeps the working set
+small (see `experiments & plans/scaling.md`).
+
+### Local-only stores (never synced, no SQL twin)
+
+| Store | Created | Purpose |
+|---|---|---|
+| `sync_meta` | v2 | sync cursors (`lastPushAt`, `lastPullSeq`) + status; excluded from backups |
+| `archived_links` | v5 | yearly archival: cold slushed links hard-moved out of `links` so hot paths deserialize fewer rows; **included** in full backups (`LOCAL_STORES` in db.ts) |
+| `sync_log` | v6 | sync history diagnostics; excluded from backups |
+
+`archived_links` is the deliberate exception to "everything syncs": archiving
+hard-deletes from `links` for a real perf win while the *server* keeps the
+full history, and archival is deterministic (a function of `slushed_at` age)
+so every device converges independently. Rationale in
+`experiments & plans/yearly-archival.md`.
+
+## Mapping to the backend
+
+Same tables, same columns, plus the sync trio on every table. The
+differences are representational:
+
+```mermaid
+flowchart LR
+    subgraph IDB["IndexedDB row (JS object)"]
+        B1["favourite: true"]
+        J1["focus_tag_ids: ['a','b']"]
+    end
+    subgraph Wire["JSON over /sync/*"]
+        B2["true"]
+        J2["['a','b']"]
+    end
+    subgraph SQL["SQLite column"]
+        B3["INTEGER 1<br/>(boolCols)"]
+        J3["TEXT '[\"a\",\"b\"]'<br/>(jsonCols)"]
+    end
+    B1 --- B2 ---|toDBValue| B3
+    J1 --- J2 ---|toDBValue| J3
+```
+
+- `boolCols` per table (e.g. `links.favourite`, `user_settings.auto_title`)
+  convert JSON booleans ↔ INTEGER 0/1.
+- `jsonCols` (e.g. `focus_tag_ids`, `strip_whitelist`) convert JSON arrays ↔
+  JSON-encoded TEXT.
+- Everything else passes through as TEXT/INTEGER unchanged. Dates are
+  strings everywhere: calendar fields are local `YYYY-MM-DD`, `*_at` fields
+  are UTC ISO 8601 (which compare correctly as strings — LWW relies on it).
+- Server-only: the `sync_state` table (the global `last_seq` counter) and
+  `idx_*_seq` indexes for pull.
+
+Migration counters as of this writing: SQLite `user_version` **13**, IDB
+version **7**. Fresh installs skip migrations — SQLite executes
+`schema.sql` wholesale, IDB creates the current `STORES` map in v1 —
+so both migration chains only run for pre-existing databases.
+
+## Other client-side state
+
+Not everything is in IndexedDB. localStorage holds per-device preferences
+that shouldn't sync:
+
+| Key | Owner | Purpose |
+|---|---|---|
+| `readerr-sync-url`, `readerr-sync-mode` | sync.ts | server URL, sync/offline mode |
+| `readerr-last-auto-sync` (+ `readerr-session-synced` in sessionStorage) | sync.ts | auto-sync throttle |
+| `readerr-theme`, `readerr-theme-config`, `readerr-theme-css` | theme.ts | light/dark pin, theme config, pre-compiled CSS for flash-free boot |
+| `readerr-archive-last-run`, `readerr-archive-suggest-dismissed` | archive.ts / ArchiveSuggestModal | archival throttle + one-time prompt |
+| `readerr-sync-log-prefs`, `readerr-sync-log-stats` | syncLog.ts | history options + always-on counters |
+
+## Exports
+
+[export.ts](../frontend/src/lib/db/export.ts) serializes the model to a JSON
+envelope `{ schemaVersion, exportedAt, scope, data: {store: rows[]} }` in
+four scopes (full/curated/range/template); **full** includes tombstones and
+`LOCAL_STORES` and is the only true backup (importing it replaces
+everything; other scopes merge by id).
+[export-markdown.ts](../frontend/src/lib/db/export-markdown.ts) writes the
+prose model out as a zip of markdown files — possible precisely because
+markdown is the stored format. Backup fixtures used by the test suite live
+in [frontend/test/fixtures/](../frontend/test/fixtures/).
