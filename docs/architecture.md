@@ -72,11 +72,16 @@ readerr/
 │   │   │   └── importKind.ts backup-vs-theme file sniffing
 │   │   └── styles/           theme.css (design tokens) + global.css
 │   └── test/                 vitest suites + backup fixtures
-├── docs/                     you are here
-├── experiments & plans/      design notes (scaling.md, yearly-archival.md, …)
+├── docs/                     reference docs (you are here)
+│   └── experiments & plans/  design notes + working task lists
+├── .github/workflows/        CI: docker.yaml (image → GHCR), astro.yaml (Pages)
 ├── Dockerfile                single image: Go binary serving the built frontend
-└── docker-compose.yml
+├── docker-compose.yml        ready-to-go deploy (published image, ./data bind mount)
+└── docker-compose.build.yml  build-from-source variant
 ```
+
+Deployment (image, compose, volumes, CI, HTTPS) is its own guide:
+[deployment.md](deployment.md).
 
 ## Frontend
 
@@ -156,8 +161,8 @@ flowchart TD
   - [plans.ts](../frontend/src/lib/services/plans.ts) — triage defaults +
     scheduled per-week/month overrides
   - [archive.ts](../frontend/src/lib/services/archive.ts) — yearly archival
-    (moves cold slushed links to a local-only store; see
-    `experiments & plans/yearly-archival.md`)
+    (moves cold slushed links to a local-only store; see the
+    `archived_links` store in [data-model.md](data-model.md))
   - [syncLog.ts](../frontend/src/lib/services/syncLog.ts) — local sync history
 - **Widgets** worth knowing: [LinkRow](../frontend/src/components/LinkRow.svelte)
   (the universal link row: toggles, inline label editor, scheduled-week badge),
@@ -253,4 +258,5 @@ SSRF comments in the source):
 | touch sync | `lib/sync.ts` + `backend/sync.go` + [sync.md](sync.md) |
 | add a settings knob | `types.ts` UserSettings → `services/settings.ts` pick → `SettingsApp.svelte` → schema/migration/sync map |
 | adjust theming | `lib/theme.ts` + `styles/theme.css` |
-| understand perf plans | `experiments & plans/scaling.md` |
+| ship or deploy an image | [deployment.md](deployment.md), `Dockerfile`, `.github/workflows/docker.yaml` |
+| understand sync scaling | the transport-bounds section of [sync.md](sync.md) |

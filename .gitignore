@@ -1,1 +1,5 @@
 .claude/
+
+# Docker bind-mount data dir (the live SQLite DB); never commit user data.
+data/
+

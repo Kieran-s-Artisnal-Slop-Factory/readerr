@@ -184,7 +184,7 @@ sequenceDiagram
     C->>DB: lastSyncAt, clear lastError
 ```
 
-## Transport bounds (scaling.md §4, shipped)
+## Transport bounds
 
 - **Dirty-tracked push.** Every synced store has an `updated_at` IDB index
   (migration v7 in [db.ts](../frontend/src/lib/db/db.ts)); push queries

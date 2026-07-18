@@ -78,6 +78,7 @@ erDiagram
         bool favourite
         bool is_resource
         text slushed_at "in the slush archive"
+        int priority "1..3; null = unset = 3"
     }
     notes { text body_md }
     excerpts { text content_md
@@ -119,6 +120,14 @@ Design decisions embedded here:
   is queryable (`weekHistoryForLink`).
 - **Joins are their own tables** (`link_tags`, `link_topics`,
   `resource_list_links`) with soft-deleted rows, so label changes sync.
+- **`priority` is nullable, and `null` means 3.** Lists sort priority-first
+  (1 highest); leaving it unset is the common case, so the column is nullable
+  rather than `DEFAULT 3` — that keeps pre-priority rows and older backups
+  valid without a backfill. `effectivePriority()` in
+  [links.ts](../frontend/src/lib/services/links.ts) applies the null → 3 rule
+  everywhere; the automation suggester (`suggestLinks` in weeks.ts) honors it
+  too. It has no SQL twin quirk — just a plain nullable `INTEGER CHECK IN
+  (1,2,3)`, added in schema **v14**.
 
 ## IndexedDB layout
 
@@ -141,9 +150,9 @@ and indexes append-only. Current version: **7**.
 The `updated_at` index on every synced store (migration v7) powers the
 dirty-tracked sync push — see [sync.md](sync.md).
 
-Boolean filters (unread/favourite/resource) are `getAll` + in-memory filter:
-booleans aren't valid IDB keys, and render pagination keeps the working set
-small (see `experiments & plans/scaling.md`).
+Boolean filters (unread/favourite/resource) and priority sorting are
+`getAll` + in-memory filter/sort: booleans aren't valid IDB keys, priority is
+a small cardinality, and render pagination keeps the working set small.
 
 ### Local-only stores (never synced, no SQL twin)
 
@@ -156,8 +165,7 @@ small (see `experiments & plans/scaling.md`).
 `archived_links` is the deliberate exception to "everything syncs": archiving
 hard-deletes from `links` for a real perf win while the *server* keeps the
 full history, and archival is deterministic (a function of `slushed_at` age)
-so every device converges independently. Rationale in
-`experiments & plans/yearly-archival.md`.
+so every device converges independently.
 
 ## Mapping to the backend
 
@@ -192,10 +200,13 @@ flowchart LR
 - Server-only: the `sync_state` table (the global `last_seq` counter) and
   `idx_*_seq` indexes for pull.
 
-Migration counters as of this writing: SQLite `user_version` **13**, IDB
-version **7**. Fresh installs skip migrations — SQLite executes
-`schema.sql` wholesale, IDB creates the current `STORES` map in v1 —
-so both migration chains only run for pre-existing databases.
+Migration counters as of this writing: SQLite `user_version` **14** (the
+`links.priority` column is the latest), IDB version **7**. Fresh installs
+skip migrations — SQLite executes `schema.sql` wholesale, IDB creates the
+current `STORES` map in v1 — so both migration chains only run for
+pre-existing databases. (Priority added no IDB migration: IndexedDB is
+schemaless per record, so a new nullable field just appears on future rows
+and reads `undefined` → `null` → 3 on older ones.)
 
 ## Other client-side state
 

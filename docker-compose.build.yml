@@ -1,0 +1,18 @@
+# Build the image from source in this checkout (for development, or to run
+# without pulling from GHCR).
+#
+#   docker compose -f docker-compose.build.yml up --build
+#
+# Same runtime shape as docker-compose.yml: DB bind-mounted to ./data, app on
+# host port 8080.
+services:
+  readerr:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DB_PATH: /data/readerr.db
+      PORT: "8080"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

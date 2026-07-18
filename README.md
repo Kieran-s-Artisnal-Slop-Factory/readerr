@@ -34,15 +34,21 @@ sync.
 
 ### Option A — full setup with sync (recommended)
 
-One Docker container serves the app and the sync backend on one origin:
+One Docker container serves the app and the sync backend on one origin. Using
+the prebuilt image from GHCR:
 
 ```sh
-docker compose up --build        # app at http://localhost:8080
+docker compose up -d             # app at http://localhost:8080
 ```
 
-Data lives in the `readerr-data` volume. Open the app, walk through the
-onboarding (or hit *Start from scratch*), and you're in — the sync URL can
-stay blank because app and backend share an origin.
+The database is stored as a real file at **`./data/readerr.db` on the host**
+(a bind mount you can back up or copy out). Open the app, walk through
+onboarding (or hit *Start from scratch*), and you're in — the sync URL stays
+blank because app and backend share an origin.
+
+To build from source instead of pulling:
+`docker compose -f docker-compose.build.yml up --build`. Full deployment
+guide (ports, volumes, backups, CI images, HTTPS): **[docs/deployment.md](docs/deployment.md)**.
 
 **Adding a second device:** open the same URL, choose
 **Sync from existing server** on the onboarding screen, and everything pulls
@@ -96,9 +102,9 @@ Start with the architecture overview — it has a "where to look when…" table.
 | [docs/sync.md](docs/sync.md) | the sync model for users + the wire protocol for developers |
 | [docs/link-dsl.md](docs/link-dsl.md) | the capture DSL grammar, semantics, and autocomplete |
 | [docs/offline-support.md](docs/offline-support.md) | service worker, PWA, storage durability, degradation |
+| [docs/deployment.md](docs/deployment.md) | Docker image, compose, volumes/backups, CI, HTTPS |
 
-Design notes and forward plans live in `experiments & plans/`
-(`scaling.md`, `yearly-archival.md`, …).
+Design notes and working task lists live in `docs/experiments & plans/`.
 
 ### Layout
 
@@ -119,9 +125,14 @@ migrations on both sides. Change one, change all. The full checklist is in
 ## Deploy
 
 ```sh
-docker compose up --build        # :8080, data on the readerr-data volume
+docker compose up -d             # published image, :8080, DB in ./data on the host
 ```
 
-Environment: `DB_PATH` (default `readerr.db`), `PORT` (default `8080`),
-`STATIC_DIR` (where the built frontend lives inside the image). No auth —
-run it on a LAN, a VPN, or behind a reverse proxy you trust.
+CI ([.github/workflows/docker.yaml](.github/workflows/docker.yaml)) builds a
+multi-arch image (amd64 + arm64) and publishes it to
+`ghcr.io/descent098/readerr` on every push to `main` and every `v*` tag.
+
+Environment: `DB_PATH` (default `/data/readerr.db`), `PORT` (default `8080`),
+`STATIC_DIR` (built frontend inside the image). No auth — run it on a LAN, a
+VPN, or behind a reverse proxy you trust. Full guide, including ports,
+backups, and building from source: **[docs/deployment.md](docs/deployment.md)**.
