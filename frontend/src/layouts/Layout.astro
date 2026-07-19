@@ -60,13 +60,14 @@ const swScope = href('/');
       // data (any links) counts as onboarded — those users are grandfathered
       // in silently rather than interrupted. Runs on every page (MPA).
       import { all } from '../lib/db/repo';
-      import { saveUserSettings } from '../lib/services/settings';
-      import type { Link, UserSettings } from '../lib/db/types';
+      import { getUserSettings, saveUserSettings } from '../lib/services/settings';
+      import type { Link } from '../lib/db/types';
       import { href, isPath } from '../lib/paths';
 
       if (!isPath(location.pathname, '/onboarding/')) {
         try {
-          const settings = (await all<UserSettings>('user_settings'))[0];
+          // getUserSettings reconciles duplicate settings rows into the singleton.
+          const settings = await getUserSettings();
           if (!settings?.onboarding_completed_at) {
             const links = await all<Link>('links');
             if (links.length > 0) {
