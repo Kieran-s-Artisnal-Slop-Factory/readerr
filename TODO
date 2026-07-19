@@ -1,0 +1,1 @@
+1. Allow me to add/remove a link from a week, (handling if it's a review or first time viewing) directly  on it's overview page `/link?id=...`

@@ -32,7 +32,7 @@ Two distinct notions of "offline":
 Browsers treat IndexedDB as evictable cache (iOS Safari famously wipes it
 after ~7 days of inactivity unless installed as a PWA), and on a
 no-sync-server setup the browser holds the only copy. So
-[persistence.ts](../frontend/src/lib/db/persistence.ts) requests the
+[persistence.ts](../../frontend/src/lib/db/persistence.ts) requests the
 **persistent storage bucket** (`navigator.storage.persist()`) during
 onboarding, and the Settings → Storage card surfaces the verdict with a
 "request" button and a warning when denied. The Stats page shows
@@ -41,11 +41,11 @@ the real safety nets — see the Backup card.
 
 ## Layer 2: the app shell loads offline
 
-[public/sw.js](../frontend/public/sw.js) is a small hand-written service
+[public/sw.js](../../frontend/public/sw.js) is a small hand-written service
 worker (registered by
-[Layout.astro](../frontend/src/layouts/Layout.astro) **in production
+[Layout.astro](../../frontend/src/layouts/Layout.astro) **in production
 builds only**) plus
-[manifest.webmanifest](../frontend/public/manifest.webmanifest) to make the
+[manifest.webmanifest](../../frontend/public/manifest.webmanifest) to make the
 app installable as a PWA. It caches only the static shell — it never touches
 IndexedDB or sync traffic.
 
@@ -79,13 +79,13 @@ suspect.
 
 The app also works hosted under a sub-path: the worker derives its base from
 its own URL, and all app links go through `href()` in
-[paths.ts](../frontend/src/lib/paths.ts).
+[paths.ts](../../frontend/src/lib/paths.ts).
 
 ## Layer 3: network features degrade quietly
 
 ### Sync
 
-`maybeAutoSync()` ([sync.ts](../frontend/src/lib/sync.ts)) returns
+`maybeAutoSync()` ([sync.ts](../../frontend/src/lib/sync.ts)) returns
 immediately when `navigator.onLine` is false or the mode is offline; a
 failed `syncNow()` records the error (Settings shows it, the
 [sync log](sync.md#sync-history--status)'s *explicit errors* mode ignores
@@ -100,7 +100,7 @@ chunks. The Navbar shows an `offline` badge driven by the
 
 Capture is instant and offline-safe by design: links are stored immediately
 with `title = url` and `title_fetched = false`
-([capture.ts](../frontend/src/lib/services/capture.ts)). Resolving real
+([capture.ts](../../frontend/src/lib/services/capture.ts)). Resolving real
 titles needs the backend (browsers can't read cross-origin pages), so
 `fetchTitles`:
 

@@ -161,7 +161,7 @@
   }
 
   // Conflict resolution when a newly configured server AND this device both
-  // already hold data (see docs/sync.md).
+  // already hold data (see docs/dev/sync.md).
   let conflictOpen = $state(false);
   let resolving = $state(false);
 

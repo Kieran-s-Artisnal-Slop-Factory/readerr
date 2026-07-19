@@ -88,24 +88,24 @@ Deployment (image, compose, volumes, CI, HTTPS) is its own guide:
 ### Astro MPA + Svelte islands
 
 The app is a **multi-page app**, not a SPA. Each route is an `.astro` file in
-`frontend/src/pages/` that renders [Layout.astro](../frontend/src/layouts/Layout.astro)
+`frontend/src/pages/` that renders [Layout.astro](../../frontend/src/layouts/Layout.astro)
 and mounts exactly one Svelte island from `components/apps/` with
 `client:only="svelte"`. Navigation between pages is a full page load; islands
 are torn down and re-created. Consequences worth internalizing:
 
 - **Islands don't share memory.** Cross-island communication uses DOM
-  CustomEvents (`SYNC_EVENT` in [sync.ts](../frontend/src/lib/sync.ts)) or
+  CustomEvents (`SYNC_EVENT` in [sync.ts](../../frontend/src/lib/sync.ts)) or
   just IndexedDB + a refresh on mount.
 - **In-progress UI state dies on navigation** — anything that must survive
   goes to IndexedDB or localStorage.
 - Editors flush pending autosaves on `pagehide`/`visibilitychange`
-  ([MarkdownEditor.svelte](../frontend/src/components/MarkdownEditor.svelte)).
+  ([MarkdownEditor.svelte](../../frontend/src/components/MarkdownEditor.svelte)).
 
 `Layout.astro` also runs two inline scripts on every page: the theme boot
 (applies compiled theme CSS from localStorage before first paint) and the
 **first-launch gate** (no `onboarding_completed_at` in settings and no links →
 redirect to `/onboarding/`). It conditionally mounts the global
-[CaptureFab](../frontend/src/components/CaptureFab.svelte) on pages that don't
+[CaptureFab](../../frontend/src/components/CaptureFab.svelte) on pages that don't
 declare `hasCapture` (the Reading List, Backlog, and `/week` alias do — they
 have inline capture boxes).
 
@@ -145,32 +145,32 @@ flowchart TD
     R -.-> T
 ```
 
-- **[repo.ts](../frontend/src/lib/db/repo.ts)** is the only writer of sync
+- **[repo.ts](../../frontend/src/lib/db/repo.ts)** is the only writer of sync
   bookkeeping: `withSyncFields()` mints ids and the sync trio, `put`/`bulkPut`
   re-stamp `updated_at`, `softDelete` writes tombstones, and every read
   filters tombstones out. It also normalizes rows through a JSON round-trip
   (`toPlain`) because **Svelte 5 `$state` proxies fail IndexedDB's structured
   clone** — a DataCloneError class of bug that once silently broke saving.
 - **Services** own the domain rules. The important ones:
-  - [capture.ts](../frontend/src/lib/services/capture.ts) — paste parsing,
+  - [capture.ts](../../frontend/src/lib/services/capture.ts) — paste parsing,
     dedupe, existing-URL merging, title fetching (see [link-dsl.md](link-dsl.md))
-  - [links.ts](../frontend/src/lib/services/links.ts) — label assignment,
+  - [links.ts](../../frontend/src/lib/services/links.ts) — label assignment,
     read/favourite/resource toggles, `markLinkDone` (the lifecycle heart)
-  - [weeks.ts](../frontend/src/lib/services/weeks.ts) — weekly reading list
+  - [weeks.ts](../../frontend/src/lib/services/weeks.ts) — weekly reading list
     lifecycle: open weeks, entries, close/auto-close, suggestions
-  - [plans.ts](../frontend/src/lib/services/plans.ts) — triage defaults +
+  - [plans.ts](../../frontend/src/lib/services/plans.ts) — triage defaults +
     scheduled per-week/month overrides
-  - [archive.ts](../frontend/src/lib/services/archive.ts) — yearly archival
+  - [archive.ts](../../frontend/src/lib/services/archive.ts) — yearly archival
     (moves cold slushed links to a local-only store; see the
     `archived_links` store in [data-model.md](data-model.md))
-  - [syncLog.ts](../frontend/src/lib/services/syncLog.ts) — local sync history
-- **Widgets** worth knowing: [LinkRow](../frontend/src/components/LinkRow.svelte)
+  - [syncLog.ts](../../frontend/src/lib/services/syncLog.ts) — local sync history
+- **Widgets** worth knowing: [LinkRow](../../frontend/src/components/LinkRow.svelte)
   (the universal link row: toggles, inline label editor, scheduled-week badge),
-  [CaptureBox](../frontend/src/components/CaptureBox.svelte) (paste box + DSL
+  [CaptureBox](../../frontend/src/components/CaptureBox.svelte) (paste box + DSL
   autocomplete + "Just Added" list),
-  [BulkActionsPanel](../frontend/src/components/BulkActionsPanel.svelte)
+  [BulkActionsPanel](../../frontend/src/components/BulkActionsPanel.svelte)
   (batch operations over a selection), and
-  [MarkdownEditor](../frontend/src/components/MarkdownEditor.svelte)
+  [MarkdownEditor](../../frontend/src/components/MarkdownEditor.svelte)
   (Milkdown Crepe WYSIWYG with a CodeMirror source-mode bailout).
 
 ### The reading lifecycle
@@ -197,20 +197,20 @@ stateDiagram-v2
 Four files, stdlib only, no auth (single-user LAN posture — see the CORS and
 SSRF comments in the source):
 
-- **[main.go](../backend/main.go)** — route table, permissive CORS, gzip
+- **[main.go](../../backend/main.go)** — route table, permissive CORS, gzip
   middleware on `/sync/pull`, `STATIC_DIR` file serving so one origin can
   serve app + sync, `DB_PATH`/`PORT` env config.
-- **[sync.go](../backend/sync.go)** — the `tables` metadata map (columns,
+- **[sync.go](../../backend/sync.go)** — the `tables` metadata map (columns,
   bool/JSON column marshalling) that must mirror `schema.sql` and the
   frontend `STORES` map, plus handlers: `POST /sync/push`, `GET /sync/pull`
   (with `limit` paging), `GET /sync/stats`, `POST /sync/reset`,
   `GET /backup`. Details in [sync.md](sync.md).
-- **[title.go](../backend/title.go)** — `GET /title?url=`: fetches a page
+- **[title.go](../../backend/title.go)** — `GET /title?url=`: fetches a page
   server-side (browsers can't cross-origin), extracts `og:title` or
   `<title>` by scanning the body in 256 KB chunks up to 2 MB (YouTube puts
   its title past byte 640k), logs every request with an outcome reason.
-- **[db.go](../backend/db.go)** — opens SQLite (WAL, busy timeout), applies
-  [schema.sql](../backend/sql/schema.sql) wholesale on fresh databases, and
+- **[db.go](../../backend/db.go)** — opens SQLite (WAL, busy timeout), applies
+  [schema.sql](../../backend/sql/schema.sql) wholesale on fresh databases, and
   steps `PRAGMA user_version` through the append-only `migrations` array
   otherwise.
 
@@ -227,7 +227,7 @@ SSRF comments in the source):
   `STORES`): `sync_meta` (cursors), `archived_links` (cold storage),
   `sync_log` (diagnostics). See [data-model.md](data-model.md).
 - **Base-path awareness.** Every app-absolute URL goes through `href()` in
-  [paths.ts](../frontend/src/lib/paths.ts) so the app works hosted at `/` or
+  [paths.ts](../../frontend/src/lib/paths.ts) so the app works hosted at `/` or
   under a sub-path.
 - **Experiments live on their own pages.** New risky features are built as
   isolated components + a test page (`/fab-test`, `/dsl-auto-complete`,
@@ -246,7 +246,7 @@ SSRF comments in the source):
 - **Build:** `npm run build` produces a static site the Go server (or any
   static host) serves; `docker compose up` builds the single image.
 - **Demo data:** Settings → Danger zone can seed a configurable multi-year
-  dataset ([seed.ts](../frontend/src/lib/db/seed.ts)) for scale testing.
+  dataset ([seed.ts](../../frontend/src/lib/db/seed.ts)) for scale testing.
 
 ## Where to look when…
 

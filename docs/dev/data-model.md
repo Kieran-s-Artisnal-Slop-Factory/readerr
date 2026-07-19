@@ -4,16 +4,16 @@ The client's IndexedDB is the source of truth; the backend's SQLite is a
 sync/backup mirror of the same tables. Three definitions describe the model
 and **must stay in lockstep**:
 
-1. [backend/sql/schema.sql](../backend/sql/schema.sql) — the canonical DDL
-2. [frontend/src/lib/db/types.ts](../frontend/src/lib/db/types.ts) — the TS
+1. [backend/sql/schema.sql](../../backend/sql/schema.sql) — the canonical DDL
+2. [frontend/src/lib/db/types.ts](../../frontend/src/lib/db/types.ts) — the TS
    interfaces and the `STORES` map (IndexedDB object stores + indexes)
-3. the `tables` map in [backend/sync.go](../backend/sync.go) — column list +
+3. the `tables` map in [backend/sync.go](../../backend/sync.go) — column list +
    bool/JSON wire conversion per table
 
 Adding a field means touching all three, plus a migration on each side
-(append-only: `migrations` in [backend/db.go](../backend/db.go) stepping
+(append-only: `migrations` in [backend/db.go](../../backend/db.go) stepping
 `PRAGMA user_version`, and `MIGRATIONS` in
-[frontend/src/lib/db/db.ts](../frontend/src/lib/db/db.ts)). Grep an existing
+[frontend/src/lib/db/db.ts](../../frontend/src/lib/db/db.ts)). Grep an existing
 column like `capture_tag_sort` to see every touch point.
 
 ## The sync trio
@@ -27,7 +27,7 @@ Every synced row carries:
 | `deleted_at` | TEXT \| null | tombstone — soft-delete only, so deletions sync; every read filters these out |
 | `server_seq` | INTEGER \| null | server-assigned global cursor position; null until first accepted |
 
-[repo.ts](../frontend/src/lib/db/repo.ts) is the only code that manages
+[repo.ts](../../frontend/src/lib/db/repo.ts) is the only code that manages
 these: `withSyncFields()` mints them, `put`/`bulkPut` re-stamp `updated_at`,
 `softDelete`/`softDeleteMany` write tombstones, and `all`/`get`/`byIndex`
 filter tombstones. It also runs every row through a JSON round-trip before
@@ -111,9 +111,9 @@ Design decisions embedded here:
 - **Link state is derived, not a status column.** Backlog = `!read_at &&
   !slushed_at`; slush = `slushed_at != null`; the weekly list comes from
   `week_links` rows. The transitions live in
-  [links.ts](../frontend/src/lib/services/links.ts) (`markLinkDone`,
+  [links.ts](../../frontend/src/lib/services/links.ts) (`markLinkDone`,
   `toggleRead`, `toggleFavourite`) and
-  [weeks.ts](../frontend/src/lib/services/weeks.ts) (`closeWeek`,
+  [weeks.ts](../../frontend/src/lib/services/weeks.ts) (`closeWeek`,
   `reviewLink`, `setLinkWeek`).
 - **`week_links` rows are permanent history.** Closing a week stamps each
   entry's `outcome` rather than deleting it; a link's whole reading history
@@ -124,7 +124,7 @@ Design decisions embedded here:
   (1 highest); leaving it unset is the common case, so the column is nullable
   rather than `DEFAULT 3` — that keeps pre-priority rows and older backups
   valid without a backfill. `effectivePriority()` in
-  [links.ts](../frontend/src/lib/services/links.ts) applies the null → 3 rule
+  [links.ts](../../frontend/src/lib/services/links.ts) applies the null → 3 rule
   everywhere; the automation suggester (`suggestLinks` in weeks.ts) honors it
   too. It has no SQL twin quirk — just a plain nullable `INTEGER CHECK IN
   (1,2,3)`, added in schema **v14**.
@@ -223,12 +223,12 @@ that shouldn't sync:
 
 ## Exports
 
-[export.ts](../frontend/src/lib/db/export.ts) serializes the model to a JSON
+[export.ts](../../frontend/src/lib/db/export.ts) serializes the model to a JSON
 envelope `{ schemaVersion, exportedAt, scope, data: {store: rows[]} }` in
 four scopes (full/curated/range/template); **full** includes tombstones and
 `LOCAL_STORES` and is the only true backup (importing it replaces
 everything; other scopes merge by id).
-[export-markdown.ts](../frontend/src/lib/db/export-markdown.ts) writes the
+[export-markdown.ts](../../frontend/src/lib/db/export-markdown.ts) writes the
 prose model out as a zip of markdown files — possible precisely because
 markdown is the stored format. Backup fixtures used by the test suite live
-in [frontend/test/fixtures/](../frontend/test/fixtures/).
+in [frontend/test/fixtures/](../../frontend/test/fixtures/).

@@ -21,7 +21,7 @@ flowchart LR
 ## Quick start (prebuilt image)
 
 The published image lives at **`ghcr.io/descent098/readerr`**. The repo's
-[docker-compose.yml](../docker-compose.yml) is ready to go:
+[docker-compose.yml](../../docker-compose.yml) is ready to go:
 
 ```sh
 docker compose up -d
@@ -95,7 +95,7 @@ or directly:
 docker build -t readerr .
 ```
 
-The [Dockerfile](../Dockerfile) is a three-stage build: node builds the
+The [Dockerfile](../../Dockerfile) is a three-stage build: node builds the
 static frontend, go cross-compiles the backend (pure-Go SQLite, `CGO=0`), and
 a small Alpine stage assembles the two. Both build stages run on the
 `$BUILDPLATFORM` and target `$TARGETPLATFORM`, so a multi-arch build never has
@@ -107,7 +107,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t readerr .
 
 ## Continuous delivery
 
-[.github/workflows/docker.yaml](../.github/workflows/docker.yaml) builds and
+[.github/workflows/docker.yaml](../../.github/workflows/docker.yaml) builds and
 publishes the image to GHCR on every push to `main` and every `v*` tag (pull
 requests build but don't push). It emits multi-arch manifests and these tags:
 

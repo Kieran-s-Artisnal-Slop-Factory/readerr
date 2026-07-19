@@ -6,8 +6,8 @@ small Go backend acts as a backup target and a hub that keeps multiple
 devices converging on the same data. This document covers every sync-related
 feature, then the protocol and implementation for developers.
 
-Code: client engine in [frontend/src/lib/sync.ts](../frontend/src/lib/sync.ts),
-server in [backend/sync.go](../backend/sync.go). Related docs:
+Code: client engine in [frontend/src/lib/sync.ts](../../frontend/src/lib/sync.ts),
+server in [backend/sync.go](../../backend/sync.go). Related docs:
 [data-model.md](data-model.md) (what syncs), [offline-support.md](offline-support.md).
 
 ## The model in one paragraph
@@ -95,15 +95,25 @@ Switching servers always resets the device's sync bookkeeping —
 by the *old* server's counter) and drops both cursors — so the first sync
 against the new server exchanges complete datasets rather than assuming
 shared history. UI lives in
-[SettingsApp.svelte](../frontend/src/components/apps/SettingsApp.svelte)
+[SettingsApp.svelte](../../frontend/src/components/apps/SettingsApp.svelte)
 (`saveSyncUrl` / `resolveConflict`).
+
+> **Sharp edge — "Use local data" strands other devices.** `POST /sync/reset`
+> zeroes the server's `last_seq` counter, and the triggering device
+> repopulates from seq 1. But any *other* device still holds a high
+> `lastPullSeq`, so it will `pull?since=<high>` and see none of the
+> repopulated low-seq rows — it silently stays on its old data until it
+> re-onboards or re-enters the URL and picks **Use server data** (both call
+> `resetLocalSyncState`). This is inherent to "make this device
+> authoritative"; **Merge both** never strands a device and is the default
+> recommendation. Surface this in the UI if reset ever becomes common.
 
 ## Sync history & status
 
 **Settings → Sync** shows the last sync time or the last error (with an
 explanation of what the HTTP status likely means). Below it, the
 **Sync history** accordion keeps a local log
-([syncLog.ts](../frontend/src/lib/services/syncLog.ts), local-only
+([syncLog.ts](../../frontend/src/lib/services/syncLog.ts), local-only
 `sync_log` store):
 
 - **Track errors**: all errors, only *explicit* errors (failures while your
@@ -128,7 +138,7 @@ Sync is not a backup — a bad edit propagates everywhere. For real backups:
 - **Export Markdown** — every topic, tag, and link as plain markdown files.
 
 Importing a backup **drops the push cursor** (`importData` in
-[export.ts](../frontend/src/lib/db/export.ts)), because imported rows carry
+[export.ts](../../frontend/src/lib/db/export.ts)), because imported rows carry
 historical `updated_at` values the dirty-tracked push would otherwise skip —
 the next sync re-scans and re-pushes everything once, and the server
 LWW-ignores whatever it already has.
@@ -187,7 +197,7 @@ sequenceDiagram
 ## Transport bounds
 
 - **Dirty-tracked push.** Every synced store has an `updated_at` IDB index
-  (migration v7 in [db.ts](../frontend/src/lib/db/db.ts)); push queries
+  (migration v7 in [db.ts](../../frontend/src/lib/db/db.ts)); push queries
   `IDBKeyRange.lowerBound(lastPushAt, exclusive)` instead of scanning whole
   stores. Rows the server has never seen have recent `updated_at` by
   construction; the import exception is handled by the cursor drop above.
@@ -203,7 +213,7 @@ sequenceDiagram
   per-table LIMIT has a larger seq than at least M returned rows, so
   `latestSeq` can never skip past it.
 - **gzip** on `/sync/pull` responses (stdlib middleware in
-  [main.go](../backend/main.go)); `/backup` stays plain because
+  [main.go](../../backend/main.go)); `/backup` stays plain because
   `http.ServeFile`'s Content-Length/range handling doesn't mix with
   streaming compression.
 
@@ -241,7 +251,7 @@ echo; it costs a little bandwidth, never correctness.
 
 ## Tests
 
-[backup.test.ts](../frontend/test/backup.test.ts) drives `importData` +
+[backup.test.ts](../../frontend/test/backup.test.ts) drives `importData` +
 `syncNow` against an in-memory fake server that mirrors sync.go's LWW/seq/
 limit semantics, over three backup fixtures — it pins the import↔push-cursor
 interplay and the count parity between client and server.

@@ -9,6 +9,8 @@ installs as a PWA. A small Go + SQLite backend is an *optional* sync target
 and backup — never a requirement: delete the server and you lose nothing but
 sync.
 
+**Docs:** [user guide](docs/user/README.md) · [developer/maintainer docs](docs/dev/architecture.md).
+
 ## What it does
 
 - **Capture at paste speed** — one URL per line, bullet lists, or
@@ -17,7 +19,7 @@ sync.
 - **A per-line mini-DSL** for batch pastes:
   `https://… !tags=[rust, os] !week=1 !favourite` tags, schedules, and flags
   each line individually — with autocomplete as you type
-  ([docs/link-dsl.md](docs/link-dsl.md)).
+  ([capturing links](docs/user/capturing-links.md)).
 - **Weekly reading flow** — pick links into a reading week, mark them read,
   and close the week: what you wrote about stays *read*, the rest slushes or
   rolls back to the backlog. Plans can automate quotas and focus tags.
@@ -48,12 +50,12 @@ blank because app and backend share an origin.
 
 To build from source instead of pulling:
 `docker compose -f docker-compose.build.yml up --build`. Full deployment
-guide (ports, volumes, backups, CI images, HTTPS): **[docs/deployment.md](docs/deployment.md)**.
+guide (ports, volumes, backups, CI images, HTTPS): **[docs/dev/deployment.md](docs/dev/deployment.md)**.
 
 **Adding a second device:** open the same URL, choose
 **Sync from existing server** on the onboarding screen, and everything pulls
-down. See [docs/sync.md](docs/sync.md) for conflict options, backups, and
-troubleshooting.
+down. See [Sync & backups](docs/user/sync-and-backups.md) for multi-device
+setup, running your own server, conflict options, and backups.
 
 ### Option B — no server at all
 
@@ -61,7 +63,8 @@ readerr is fully functional offline-only: host `frontend/dist/` on any
 static host (or just run the container and never configure sync elsewhere),
 choose offline mode in onboarding, and use JSON/markdown exports as your
 backup strategy. Install it as a PWA for offline loading and durable
-storage. Details in [docs/offline-support.md](docs/offline-support.md).
+storage. How it degrades offline is in
+[docs/dev/offline-support.md](docs/dev/offline-support.md).
 
 ### First-run tips
 
@@ -70,6 +73,9 @@ storage. Details in [docs/offline-support.md](docs/offline-support.md).
 - Onboarding can be revisited anytime at `/onboarding` (steps deep-link via
   `?page=N`), and it can also restore from a backup file.
 - Settings has everything else: themes, backups, sync, archival, demo data.
+
+Full **[user guide](docs/user/README.md)** — capturing, the reading flow,
+organizing, syncing, and common gotchas.
 
 ## Quick start (developers)
 
@@ -93,18 +99,21 @@ frontend, so the URL stays blank.
 
 ### Documentation
 
-Start with the architecture overview — it has a "where to look when…" table.
+Maintainer docs live in **[`docs/dev/`](docs/dev/architecture.md)**; start
+with the architecture overview — it has a "where to look when…" table.
 
 | Doc | What's in it |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | the map: layers, repo layout, patterns, dev workflow |
-| [docs/data-model.md](docs/data-model.md) | every entity, IndexedDB ↔ SQLite mapping, migrations |
-| [docs/sync.md](docs/sync.md) | the sync model for users + the wire protocol for developers |
-| [docs/link-dsl.md](docs/link-dsl.md) | the capture DSL grammar, semantics, and autocomplete |
-| [docs/offline-support.md](docs/offline-support.md) | service worker, PWA, storage durability, degradation |
-| [docs/deployment.md](docs/deployment.md) | Docker image, compose, volumes/backups, CI, HTTPS |
+| [docs/dev/architecture.md](docs/dev/architecture.md) | the map: layers, repo layout, patterns, dev workflow |
+| [docs/dev/data-model.md](docs/dev/data-model.md) | every entity, IndexedDB ↔ SQLite mapping, migrations |
+| [docs/dev/sync.md](docs/dev/sync.md) | the sync model + the wire protocol |
+| [docs/dev/link-dsl.md](docs/dev/link-dsl.md) | the capture DSL grammar, semantics, and autocomplete internals |
+| [docs/dev/offline-support.md](docs/dev/offline-support.md) | service worker, PWA, storage durability, degradation |
+| [docs/dev/deployment.md](docs/dev/deployment.md) | Docker image, compose, volumes/backups, CI, HTTPS |
 
-Design notes and working task lists live in `docs/experiments & plans/`.
+Design notes and working task lists live in
+[`docs/dev/experiments & plans/`](docs/dev/experiments%20%26%20plans/).
+End-user guides are in [`docs/user/`](docs/user/README.md).
 
 ### Layout
 
@@ -120,7 +129,7 @@ One rule to know before changing the schema: it lives in **three lockstep
 places** — `backend/sql/schema.sql` (canonical), the `tables` map in
 `backend/sync.go`, and `frontend/src/lib/db/types.ts` — plus append-only
 migrations on both sides. Change one, change all. The full checklist is in
-[docs/data-model.md](docs/data-model.md).
+[docs/dev/data-model.md](docs/dev/data-model.md).
 
 ## Deploy
 
@@ -135,4 +144,5 @@ multi-arch image (amd64 + arm64) and publishes it to
 Environment: `DB_PATH` (default `/data/readerr.db`), `PORT` (default `8080`),
 `STATIC_DIR` (built frontend inside the image). No auth — run it on a LAN, a
 VPN, or behind a reverse proxy you trust. Full guide, including ports,
-backups, and building from source: **[docs/deployment.md](docs/deployment.md)**.
+backups, and building from source: **[docs/dev/deployment.md](docs/dev/deployment.md)**.
+Non-technical walkthrough: **[Sync & backups](docs/user/sync-and-backups.md)**.

@@ -160,7 +160,7 @@ flowchart TD
   `suggest({ title, url, notesText? }) → Suggestion[]`,
   `learn({ linkId, added, removed })`, `rebuild()`.
 - **Local-only IndexedDB store** `tag_model` (created in an append-only
-  migration in [../../frontend/src/lib/db/db.ts](../../frontend/src/lib/db/db.ts),
+  migration in [../../frontend/src/lib/db/db.ts](../../../frontend/src/lib/db/db.ts),
   **not** in `STORES`, like `sync_meta`/`sync_log`). It holds the serialized
   domain-prior table and NB counts, plus a **data-version stamp** (row count +
   max `updated_at` of `links`/`link_tags`). Never synced, excluded from
@@ -175,7 +175,7 @@ flowchart TD
 Tagging *is* the training signal — no separate labelling step:
 
 - `assignTag` / `unassignTag` in
-  [../../frontend/src/lib/services/links.ts](../../frontend/src/lib/services/links.ts)
+  [../../frontend/src/lib/services/links.ts](../../../frontend/src/lib/services/links.ts)
   post a `learn` message (added/removed tag ids for a link). The worker
   updates domain priors, NB counts, and the search index incrementally, then
   debounce-persists.
@@ -190,7 +190,7 @@ Tagging *is* the training signal — no separate labelling step:
 
 ## 6. UX and integration
 
-- **Capture box** ([../../frontend/src/components/CaptureBox.svelte](../../frontend/src/components/CaptureBox.svelte)):
+- **Capture box** ([../../frontend/src/components/CaptureBox.svelte](../../../frontend/src/components/CaptureBox.svelte)):
   a "Suggested" row of tappable chips under the existing tag chips, populated
   once a link's title resolves (titles arrive async — recompute then). Tapping
   a chip adds the tag exactly as a manual selection would.

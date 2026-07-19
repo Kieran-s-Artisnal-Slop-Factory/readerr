@@ -86,18 +86,18 @@ flowchart LR
     EA -->|existing URL| Merge["mergeIntoExisting()"]
 ```
 
-- **[captureDsl.ts](../frontend/src/lib/services/captureDsl.ts)** — the pure
+- **[captureDsl.ts](../../frontend/src/lib/services/captureDsl.ts)** — the pure
   parser. `splitLineOptions` finds where the link ends (closing paren for
   markdown, first whitespace otherwise) and only treats the remainder as
   options if it starts with `!`. `tokenize` splits on whitespace *except
   inside `[...]`* (arrays may contain spaces), with `\` escorting the next
   character through. `parseLineOptions` resolves each token against the
   command table and produces `{ opts: LineOptions, bad: string[] }`.
-- **[capture.ts](../frontend/src/lib/services/capture.ts)** — `parseUrls`
+- **[capture.ts](../../frontend/src/lib/services/capture.ts)** — `parseUrls`
   strips bullets, splits off options, validates the URL, and attaches `opts`
   to each entry. `captureLinks` computes the per-line `effectiveAssign`
   (resolving names via `ensureTagIdsByName`/`ensureTopicIdsByName` in
-  [links.ts](../frontend/src/lib/services/links.ts), which auto-create),
+  [links.ts](../../frontend/src/lib/services/links.ts), which auto-create),
   applies per-line URL cleaning, then either creates the link or merges into
   an existing one.
 - **Week numbers** become concrete Mondays via
@@ -123,13 +123,13 @@ flowchart TD
     VAL -->|accept| INS2["insert name,<br/>commas escaped"]
 ```
 
-- **[dslSuggest.ts](../frontend/src/lib/services/dslSuggest.ts)** is a pure
+- **[dslSuggest.ts](../../frontend/src/lib/services/dslSuggest.ts)** is a pure
   function `dslSuggestions(text, caret, tagNames, topicNames)` returning
   `{ label, hint, insert, start, caretOffset }[]`. The two regexes mirror
   the parser's rules exactly — including the *must-follow-whitespace* rule,
   so a `!` at the start of the textbox or of a line (never valid DSL)
   suggests nothing.
-- **[CaptureBox.svelte](../frontend/src/components/CaptureBox.svelte)** owns
+- **[CaptureBox.svelte](../../frontend/src/components/CaptureBox.svelte)** owns
   the menu UI: it tracks the caret (`selectionStart` on input/click/keyup),
   derives suggestions from the tag/topic lists it already loads for its
   chips, and renders the `.dsl-menu` listbox. Keyboard handling composes
@@ -147,13 +147,13 @@ Command insertions are canonical: `!tags=[]`, `!topics=[]` (caret inside),
 
 ## Tests
 
-- [captureDsl.test.ts](../frontend/test/captureDsl.test.ts) — grammar: spec
+- [captureDsl.test.ts](../../frontend/test/captureDsl.test.ts) — grammar: spec
   examples, escapes, short forms, `!w` digits-vs-false, bad-token
   collection, plus an end-to-end capture asserting what lands in IndexedDB.
-- [captureEntry.test.ts](../frontend/test/captureEntry.test.ts) — all six
+- [captureEntry.test.ts](../../frontend/test/captureEntry.test.ts) — all six
   line shapes (`url`, `[t](url)`, `-`/`*` bullets of each) × with/without
   options, plus a mixed-batch capture.
-- [dslSuggest.test.ts](../frontend/test/dslSuggest.test.ts) — autocomplete:
+- [dslSuggest.test.ts](../../frontend/test/dslSuggest.test.ts) — autocomplete:
   prefix narrowing, caret placement, after-comma completion, comma escaping,
   the whitespace-trigger rules.
 
