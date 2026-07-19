@@ -76,6 +76,16 @@ Every link on a topic page carries a footnote marker — `[^1]`, `[^2]` — show
 to the left of its title. Type that marker anywhere in the topic document to
 cite the link; click the marker to copy it.
 
+**Type `[^` in the document and a menu opens**, the same way `!` completes in
+the capture box. Keep typing to search by title, URL, or reference number, then
+<kbd>Enter</kbd> or <kbd>Tab</kbd> to insert the marker (<kbd>Esc</kbd>
+dismisses, arrows move). It works in both Edit and Source mode.
+
+The topic's own references come first, showing their numbers. Below them, under
+**add to this topic**, is the rest of your library — picking one of those files
+it under the topic and issues its number in the same keystroke, so you never
+have to leave the document to add a link before citing it.
+
 The numbers are permanent. Remove the second of three references and the
 remaining two stay `[^1]` and `[^3]`, so citations you already wrote never
 start pointing at the wrong article. The next link added takes `[^4]`.

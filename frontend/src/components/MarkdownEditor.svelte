@@ -13,9 +13,13 @@
    * Changes are debounced (400ms) before onChange fires; parents can treat
    * onChange as "autosave now".
    */
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { marked } from 'marked';
   import { Crepe } from '@milkdown/crepe';
+  import { editorViewCtx } from '@milkdown/kit/core';
+  import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+  import CitationMenu from './CitationMenu.svelte';
+  import { citationText, type CitationSuggestion } from '../lib/services/citationSuggest';
   import { EditorView, keymap } from '@codemirror/view';
   import { EditorState } from '@codemirror/state';
   import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -30,6 +34,8 @@
     exportName = 'document',
     onExportMarkdown,
     onExportHtml,
+    citationSuggest,
+    onCitationAccept,
   }: {
     value?: string;
     onChange: (md: string) => void;
@@ -43,6 +49,15 @@
      */
     onExportMarkdown?: () => void;
     onExportHtml?: () => void;
+    /**
+     * Enables `[^` link autocomplete. `suggest` is the pure matcher
+     * (citationSuggest.ts) over whatever the host knows about; `resolve`
+     * turns the accepted entry into the number to insert, which is where
+     * the topic page assigns a not-yet-referenced link and issues one.
+     */
+    citationSuggest?: (text: string, caret: number) => CitationSuggestion[];
+    /** Returns the number to insert, or null to insert nothing. */
+    onCitationAccept?: (s: CitationSuggestion) => Promise<number | null>;
   } = $props();
 
   let mode = $state<'wysiwyg' | 'source'>('wysiwyg');
@@ -66,6 +81,162 @@
       debounceTimer = undefined;
       onChange(current);
     }
+  }
+
+  // ===== `[^` citation autocomplete =====
+  // The menu is shared; only "what is left of the caret", "where is the
+  // caret on screen", and "replace this range" differ per editor.
+
+  let suggestions = $state<CitationSuggestion[]>([]);
+  let suggestIndex = $state(0);
+  let caretXY = $state({ left: 0, top: 0 });
+  // Escape closes the menu until the next edit or caret move.
+  let suggestDismissed = false;
+
+  /** The ProseMirror view, once Crepe has built it. */
+  function proseView(): ProseView | null {
+    if (!crepe) return null;
+    try {
+      return crepe.editor.action((ctx) => ctx.get(editorViewCtx));
+    } catch {
+      return null; // not created yet, or already destroyed
+    }
+  }
+
+  /**
+   * Text left of the caret and its offset, in the coordinate space the
+   * insertion below expects. ProseMirror reports within the current text
+   * block (a citation never spans blocks); CodeMirror reports the whole
+   * document, since its offsets are absolute.
+   */
+  function caretContext(): { text: string; caret: number } | null {
+    if (mode === 'source') {
+      if (!cm) return null;
+      const head = cm.state.selection.main.head;
+      return { text: cm.state.doc.toString().slice(0, head), caret: head };
+    }
+    const view = proseView();
+    if (!view) return null;
+    // Destructuring ProseMirror's `$from` by name is a Svelte compile
+    // error — the `$` prefix is reserved for stores/runes.
+    const selection = view.state.selection;
+    const head = selection.$from;
+    if (!selection.empty || !head.parent.isTextblock) return null;
+    const offset = head.parentOffset;
+    return { text: head.parent.textBetween(0, offset, '\n', '￼'), caret: offset };
+  }
+
+  function caretCoords(): { left: number; top: number } | null {
+    if (mode === 'source') {
+      const box = cm?.coordsAtPos(cm.state.selection.main.head);
+      return box ? { left: box.left, top: box.bottom + 4 } : null;
+    }
+    const view = proseView();
+    if (!view) return null;
+    const box = view.coordsAtPos(view.state.selection.from);
+    return { left: box.left, top: box.bottom + 4 };
+  }
+
+  /** Recompute the menu from the caret. Cheap; runs on every key/click. */
+  function syncCitations() {
+    if (!citationSuggest) return;
+    const ctx = suggestDismissed ? null : caretContext();
+    const next = ctx ? citationSuggest(ctx.text, ctx.caret) : [];
+    if (next.length > 0) {
+      const xy = caretCoords();
+      if (xy) caretXY = xy;
+    }
+    // A changed list highlights its first entry again.
+    if (next.length !== suggestions.length || next[0]?.link.id !== suggestions[0]?.link.id) {
+      suggestIndex = 0;
+    }
+    suggestions = next;
+  }
+
+  function closeCitations(dismiss = false) {
+    suggestDismissed = dismiss;
+    suggestions = [];
+  }
+
+  async function acceptCitation(s: CitationSuggestion) {
+    const ctx = caretContext();
+    if (!ctx || !onCitationAccept) return closeCitations();
+    // Assigning a new link is async; the caret can't move meanwhile
+    // (mousedown is prevented, Enter is consumed), but the menu goes first
+    // so a slow assign can't leave it hanging over the text.
+    closeCitations();
+    const number = await onCitationAccept(s);
+    if (number === null) return; // assigning failed — leave the text alone
+    const text = citationText(number);
+
+    if (mode === 'source') {
+      if (!cm) return;
+      const at = s.start + text.length;
+      cm.dispatch({
+        changes: { from: s.start, to: ctx.caret, insert: text },
+        selection: { anchor: at },
+      });
+      cm.focus();
+      return;
+    }
+
+    const view = proseView();
+    if (!view) return;
+    const head = view.state.selection.$from;
+    const from = head.pos - (ctx.caret - s.start);
+    view.dispatch(view.state.tr.insertText(text, from, head.pos));
+    view.focus();
+  }
+
+  /**
+   * Arrow/Enter/Tab/Escape belong to the menu while it is open, and both
+   * editors would otherwise swallow them (a newline, a list indent). The
+   * listener sits on the shared root in the CAPTURE phase so it wins
+   * without either editor needing to know the menu exists.
+   */
+  function onRootKeydown(e: KeyboardEvent) {
+    if (suggestions.length === 0) {
+      // Any other key may have created a trigger — re-check after it lands.
+      if (e.key === 'Escape') suggestDismissed = false;
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      suggestIndex = (suggestIndex + 1) % suggestions.length;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      suggestIndex = (suggestIndex - 1 + suggestions.length) % suggestions.length;
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopPropagation();
+      void acceptCitation(suggestions[suggestIndex]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeCitations(true);
+    }
+  }
+
+  function onRootActivity() {
+    suggestDismissed = false;
+    // Let the editor apply the keystroke before reading the caret back.
+    void tick().then(syncCitations);
+  }
+
+  function attachCitations() {
+    if (!citationSuggest) return;
+    root.addEventListener('keydown', onRootKeydown, true);
+    root.addEventListener('keyup', onRootActivity);
+    root.addEventListener('click', onRootActivity);
+  }
+
+  function detachCitations() {
+    root?.removeEventListener('keydown', onRootKeydown, true);
+    root?.removeEventListener('keyup', onRootActivity);
+    root?.removeEventListener('click', onRootActivity);
+    suggestions = [];
   }
 
   async function mountCrepe() {
@@ -115,6 +286,7 @@
 
   async function setMode(next: 'wysiwyg' | 'source') {
     if (mode === next) return;
+    closeCitations();
     await destroyEditor();
     mode = next;
     if (next === 'wysiwyg') await mountCrepe();
@@ -163,6 +335,9 @@
 
   onMount(() => {
     void mountCrepe();
+    // The listeners live on the root, which outlives both editors, so mode
+    // switches don't need to re-attach them.
+    attachCitations();
     window.addEventListener('pagehide', flushNow);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flushNow();
@@ -171,6 +346,7 @@
 
   onDestroy(() => {
     window.removeEventListener('pagehide', flushNow);
+    detachCitations();
     void destroyEditor();
   });
 </script>
@@ -212,6 +388,15 @@
   </div>
   <div class="editor-root" class:source={mode === 'source'} bind:this={root}></div>
 </div>
+{#if suggestions.length > 0}
+  <CitationMenu
+    {suggestions}
+    index={suggestIndex}
+    left={caretXY.left}
+    top={caretXY.top}
+    onAccept={acceptCitation}
+  />
+{/if}
 
 <style>
   .editor {

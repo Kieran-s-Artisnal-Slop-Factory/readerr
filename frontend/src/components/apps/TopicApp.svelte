@@ -13,7 +13,8 @@
   import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import { assignTopic, domainOf, tagsForLinks } from '../../lib/services/links';
-  import { topicReferences } from '../../lib/services/topics';
+  import { topicReferences, type TopicReference } from '../../lib/services/topics';
+  import { citationSuggestions, type CitationSuggestion } from '../../lib/services/citationSuggest';
   import { downloadTopicHtml, downloadTopicMarkdown } from '../../lib/services/topicExport';
   import { href } from '../../lib/paths';
   import type { Link, LinkTopic, Tag, Topic } from '../../lib/db/types';
@@ -22,6 +23,7 @@
 
   let topic = $state<Topic | null>(null);
   let links = $state<Link[]>([]);
+  let refs = $state<TopicReference[]>([]);
   /** Footnote number per link id — what `[^n]` in the document resolves to. */
   let refNumbers = $state<Map<string, number>>(new Map());
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
@@ -72,12 +74,30 @@
 
   async function refresh() {
     if (!topic) return;
-    const [refs, everything] = await Promise.all([topicReferences(topic.id), all<Link>('links')]);
+    const [rows, everything] = await Promise.all([topicReferences(topic.id), all<Link>('links')]);
     // Footnote order, not newest-first: the list doubles as the reference
     // key you read `[^3]` off, so it has to match the numbering.
-    links = refs.map((r) => r.link);
-    refNumbers = new Map(refs.map((r) => [r.link.id, r.number]));
+    refs = rows;
+    links = rows.map((r) => r.link);
+    refNumbers = new Map(rows.map((r) => [r.link.id, r.number]));
     allLinks = everything;
+  }
+
+  /**
+   * `[^` autocomplete in the editor. Accepting a link that isn't on the
+   * topic yet files it first — that assignment is what issues its number,
+   * so the citation the editor inserts is a real reference immediately.
+   */
+  function suggestCitations(text: string, caret: number): CitationSuggestion[] {
+    return citationSuggestions(text, caret, refs, allLinks);
+  }
+
+  async function citeLink(s: CitationSuggestion): Promise<number | null> {
+    if (s.number !== null) return s.number;
+    if (!topic) return null;
+    await assignTopic(s.link.id, topic.id);
+    await refresh();
+    return refs.find((r) => r.link.id === s.link.id)?.number ?? null;
   }
 
   async function saveBody(md: string) {
@@ -154,6 +174,8 @@
       onChange={saveBody}
       onExportMarkdown={() => topic && downloadTopicMarkdown(topic)}
       onExportHtml={() => topic && downloadTopicHtml(topic)}
+      citationSuggest={suggestCitations}
+      onCitationAccept={citeLink}
     />
     <Card title={`Referenced links (${links.length.toLocaleString()})`}>
       <form
@@ -189,9 +211,10 @@
         <p class="no-match">No unassigned links match — paste a full URL to add a new one.</p>
       {/if}
       <p class="hint">
-        Cite any of these in the document above with its footnote marker —
-        <code>[^1]</code>, <code>[^2]</code> — or click a marker to copy it. Numbers
-        stay put when a reference is removed, so old citations never drift.
+        Type <code>[^</code> in the document above to search your links and cite one —
+        picking a link that isn't here yet adds it. You can also write a marker by
+        hand, or click one below to copy it. Numbers stay put when a reference is
+        removed, so old citations never drift.
       </p>
       <LinkList
         links={visible}
