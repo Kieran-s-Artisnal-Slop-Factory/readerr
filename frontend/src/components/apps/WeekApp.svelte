@@ -781,4 +781,18 @@
     display: flex;
     justify-content: flex-end;
   }
+
+  /* Title beside domain leaves too little of either to recognise a result. */
+  @media (max-width: 40rem) {
+    .match {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+
+    .match-title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
 </style>

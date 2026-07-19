@@ -12,7 +12,9 @@
   import Pagination from '../Pagination.svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
-  import { assignTopic, domainOf, linksForTopic, tagsForLinks } from '../../lib/services/links';
+  import { assignTopic, domainOf, tagsForLinks } from '../../lib/services/links';
+  import { topicReferences } from '../../lib/services/topics';
+  import { downloadTopicHtml, downloadTopicMarkdown } from '../../lib/services/topicExport';
   import { href } from '../../lib/paths';
   import type { Link, LinkTopic, Tag, Topic } from '../../lib/db/types';
 
@@ -20,6 +22,8 @@
 
   let topic = $state<Topic | null>(null);
   let links = $state<Link[]>([]);
+  /** Footnote number per link id — what `[^n]` in the document resolves to. */
+  let refNumbers = $state<Map<string, number>>(new Map());
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
   let missing = $state(false);
   let allLinks = $state<Link[]>([]);
@@ -68,9 +72,11 @@
 
   async function refresh() {
     if (!topic) return;
-    const [rows, everything] = await Promise.all([linksForTopic(topic.id), all<Link>('links')]);
-    rows.sort((a, b) => (a.added_at < b.added_at ? 1 : -1));
-    links = rows;
+    const [refs, everything] = await Promise.all([topicReferences(topic.id), all<Link>('links')]);
+    // Footnote order, not newest-first: the list doubles as the reference
+    // key you read `[^3]` off, so it has to match the numbering.
+    links = refs.map((r) => r.link);
+    refNumbers = new Map(refs.map((r) => [r.link.id, r.number]));
     allLinks = everything;
   }
 
@@ -130,13 +136,24 @@
   <div class="stack">
     <div class="topic-head">
       <h1>{topic.name}</h1>
-      <button class="btn btn-danger" onclick={deleteTopic}>Delete topic</button>
+      <div class="topic-actions">
+        <button
+          class="btn"
+          title="Download this document and its references as a themed HTML page"
+          onclick={() => topic && downloadTopicHtml(topic)}
+        >
+          Export HTML
+        </button>
+        <button class="btn btn-danger" onclick={deleteTopic}>Delete topic</button>
+      </div>
     </div>
     <MarkdownEditor
       value={topic.body_md}
       placeholder="Write the topic document…"
       exportName={topic.name}
       onChange={saveBody}
+      onExportMarkdown={() => topic && downloadTopicMarkdown(topic)}
+      onExportHtml={() => topic && downloadTopicHtml(topic)}
     />
     <Card title={`Referenced links (${links.length.toLocaleString()})`}>
       <form
@@ -171,9 +188,15 @@
       {:else if query.trim() && !queryIsUrl}
         <p class="no-match">No unassigned links match — paste a full URL to add a new one.</p>
       {/if}
+      <p class="hint">
+        Cite any of these in the document above with its footnote marker —
+        <code>[^1]</code>, <code>[^2]</code> — or click a marker to copy it. Numbers
+        stay put when a reference is removed, so old citations never drift.
+      </p>
       <LinkList
         links={visible}
         {tagsByLink}
+        {refNumbers}
         onChange={onRowChange}
         empty="No links yet — paste a URL above or search your existing links."
       />
@@ -199,7 +222,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: var(--space-3);
+  }
+
+  .topic-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
   }
 
   .empty {
@@ -269,9 +299,33 @@
     color: var(--text-muted-color);
   }
 
+  .hint {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-2);
+  }
+
+  .hint code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+
   .no-match {
     color: var(--text-muted-color);
     font-size: var(--font-size-sm);
     margin: 0 0 var(--space-3);
+  }
+
+  /* Title beside domain leaves too little of either to recognise a result. */
+  @media (max-width: 40rem) {
+    .match {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+    }
+
+    .match-title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
   }
 </style>

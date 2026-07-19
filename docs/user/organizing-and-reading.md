@@ -70,6 +70,33 @@ Both are edited in an Obsidian-style live Markdown editor, with a **source
 mode** toggle for exact text. Markdown is the storage format, so exporting to
 plain `.md` files is lossless.
 
+### Citing links as footnotes
+
+Every link on a topic page carries a footnote marker — `[^1]`, `[^2]` — shown
+to the left of its title. Type that marker anywhere in the topic document to
+cite the link; click the marker to copy it.
+
+The numbers are permanent. Remove the second of three references and the
+remaining two stay `[^1]` and `[^3]`, so citations you already wrote never
+start pointing at the wrong article. The next link added takes `[^4]`.
+
+You don't write the `[^1]: <url>` definitions yourself — the reference list is
+generated when you export. A citation whose link has since been removed shows
+as plain grey text rather than a broken link.
+
+### Exporting a topic
+
+Both the **Export HTML** button and the editor's own **↓ MD** / **↓ HTML**
+buttons include the references:
+
+- **HTML** — a self-contained, themed page: your document with every citation
+  linked to a numbered **References** section at the bottom, each entry
+  showing the title, domain, and full URL. Your theme is carried inline, so it
+  looks like readerr with nothing to fetch.
+- **Markdown** — your document with a real footnote-definition block appended
+  (`[^1]: [Title](url)`), so the citations work as footnotes in Obsidian or
+  anything else that speaks GitHub-flavoured markdown.
+
 ## Favourites and resources
 
 - **★ Favourite** marks the good stuff (Favourites in the nav). Favouriting a
@@ -94,6 +121,12 @@ Open any link (the **›** button) for its detail page: edit its title, toggle
 flags, manage tags/topics and its reading week, write **notes**, and save
 notable **excerpts** (quotes) — each in its own small editor. The page also
 shows the link's full week history.
+
+The **Reading week** card schedules the link straight from here, or removes it
+from the week it's queued for. It files the entry the right way round on its
+own: a link you haven't read yet joins as a *first read*, while one you've
+already read (or that's sitting in the Slush) joins as a *review*, which
+completes without disturbing the original read date — and leaves the Slush.
 
 ## Bulk editing
 

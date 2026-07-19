@@ -81,7 +81,7 @@ var tables = map[string]tableMeta{
 		columns: cols("id", "name", "body_md"),
 	},
 	"link_topics": {
-		columns: cols("id", "link_id", "topic_id"),
+		columns: cols("id", "link_id", "topic_id", "ref_number"),
 	},
 	"notes": {
 		columns: cols("id", "link_id", "body_md"),

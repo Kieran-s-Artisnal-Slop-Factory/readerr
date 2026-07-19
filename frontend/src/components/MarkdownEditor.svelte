@@ -28,12 +28,21 @@
     onChange,
     placeholder = 'Write…',
     exportName = 'document',
+    onExportMarkdown,
+    onExportHtml,
   }: {
     value?: string;
     onChange: (md: string) => void;
     placeholder?: string;
     /** Basename for the Export MD / Export HTML downloads. */
     exportName?: string;
+    /**
+     * Replace the toolbar's exports when the document means more than its
+     * own text — the topic page swaps both in so its citations resolve
+     * against the topic's references instead of exporting as bare `[^1]`.
+     */
+    onExportMarkdown?: () => void;
+    onExportHtml?: () => void;
   } = $props();
 
   let mode = $state<'wysiwyg' | 'source'>('wysiwyg');
@@ -168,10 +177,20 @@
 
 <div class="editor" onfocusout={flushNow}>
   <div class="editor-toolbar">
-    <button type="button" class="export" title="Download as markdown" onclick={exportMarkdown}>
+    <button
+      type="button"
+      class="export"
+      title="Download as markdown"
+      onclick={() => (onExportMarkdown ?? exportMarkdown)()}
+    >
       ↓ MD
     </button>
-    <button type="button" class="export" title="Download as HTML" onclick={exportHtml}>
+    <button
+      type="button"
+      class="export"
+      title="Download as HTML"
+      onclick={() => (onExportHtml ?? exportHtml)()}
+    >
       ↓ HTML
     </button>
     <span class="divider"></span>

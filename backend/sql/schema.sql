@@ -110,6 +110,11 @@ CREATE TABLE link_topics (
     id         TEXT PRIMARY KEY,
     link_id    TEXT NOT NULL REFERENCES links (id),
     topic_id   TEXT NOT NULL REFERENCES topics (id),
+    -- The link's footnote number within its topic: assigned as one past the
+    -- topic's highest ever issued (tombstones included), so removing a
+    -- reference never renumbers the ones around it and [^3] in the topic
+    -- document keeps pointing at the same link forever. 0 = not yet assigned.
+    ref_number INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
     server_seq INTEGER

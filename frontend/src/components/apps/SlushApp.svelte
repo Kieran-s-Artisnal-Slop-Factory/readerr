@@ -169,4 +169,20 @@
     color: var(--text-color);
     font-size: var(--font-size-sm);
   }
+
+  /* Side by side, the picker leaves the link barely half a phone screen. */
+  @media (max-width: 40rem) {
+    .slush-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0;
+      padding-bottom: var(--space-3);
+    }
+
+    .review-select {
+      max-width: none;
+      width: 100%;
+      margin-top: var(--space-1);
+    }
+  }
 </style>

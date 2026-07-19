@@ -11,7 +11,7 @@
  * Entries keep their week_link rows forever, so past weeks are history.
  */
 import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
-import type { Link, LinkTag, LinkTopic, Week, WeekLink } from '../db/types';
+import type { Link, LinkTag, LinkTopic, Week, WeekLink, WeekLinkKind } from '../db/types';
 
 /** Local Monday of the week containing `d`, as 'YYYY-MM-DD'. */
 export function weekStartOf(d: Date): string {
@@ -168,6 +168,15 @@ export async function pendingWeeksForLink(linkId: string): Promise<PendingWeekAs
 }
 
 /**
+ * How a fresh entry for this link should be filed: anything already read
+ * (or sitting in the slush) is being given another look, so it goes in as
+ * a 'review' — which completes via done_at without disturbing read_at.
+ */
+export function entryKindFor(link: Link): WeekLinkKind {
+  return link.read_at || link.slushed_at ? 'review' : 'reading';
+}
+
+/**
  * Queue a link for the week starting on the given Monday (creating that
  * week if needed). A link sits in at most one upcoming week, so any other
  * pending assignment is removed first; null just clears it.
@@ -181,8 +190,22 @@ export async function setLinkWeek(linkId: string, weekStart: string | null): Pro
   }
   if (weekStart && !already) {
     const week = await ensureWeek(weekStart);
-    await addLinkToWeek(week.id, linkId);
+    const link = await get<Link>('links', linkId);
+    await addLinkToWeek(week.id, linkId, link ? entryKindFor(link) : 'reading');
   }
+}
+
+/**
+ * The link page's week control: schedule (or unschedule, with null) a link,
+ * pulling it out of the slush archive when the assignment is a review — the
+ * same rescue reviewLink performs. Returns the (possibly updated) link.
+ */
+export async function scheduleLinkForWeek(link: Link, weekStart: string | null): Promise<Link> {
+  await setLinkWeek(link.id, weekStart);
+  if (weekStart && link.slushed_at) {
+    return put('links', { ...link, slushed_at: null });
+  }
+  return link;
 }
 
 /**

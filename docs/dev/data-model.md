@@ -87,6 +87,7 @@ erDiagram
            text notes_md }
     topics { text name
              text body_md "the long-form document" }
+    link_topics { int ref_number "footnote number; 0 = unassigned" }
     resource_lists { text name
                      text description_md }
     weeks { text week_start "local Monday"
@@ -128,6 +129,29 @@ Design decisions embedded here:
   everywhere; the automation suggester (`suggestLinks` in weeks.ts) honors it
   too. It has no SQL twin quirk — just a plain nullable `INTEGER CHECK IN
   (1,2,3)`, added in schema **v14**.
+- **`link_topics.ref_number` is issued, never derived.** It is the link's
+  footnote number inside its topic — what `[^3]` in the topic document
+  resolves to. A new reference takes one past the highest the topic has EVER
+  issued, counting tombstoned joins, so removing a reference leaves a hole
+  instead of sliding every later citation down by one. Numbering lives in
+  [topics.ts](../../frontend/src/lib/services/topics.ts); joins predating the
+  column carry `0` and are numbered lazily (oldest first) the first time the
+  topic is read, which also catches legacy rows arriving from another
+  device. Added in schema **v15**.
+- **Footnote definitions are never written into `body_md`.** The document
+  stays exactly what was typed; the `[^n]: <url>` list is generated at
+  export time from the join rows
+  ([topicExport.ts](../../frontend/src/lib/services/topicExport.ts)). A
+  citation whose reference was removed degrades to greyed-out plain text
+  rather than a broken link.
+- **A citation is stored in two spellings, and both must resolve.** Typed in
+  source mode it stays `[^2]`; the moment the document passes through the
+  WYSIWYG editor, remark-stringify escapes the bracket to `\[^2]` (it reads
+  as a link reference). The escape is invisible in the editor and stable —
+  it does not compound on further round-trips — so `renderTopicBody` matches
+  `/^\\?\[\^(\d+)\]/` and the markdown export strips it. Matching via a
+  marked *inline extension* rather than a regex over the document is what
+  keeps a `[^1]` inside a code span or fenced block from being linked.
 
 ## IndexedDB layout
 

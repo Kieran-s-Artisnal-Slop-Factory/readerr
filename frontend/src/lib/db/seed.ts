@@ -149,6 +149,8 @@ export async function seedDataset(
   const links: Link[] = [];
   const linkTags: LinkTag[] = [];
   const linkTopics: LinkTopic[] = [];
+  /** Next footnote number per topic, so seeded references number 1..n. */
+  const refCounters = new Map<string, number>();
   const notes: Note[] = [];
   const excerpts: Excerpt[] = [];
   const weeks: Week[] = [];
@@ -198,9 +200,10 @@ export async function seedDataset(
         linkTags.push(withSyncFields({ link_id: link.id, tag_id: tags[THEMES.indexOf(theme)].id }));
       }
       if (inTopic) {
-        linkTopics.push(
-          withSyncFields({ link_id: link.id, topic_id: topics[Math.floor(rand() * topics.length)].id })
-        );
+        const topicId = topics[Math.floor(rand() * topics.length)].id;
+        const ref_number = (refCounters.get(topicId) ?? 0) + 1;
+        refCounters.set(topicId, ref_number);
+        linkTopics.push(withSyncFields({ link_id: link.id, topic_id: topicId, ref_number }));
       }
       if (done && notesThisWeek < notesPerWeekCap && chance(0.08)) {
         notesThisWeek++;

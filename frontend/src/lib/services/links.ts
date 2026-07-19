@@ -3,6 +3,7 @@
  * soft (tombstoned join rows) so they sync.
  */
 import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
+import { nextRefNumber } from './topics';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
 import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/types';
 
@@ -123,7 +124,9 @@ export async function unassignTag(linkId: string, tagId: string): Promise<void> 
 export async function assignTopic(linkId: string, topicId: string): Promise<void> {
   const existing = await byIndex<LinkTopic>('link_topics', 'link_id', linkId);
   if (existing.some((j) => j.topic_id === topicId)) return;
-  await put('link_topics', withSyncFields({ link_id: linkId, topic_id: topicId }));
+  // A fresh footnote number, never one a removed reference already used.
+  const ref_number = await nextRefNumber(topicId);
+  await put('link_topics', withSyncFields({ link_id: linkId, topic_id: topicId, ref_number }));
   // Referencing a link in a topic rescues it from the slush archive.
   const link = await get<Link>('links', linkId);
   if (link?.slushed_at) await put('links', { ...link, slushed_at: null });

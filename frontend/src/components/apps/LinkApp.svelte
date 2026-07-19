@@ -12,13 +12,24 @@
   import TopicPicker from '../TopicPicker.svelte';
   import { byIndex, get, put, softDelete, withSyncFields } from '../../lib/db/repo';
   import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../../lib/services/links';
-  import { weekHistoryForLink, type HistoryEntry } from '../../lib/services/weeks';
+  import {
+    entryKindFor,
+    pendingWeeksForLink,
+    removeFromWeek,
+    scheduleLinkForWeek,
+    upcomingWeekOptions,
+    weekHistoryForLink,
+    type HistoryEntry,
+    type PendingWeekAssignment,
+  } from '../../lib/services/weeks';
   import type { Excerpt, Link, Note } from '../../lib/db/types';
 
   let link = $state<Link | null>(null);
   let note = $state<Note | null>(null);
   let excerpts = $state<Excerpt[]>([]);
   let history = $state<HistoryEntry[]>([]);
+  let pending = $state<PendingWeekAssignment[]>([]);
+  let weekChoice = $state('');
   let missing = $state(false);
   // The note loads a tick after the link, so the Notes editor must wait for
   // it — otherwise it mounts with '' before the note arrives (the editor
@@ -47,9 +58,33 @@
     excerpts = (await byIndex<Excerpt>('excerpts', 'link_id', id)).sort(
       (a, b) => a.position - b.position
     );
-    history = await weekHistoryForLink(id);
+    await refreshWeeks(id);
     loaded = true;
   });
+
+  const weekOptions = upcomingWeekOptions();
+
+  /** The scheduled week and the history list move together — reload both. */
+  async function refreshWeeks(linkId: string) {
+    history = await weekHistoryForLink(linkId);
+    pending = await pendingWeeksForLink(linkId);
+    weekChoice = pending[0]?.week.week_start ?? '';
+  }
+
+  /** What adding the link to a week would file it as, in plain words. */
+  const nextKind = $derived(link && entryKindFor(link) === 'review' ? 'review' : 'first read');
+
+  async function changeWeek() {
+    if (!link) return;
+    link = await scheduleLinkForWeek(link, weekChoice || null);
+    await refreshWeeks(link.id);
+  }
+
+  async function unschedule(assignment: PendingWeekAssignment) {
+    if (!link) return;
+    await removeFromWeek(assignment.entry.id);
+    await refreshWeeks(link.id);
+  }
 
   function describeHistory(h: HistoryEntry): string {
     const kind = h.entry.kind === 'review' ? 'review' : 'reading';
@@ -168,6 +203,34 @@
           ⚒ Resource
         </button>
       </div>
+    </Card>
+
+    <Card title="Reading week">
+      {#if pending.length === 0}
+        <p class="hint">
+          Not scheduled for a week. Adding it now files it as a <strong>{nextKind}</strong>.
+        </p>
+      {:else}
+        <ul class="weeks">
+          {#each pending as assignment (assignment.entry.id)}
+            <li>
+              <span class="week-name">Week of {formatWeek(assignment.week.week_start)}</span>
+              <span class="week-kind">{describeHistory(assignment)}</span>
+              <button class="btn btn-danger" onclick={() => unschedule(assignment)}>Remove</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      <label class="week-label" for="week-select">Scheduled for</label>
+      <select id="week-select" class="week-select" bind:value={weekChoice} onchange={changeWeek}>
+        <option value="">Not scheduled (backlog only)</option>
+        {#if weekChoice && !weekOptions.some((o) => o.value === weekChoice)}
+          <option value={weekChoice}>Week of {weekChoice}</option>
+        {/if}
+        {#each weekOptions as opt (opt.value)}
+          <option value={opt.value}>{opt.label}</option>
+        {/each}
+      </select>
     </Card>
 
     <Card title="Tags">
@@ -335,6 +398,44 @@
 
   .excerpt :global(.editor) {
     width: 100%;
+  }
+
+  .hint {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-3);
+  }
+
+  .weeks {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+  }
+
+  .weeks li {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-1) 0;
+  }
+
+  .week-name {
+    font-weight: 600;
+  }
+
+  .week-kind {
+    flex: 1;
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .week-select {
+    max-width: 20rem;
+  }
+
+  .week-label {
+    margin-bottom: var(--space-1);
   }
 
   .history {

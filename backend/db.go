@@ -136,6 +136,12 @@ ALTER TABLE user_settings ADD COLUMN capture_tag_sort TEXT NOT NULL DEFAULT 'rec
 	`
 ALTER TABLE links ADD COLUMN priority INTEGER CHECK (priority IN (1, 2, 3));
 `,
+	// v14 → v15: stable footnote numbers for a topic's referenced links. 0
+	// means "not yet assigned" — the client numbers pre-existing rows the
+	// first time it opens the topic and syncs them up from there.
+	`
+ALTER TABLE link_topics ADD COLUMN ref_number INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

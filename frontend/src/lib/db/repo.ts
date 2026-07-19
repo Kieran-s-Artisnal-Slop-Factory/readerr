@@ -43,6 +43,19 @@ export async function byIndex<T extends SyncFields>(
 }
 
 /**
+ * Tombstones included. Only for the rare read that must see deleted rows —
+ * notably issuing a topic's next footnote number, which counts removed
+ * references so a number is never handed out twice.
+ */
+export async function byIndexWithDeleted<T extends SyncFields>(
+  store: StoreName,
+  index: string,
+  value: IDBValidKey
+): Promise<T[]> {
+  return (await (await getDB()).getAllFromIndex(store, index, value)) as T[];
+}
+
+/**
  * Rows must survive IndexedDB's structured clone, but Svelte 5 `$state`
  * values are Proxies, which structured clone rejects — so a component
  * passing reactive state into a row (e.g. an array of selected tag ids)

@@ -19,11 +19,15 @@
     onChange,
     onAssignmentsChange,
     showWeek = true,
+    refNumber,
   }: {
     link: Link;
     tags?: Tag[];
     topics?: Topic[];
     onChange: (updated: Link) => void;
+    /** The link's footnote number on a topic page — click the chip to copy
+     *  the `[^n]` citation for pasting into the document. */
+    refNumber?: number;
     /** Enables the inline label editor; fired after assignments change. */
     onAssignmentsChange?: () => void;
     /** Badge the week(s) the link is scheduled for — the Reading List turns
@@ -94,34 +98,58 @@
     labelsOpen = !labelsOpen;
     if (labelsOpen) void loadPendingWeek();
   }
+
+  // Click-to-copy for the footnote chip: writing `[^3]` by hand means
+  // scrolling back down the page to check the number.
+  let copied = $state(false);
+  async function copyCitation() {
+    try {
+      await navigator.clipboard.writeText(`[^${refNumber}]`);
+      copied = true;
+      setTimeout(() => (copied = false), 1200);
+    } catch {
+      // Clipboard denied (insecure context, permissions) — the chip still
+      // shows the number to type.
+    }
+  }
 </script>
 
 <div class="link-item">
 <article class="row" class:read={!!link.read_at}>
   <div class="row-main">
-    {#if editingTitle}
-      <input
-        class="title-input"
-        bind:this={titleInput}
-        bind:value={titleDraft}
-        onblur={saveTitle}
-        onkeydown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            void saveTitle();
-          } else if (e.key === 'Escape') {
-            editingTitle = false;
-          }
-        }}
-      />
-    {:else}
-      <span class="title-line">
+    <span class="title-line">
+      {#if refNumber}
+        <button
+          class="ref-chip"
+          class:copied
+          title={`Reference ${refNumber} — cite it in the document as [^${refNumber}]`}
+          onclick={copyCitation}
+        >
+          {copied ? '✓' : `[^${refNumber}]`}
+        </button>
+      {/if}
+      {#if editingTitle}
+        <input
+          class="title-input"
+          bind:this={titleInput}
+          bind:value={titleDraft}
+          onblur={saveTitle}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              void saveTitle();
+            } else if (e.key === 'Escape') {
+              editingTitle = false;
+            }
+          }}
+        />
+      {:else}
         <a class="title" href={link.url} target="_blank" rel="noopener noreferrer">
           {link.title}
         </a>
         <button class="title-edit" title="Edit title" onclick={startTitleEdit}>✎</button>
-      </span>
-    {/if}
+      {/if}
+    </span>
     <div class="meta">
       <span class="domain">{domainOf(link.url)}</span>
       {#if (link.priority ?? 3) < 3}
@@ -245,7 +273,35 @@
     color: var(--text-muted-color);
   }
 
+  /* The footnote number, set before the title like the citation it stands for. */
+  .ref-chip {
+    flex-shrink: 0;
+    align-self: baseline;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--font-size-sm);
+    padding: 0 var(--space-2);
+    cursor: pointer;
+    min-width: 3.5rem;
+  }
+
+  .ref-chip:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+  }
+
+  .ref-chip.copied {
+    border-style: solid;
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+  }
+
   .row-main {
+    flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -392,5 +448,46 @@
     background: var(--color-primary-soft);
     border-color: var(--color-primary);
     color: var(--color-primary-strong);
+  }
+
+  /*
+   * On a phone the action buttons are ~176px of a ~280px row, which left
+   * the title 42px — a fifth of a typical headline. Below 40rem the row
+   * stacks instead: the title gets the full width and wraps (capped at
+   * three lines so one runaway title can't own the screen), and the
+   * buttons drop underneath at a comfortable tap size.
+   */
+  @media (max-width: 40rem) {
+    .row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--space-2);
+    }
+
+    .title-line {
+      align-items: baseline;
+    }
+
+    .title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+
+    .row-actions {
+      gap: var(--space-2);
+    }
+
+    .icon-btn {
+      width: 2.25rem;
+      height: 2.25rem;
+    }
+
+    .week-select {
+      max-width: none;
+    }
   }
 </style>

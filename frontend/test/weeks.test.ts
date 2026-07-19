@@ -17,8 +17,11 @@ import {
   currentWeekStart,
   ensureWeek,
   findWeek,
+  pendingWeeksForLink,
   reviewLink,
+  scheduleLinkForWeek,
   setEntryDone,
+  setLinkWeek,
   weekEntries,
   weekStartPlus,
 } from '../src/lib/services/weeks';
@@ -89,7 +92,7 @@ describe('closeWeek outcomes', () => {
     const week = await ensureWeek(currentWeekStart());
     const link = await makeLink();
     const topic = await put('topics', withSyncFields({ name: 'T', body_md: '' }));
-    await put('link_topics', withSyncFields({ link_id: link.id, topic_id: topic.id }));
+    await put('link_topics', withSyncFields({ link_id: link.id, topic_id: topic.id, ref_number: 1 }));
     await addLinkToWeek(week.id, link.id);
     for (const { entry } of await weekEntries(week.id)) await setEntryDone(entry, true);
 
@@ -140,6 +143,54 @@ describe('reviewLink', () => {
     const week = (await findWeek(target))!;
     const entry = (await weekEntries(week.id)).find((e) => e.link.id === link.id);
     expect(entry?.entry.kind).toBe('review');
+  });
+});
+
+describe('setLinkWeek', () => {
+  it('files an unread link as a first read and an already-read one as a review', async () => {
+    const target = weekStartPlus(currentWeekStart(), 1);
+    const fresh = await makeLink();
+    const seen = await makeLink({ read_at: new Date().toISOString() });
+
+    await setLinkWeek(fresh.id, target);
+    await setLinkWeek(seen.id, target);
+
+    const week = (await findWeek(target))!;
+    const entries = await weekEntries(week.id);
+    expect(entries.find((e) => e.link.id === fresh.id)?.entry.kind).toBe('reading');
+    expect(entries.find((e) => e.link.id === seen.id)?.entry.kind).toBe('review');
+  });
+
+  it('moves a link between weeks rather than queueing it for both', async () => {
+    const first = weekStartPlus(currentWeekStart(), 1);
+    const second = weekStartPlus(currentWeekStart(), 2);
+    const link = await makeLink();
+
+    await setLinkWeek(link.id, first);
+    await setLinkWeek(link.id, second);
+
+    expect(await weekEntries((await findWeek(first))!.id)).toHaveLength(0);
+    expect(await weekEntries((await findWeek(second))!.id)).toHaveLength(1);
+
+    // …and clearing it leaves the link in no week at all.
+    await setLinkWeek(link.id, null);
+    expect(await pendingWeeksForLink(link.id)).toHaveLength(0);
+  });
+});
+
+describe('scheduleLinkForWeek', () => {
+  it('pulls a slushed link back out of the archive when it is scheduled', async () => {
+    const now = new Date().toISOString();
+    const link = await makeLink({ read_at: now, slushed_at: now });
+    const target = weekStartPlus(currentWeekStart(), 1);
+
+    const updated = await scheduleLinkForWeek(link, target);
+
+    expect(updated.slushed_at).toBeNull();
+    expect((await get<Link>('links', link.id))!.slushed_at).toBeNull();
+    const entry = (await pendingWeeksForLink(link.id))[0];
+    expect(entry.entry.kind).toBe('review');
+    expect(entry.week.week_start).toBe(target);
   });
 });
 

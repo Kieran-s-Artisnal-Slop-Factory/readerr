@@ -17,11 +17,14 @@
     empty = 'Nothing here yet.',
     selectable = false,
     selectedIds = $bindable([]),
+    refNumbers,
   }: {
     links: Link[];
     tagsByLink?: Map<string, Tag[]>;
     topicsByLink?: Map<string, Topic[]>;
     onChange: (updated: Link) => void;
+    /** Footnote number per link id — set by the topic page. */
+    refNumbers?: Map<string, number>;
     /** Enables per-row inline tag/topic editing; fired after changes. */
     onAssignmentsChange?: () => void;
     empty?: string;
@@ -71,6 +74,7 @@
             {link}
             tags={tagsByLink.get(link.id) ?? []}
             topics={topicsByLink.get(link.id) ?? []}
+            refNumber={refNumbers?.get(link.id)}
             {onChange}
             {onAssignmentsChange}
           />
@@ -85,6 +89,7 @@
         {link}
         tags={tagsByLink.get(link.id) ?? []}
         topics={topicsByLink.get(link.id) ?? []}
+        refNumber={refNumbers?.get(link.id)}
         {onChange}
         {onAssignmentsChange}
       />

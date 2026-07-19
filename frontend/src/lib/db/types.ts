@@ -117,6 +117,13 @@ export interface Topic extends SyncFields {
 export interface LinkTopic extends SyncFields {
   link_id: string;
   topic_id: string;
+  /**
+   * The link's footnote number within its topic — what you type as `[^3]`
+   * in the topic document. Assigned as one past the topic's highest ever
+   * issued (tombstones counted), so removing a reference never renumbers
+   * its neighbours. 0 = not yet assigned (rows from before this field).
+   */
+  ref_number: number;
 }
 
 /** The per-link note document: one row per link, created lazily on first edit. */
