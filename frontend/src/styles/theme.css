@@ -22,6 +22,18 @@
   --text-color: light-dark(#1b241d, #e4efe6);
   --text-muted-color: light-dark(#5f7263, #93ab98);
 
+  /*
+   * Editor chrome — the text caret and the editor's own controls. The text
+   * colour stepped back 20%, so it stays as legible as the prose while
+   * still reading as UI rather than content.
+   *
+   * Derived on purpose, and deliberately NOT in theme.ts's editable token
+   * lists: it has to track whatever --text-color a custom theme sets. (The
+   * substitution is lazy, so the :root:root override a custom theme writes
+   * still wins here.)
+   */
+  --editor-chrome-color: color-mix(in srgb, var(--text-color) 80%, transparent);
+
   /* Feedback */
   --color-success: light-dark(#1a7f37, #4ade80);
   --color-danger: light-dark(#c62828, #f87171);

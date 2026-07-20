@@ -6,6 +6,7 @@
    * it the list renders exactly as before.
    */
   import LinkRow from './LinkRow.svelte';
+  import { NO_ANCHOR, selectOnClick, type SelectionAnchor } from '../lib/services/rangeSelect';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
@@ -36,10 +37,19 @@
   const selectedSet = $derived(new Set(selectedIds));
   const allSelected = $derived(links.length > 0 && links.every((l) => selectedSet.has(l.id)));
 
-  function toggle(id: string) {
-    selectedIds = selectedSet.has(id)
-      ? selectedIds.filter((s) => s !== id)
-      : [...selectedIds, id];
+  // Shift+click extends from the last plainly-clicked row (rangeSelect.ts).
+  let anchor = $state<SelectionAnchor>(NO_ANCHOR);
+
+  function toggle(id: string, shiftKey = false) {
+    const result = selectOnClick(
+      selectedIds,
+      links.map((l) => l.id),
+      id,
+      shiftKey,
+      anchor
+    );
+    selectedIds = result.selected;
+    anchor = result.anchor;
   }
 
   function toggleAll() {
@@ -55,18 +65,27 @@
 {#if links.length === 0}
   <p class="empty">{empty}</p>
 {:else if selectable}
-  <label class="select-all">
-    <input type="checkbox" checked={allSelected} onchange={toggleAll} />
-    Select all shown ({links.length})
-  </label>
+  <div class="select-bar">
+    <label class="select-all">
+      <input type="checkbox" checked={allSelected} onchange={toggleAll} />
+      Select all shown ({links.length})
+    </label>
+    <span class="select-hint">Shift+click for a range</span>
+  </div>
   <div class="list">
     {#each links as link (link.id)}
       <div class="select-row" class:selected={selectedSet.has(link.id)}>
+        <!-- click, not change: only a MouseEvent carries shiftKey. The
+             default is prevented so `checked` stays driven by state. -->
         <input
           type="checkbox"
           class="row-check"
           checked={selectedSet.has(link.id)}
-          onchange={() => toggle(link.id)}
+          onmousedown={(e) => e.shiftKey && e.preventDefault()}
+          onclick={(e) => {
+            e.preventDefault();
+            toggle(link.id, e.shiftKey);
+          }}
           aria-label={`Select ${link.title}`}
         />
         <div class="row-link">
@@ -109,14 +128,27 @@
     flex-direction: column;
   }
 
+  .select-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-2);
+  }
+
   .select-all {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    margin: 0 0 var(--space-2);
     font-size: var(--font-size-sm);
     color: var(--text-muted-color);
     cursor: pointer;
+  }
+
+  .select-hint {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
   }
 
   .select-all input,

@@ -417,7 +417,7 @@
   .editor-toolbar button {
     border: none;
     background: none;
-    color: var(--text-muted-color);
+    color: var(--editor-chrome-color);
     font-size: var(--font-size-sm);
     font-weight: 600;
     padding: var(--space-1) var(--space-2);
@@ -473,7 +473,8 @@
     --crepe-color-surface: var(--surface-color);
     --crepe-color-surface-low: var(--bg-color);
     --crepe-color-on-surface: var(--text-color);
-    --crepe-color-on-surface-variant: var(--text-muted-color);
+    /* Toolbar icons, placeholders, block handles — the editor's controls. */
+    --crepe-color-on-surface-variant: var(--editor-chrome-color);
     --crepe-color-outline: var(--border-color);
     --crepe-color-primary: var(--color-primary);
     --crepe-color-secondary: var(--color-primary-soft);
@@ -489,14 +490,28 @@
     --crepe-font-default: var(--font-body);
   }
 
+  /*
+   * The text caret. Crepe hides the native one (`caret-color: transparent`
+   * on .virtual-cursor-enabled) and draws its own, pointing it at
+   * --crepe-color-outline — which we map to --border-color, so on any theme
+   * with a subtle border the cursor is invisible. Aim it at the chrome
+   * colour instead. The selector needs the extra class to outrank Crepe's
+   * own `.milkdown .ProseMirror-focused`.
+   */
+  .editor-root :global(.milkdown .ProseMirror-focused) {
+    --prosemirror-virtual-cursor-color: var(--editor-chrome-color);
+  }
+
   /* The source view should follow the theme too (CM defaults are light). */
   .editor-root.source :global(.cm-editor) {
     background: transparent;
     color: var(--text-color);
+    caret-color: var(--editor-chrome-color);
   }
 
-  .editor-root.source :global(.cm-cursor) {
-    border-left-color: var(--text-color);
+  .editor-root.source :global(.cm-cursor),
+  .editor-root.source :global(.cm-dropCursor) {
+    border-left-color: var(--editor-chrome-color);
   }
 
   .editor-root.source :global(.cm-activeLine) {

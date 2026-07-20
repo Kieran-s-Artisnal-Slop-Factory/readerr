@@ -37,6 +37,14 @@ priority-3 links show nothing.
 > order, so dragging a link across a priority group snaps it back. To move
 > something up for good, raise its priority.
 
+### The Done section
+
+**To read** and **Review** are a queue, so they sort by priority. **Done** is
+a record of what happened, so it sorts by *when* you finished — **newest read
+first**, with an **Oldest read** toggle when you want to replay the week in
+order. It has its own search too, since a productive week's Done list gets
+long faster than the other two.
+
 ## Plans (automation)
 
 **Plans → Automation** lets the app suggest what to read:
@@ -148,6 +156,18 @@ open a **bulk operations** panel. Select a range and, in one action:
 - set or clear the reading week.
 
 It's the fastest way to triage a big paste or reorganize after the fact.
+
+**Shift+click selects a range.** Tick one row, then shift+click another, and
+everything between them is ticked too — in either direction.
+
+It follows whichever way the first click went, which is what makes it useful
+for *un*-picking as well: with rows 4–8 ticked, clicking 5 to untick it and
+then shift+clicking 7 clears 5, 6 and 7, leaving 4 and 8. Rows outside the
+range are never touched, and the first row stays the anchor, so you can
+shift+click again to adjust how far the range reaches.
+
+On the Reading List a range can span the **To read**, **Review** and **Done**
+sections — it covers what's between the two rows on screen.
 
 ## Archiving old links (keeping things fast)
 

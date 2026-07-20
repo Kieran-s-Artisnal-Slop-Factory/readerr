@@ -13,10 +13,17 @@
   import Card from '../Card.svelte';
   import CaptureBox from '../CaptureBox.svelte';
   import LinkRow from '../LinkRow.svelte';
+  import SearchInput from '../SearchInput.svelte';
   import { all, byIndex, get } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
-  import { domainOf, effectivePriority, tagsForLink } from '../../lib/services/links';
+  import {
+    domainOf,
+    effectivePriority,
+    matchesSearch,
+    tagsForLink,
+  } from '../../lib/services/links';
   import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
+  import { NO_ANCHOR, selectOnClick, type SelectionAnchor } from '../../lib/services/rangeSelect';
   import { href } from '../../lib/paths';
   import {
     addLinkToWeek,
@@ -60,11 +67,6 @@
     entries.filter((e) => selectedIds.includes(e.link.id)).map((e) => e.link)
   );
 
-  function toggleSelect(id: string) {
-    selectedIds = selectedIds.includes(id)
-      ? selectedIds.filter((s) => s !== id)
-      : [...selectedIds, id];
-  }
   /** Notes taken across this week's links (#6). */
   let stats = $state({ linksWithNotes: 0, excerpts: 0 });
 
@@ -83,7 +85,28 @@
   const review = $derived(
     entries.filter((e) => e.entry.kind === 'review' && !e.entry.done_at).sort(byPriority)
   );
-  const done = $derived(entries.filter((e) => !!e.entry.done_at).sort(byPriority));
+  /**
+   * Done is a record of what happened, so it reads by *when* rather than by
+   * priority — newest first, since the thing you just finished is the thing
+   * you're most likely looking for. It gets its own search because a busy
+   * week's Done list outgrows the eye long before the other two sections do.
+   */
+  let doneOrder = $state<'newest' | 'oldest'>('newest');
+  let doneSearch = $state('');
+
+  const done = $derived(
+    entries
+      .filter((e) => !!e.entry.done_at)
+      .filter((e) => matchesSearch(e.link, tagsByLink.get(e.link.id) ?? [], doneSearch))
+      .sort((a, b) => {
+        const at = a.entry.done_at ?? '';
+        const bt = b.entry.done_at ?? '';
+        return doneOrder === 'newest' ? bt.localeCompare(at) : at.localeCompare(bt);
+      })
+  );
+
+  /** Unfiltered, for the "n of m" count when a search is narrowing it. */
+  const doneTotal = $derived(entries.filter((e) => !!e.entry.done_at).length);
 
   const quota = $derived(triage?.quota ?? null);
   const underQuota = $derived(quota !== null ? Math.max(0, quota - entries.length) : 0);
@@ -96,6 +119,19 @@
   );
 
   const entryLinkIds = $derived(new Set(entries.map((e) => e.link.id)));
+
+  // Shift+click extends from the last plainly-clicked row (rangeSelect.ts).
+  // The order is every visible row top to bottom, so a range can span the
+  // section boundaries the same way the eye does — and it follows Done's
+  // sort and search, since a range must mean what's on screen.
+  let anchor = $state<SelectionAnchor>(NO_ANCHOR);
+  const selectableIds = $derived([...toRead, ...review, ...done].map((e) => e.link.id));
+
+  function toggleSelect(id: string, shiftKey = false) {
+    const result = selectOnClick(selectedIds, selectableIds, id, shiftKey, anchor);
+    selectedIds = result.selected;
+    anchor = result.anchor;
+  }
 
   const queryIsUrl = $derived.by(() => {
     try {
@@ -339,7 +375,11 @@
           type="checkbox"
           class="entry-check"
           checked={selectedIds.includes(link.id)}
-          onchange={() => toggleSelect(link.id)}
+          onmousedown={(e) => e.shiftKey && e.preventDefault()}
+                onclick={(e) => {
+                  e.preventDefault();
+                  toggleSelect(link.id, e.shiftKey);
+                }}
           aria-label={`Select ${link.title}`}
         />
         <span
@@ -480,8 +520,32 @@
       </Card>
     {/if}
 
-    {#if done.length > 0}
-      <Card title={`Done (${done.length})`}>
+    {#if doneTotal > 0}
+      <Card title={`Done (${doneSearch.trim() ? `${done.length} of ${doneTotal}` : doneTotal})`}>
+        <div class="done-controls">
+          <div class="done-search">
+            <SearchInput bind:value={doneSearch} placeholder="Search what you've read…" />
+          </div>
+          <div class="done-sort" role="group" aria-label="Sort done links">
+            <button
+              class="sort-btn"
+              class:active={doneOrder === 'newest'}
+              onclick={() => (doneOrder = 'newest')}
+            >
+              Newest read
+            </button>
+            <button
+              class="sort-btn"
+              class:active={doneOrder === 'oldest'}
+              onclick={() => (doneOrder = 'oldest')}
+            >
+              Oldest read
+            </button>
+          </div>
+        </div>
+        {#if done.length === 0}
+          <p class="empty">Nothing you've read this week matches that search.</p>
+        {/if}
         <div class="entries">
           {#each done as { entry, link } (entry.id)}
             <div class="entry done-entry" class:bulk-selected={selectedIds.includes(link.id)}>
@@ -489,7 +553,11 @@
                 type="checkbox"
                 class="entry-check"
                 checked={selectedIds.includes(link.id)}
-                onchange={() => toggleSelect(link.id)}
+                onmousedown={(e) => e.shiftKey && e.preventDefault()}
+                onclick={(e) => {
+                  e.preventDefault();
+                  toggleSelect(link.id, e.shiftKey);
+                }}
                 aria-label={`Select ${link.title}`}
               />
               <div class="entry-row">
@@ -737,6 +805,57 @@
   /* LinkRow draws its own bottom border; the entry wrapper owns it here. */
   .entry-row :global(.link-item) {
     border-bottom: none;
+  }
+
+  .done-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .done-search {
+    flex: 1;
+    min-width: 12rem;
+  }
+
+  .done-sort {
+    display: flex;
+    flex-shrink: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .sort-btn {
+    border: none;
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .sort-btn:hover {
+    color: var(--text-color);
+  }
+
+  .sort-btn.active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+  }
+
+  @media (max-width: 40rem) {
+    .done-sort {
+      width: 100%;
+    }
+
+    .sort-btn {
+      flex: 1;
+    }
   }
 
   .done-entry {
