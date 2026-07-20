@@ -70,6 +70,36 @@ export function selectOnClick(
 }
 
 /**
+ * Pin a checkbox's LIVE checkedness to ours.
+ *
+ * A checkbox is the one input the browser mutates on its own: clicking it
+ * flips `.checked` before any handler runs. That makes the usual
+ * `checked={expr}` binding a diff against a value the framework didn't
+ * write — if its cached value already matches, it skips the update and the
+ * box is left showing whatever the browser (or a hot-module reload, which
+ * resets the state but not the DOM) left behind, out of step with the row
+ * highlight beside it.
+ *
+ * Assigning the property every time removes the diff from the equation.
+ * It must be the property: the `checked` *attribute* only sets the default,
+ * and stops affecting a box the user has already touched.
+ *
+ * Take the argument as a fresh object, not a bare boolean: an action's
+ * `update` only runs when its argument *changes*, so a row whose own
+ * selected-ness is unchanged would never be rewritten — and a box corrupted
+ * behind the framework's back would stay corrupted. A new object each render
+ * means every selection change re-asserts every box.
+ */
+export function liveChecked(node: HTMLInputElement, arg: { checked: boolean }) {
+  node.checked = arg.checked;
+  return {
+    update(next: { checked: boolean }) {
+      node.checked = next.checked;
+    },
+  };
+}
+
+/**
  * Keep the existing order of `selected` and append anything new, so a plain
  * toggle doesn't reshuffle the list the bulk panel is showing.
  */

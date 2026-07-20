@@ -6,7 +6,12 @@
    * it the list renders exactly as before.
    */
   import LinkRow from './LinkRow.svelte';
-  import { NO_ANCHOR, selectOnClick, type SelectionAnchor } from '../lib/services/rangeSelect';
+  import {
+    liveChecked,
+    NO_ANCHOR,
+    selectOnClick,
+    type SelectionAnchor,
+  } from '../lib/services/rangeSelect';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
@@ -40,7 +45,8 @@
   // Shift+click extends from the last plainly-clicked row (rangeSelect.ts).
   let anchor = $state<SelectionAnchor>(NO_ANCHOR);
 
-  function toggle(id: string, shiftKey = false) {
+  /** Returns whether the clicked row ended up selected. */
+  function toggle(id: string, shiftKey = false): boolean {
     const result = selectOnClick(
       selectedIds,
       links.map((l) => l.id),
@@ -50,6 +56,7 @@
     );
     selectedIds = result.selected;
     anchor = result.anchor;
+    return result.selected.includes(id);
   }
 
   function toggleAll() {
@@ -76,15 +83,16 @@
     {#each links as link (link.id)}
       <div class="select-row" class:selected={selectedSet.has(link.id)}>
         <!-- click, not change: only a MouseEvent carries shiftKey. The
-             default is prevented so `checked` stays driven by state. -->
+             default is prevented and the box re-asserted from state, so the
+             tick can never drift from the row highlight (liveChecked). -->
         <input
           type="checkbox"
           class="row-check"
-          checked={selectedSet.has(link.id)}
+          use:liveChecked={{ checked: selectedSet.has(link.id) }}
           onmousedown={(e) => e.shiftKey && e.preventDefault()}
           onclick={(e) => {
             e.preventDefault();
-            toggle(link.id, e.shiftKey);
+            e.currentTarget.checked = toggle(link.id, e.shiftKey);
           }}
           aria-label={`Select ${link.title}`}
         />

@@ -475,7 +475,15 @@
     --crepe-color-on-surface: var(--text-color);
     /* Toolbar icons, placeholders, block handles — the editor's controls. */
     --crepe-color-on-surface-variant: var(--editor-chrome-color);
-    --crepe-color-outline: var(--border-color);
+    /*
+     * Despite the name, Crepe uses --crepe-color-outline as the foreground
+     * for its controls: across its stylesheets it appears 20x as `color`,
+     * 12x as icon `fill` and 4x as `caret-color`, against only a couple of
+     * genuine borders. Mapped to --border-color the toolbar icons and block
+     * handles came out at the border's contrast — invisible on a theme with
+     * a subtle border. It's a control colour, so it gets the control colour.
+     */
+    --crepe-color-outline: var(--editor-chrome-color);
     --crepe-color-primary: var(--color-primary);
     --crepe-color-secondary: var(--color-primary-soft);
     --crepe-color-on-secondary: var(--color-primary-strong);

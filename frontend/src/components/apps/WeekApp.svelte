@@ -23,7 +23,12 @@
     tagsForLink,
   } from '../../lib/services/links';
   import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
-  import { NO_ANCHOR, selectOnClick, type SelectionAnchor } from '../../lib/services/rangeSelect';
+  import {
+    liveChecked,
+    NO_ANCHOR,
+    selectOnClick,
+    type SelectionAnchor,
+  } from '../../lib/services/rangeSelect';
   import { href } from '../../lib/paths';
   import {
     addLinkToWeek,
@@ -127,10 +132,12 @@
   let anchor = $state<SelectionAnchor>(NO_ANCHOR);
   const selectableIds = $derived([...toRead, ...review, ...done].map((e) => e.link.id));
 
-  function toggleSelect(id: string, shiftKey = false) {
+  /** Returns whether the clicked row ended up selected. */
+  function toggleSelect(id: string, shiftKey = false): boolean {
     const result = selectOnClick(selectedIds, selectableIds, id, shiftKey, anchor);
     selectedIds = result.selected;
     anchor = result.anchor;
+    return result.selected.includes(id);
   }
 
   const queryIsUrl = $derived.by(() => {
@@ -374,11 +381,11 @@
         <input
           type="checkbox"
           class="entry-check"
-          checked={selectedIds.includes(link.id)}
+          use:liveChecked={{ checked: selectedIds.includes(link.id) }}
           onmousedown={(e) => e.shiftKey && e.preventDefault()}
                 onclick={(e) => {
                   e.preventDefault();
-                  toggleSelect(link.id, e.shiftKey);
+                  e.currentTarget.checked = toggleSelect(link.id, e.shiftKey);
                 }}
           aria-label={`Select ${link.title}`}
         />
@@ -552,11 +559,11 @@
               <input
                 type="checkbox"
                 class="entry-check"
-                checked={selectedIds.includes(link.id)}
+                use:liveChecked={{ checked: selectedIds.includes(link.id) }}
                 onmousedown={(e) => e.shiftKey && e.preventDefault()}
                 onclick={(e) => {
                   e.preventDefault();
-                  toggleSelect(link.id, e.shiftKey);
+                  e.currentTarget.checked = toggleSelect(link.id, e.shiftKey);
                 }}
                 aria-label={`Select ${link.title}`}
               />
