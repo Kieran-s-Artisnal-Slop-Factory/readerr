@@ -9,13 +9,19 @@
   import BulkActionsPanel from '../BulkActionsPanel.svelte';
   import Card from '../Card.svelte';
   import CaptureBox from '../CaptureBox.svelte';
-  import ChipFilter from '../ChipFilter.svelte';
   import LinkList from '../LinkList.svelte';
+  import ListToolbar from '../ListToolbar.svelte';
   import Pagination from '../Pagination.svelte';
-  import SearchInput from '../SearchInput.svelte';
   import { all } from '../../lib/db/repo';
   import { retryMissingTitles } from '../../lib/services/capture';
-  import { comparePriority, matchesSearch, tagsByLinkMap, tagsForLinks } from '../../lib/services/links';
+  import {
+    compareByOrder,
+    FLAG_FILTERS,
+    matchesFlagFilters,
+    matchesSearch,
+    tagsByLinkMap,
+    tagsForLinks,
+  } from '../../lib/services/links';
   import { href } from '../../lib/paths';
   import type { Link, Tag } from '../../lib/db/types';
 
@@ -26,27 +32,40 @@
   let searchTags = $state<Map<string, Tag[]> | null>(null);
   let filters = $state<string[]>([]);
   let search = $state('');
+  let order = $state<'newest' | 'oldest'>('newest');
   let page = $state(0);
   let loading = $state(true);
   // Bulk operations selection (checkboxes come from LinkList's selectable mode).
   let selectedIds = $state<string[]>([]);
 
-  const FILTER_OPTIONS = [
-    { value: 'favourite', label: 'Favourites' },
-    { value: 'resource', label: 'Resources' },
-  ];
-
   // The backlog is the unread triage queue: read links leave it (marking one
   // read adds it to the current week) and slushed links live in the archive.
   const ordered = $derived(
-    links.filter((l) => {
-      if (l.read_at || l.slushed_at) return false;
-      if (filters.includes('favourite') && !l.favourite) return false;
-      if (filters.includes('resource') && !l.is_resource) return false;
-      return matchesSearch(l, searchTags?.get(l.id) ?? [], search);
-    })
+    links
+      .filter((l) => {
+        if (l.read_at || l.slushed_at) return false;
+        if (!matchesFlagFilters(l, filters)) return false;
+        return matchesSearch(l, searchTags?.get(l.id) ?? [], search);
+      })
+      // Priority still decides first — the toggle flips capture order within
+      // a priority band, so triage order survives (see docs/user).
+      .sort(compareByOrder(order))
   );
   const visible = $derived(ordered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+
+
+  /** Select-all covers everything the filters leave, not just this page. */
+  const selectedHere = $derived(ordered.filter((l) => selectedIds.includes(l.id)).length);
+
+  function toggleAll(selectAll: boolean) {
+    const ids = ordered.map((l) => l.id);
+    if (selectAll) {
+      selectedIds = [...new Set([...selectedIds, ...ids])];
+    } else {
+      const drop = new Set(ids);
+      selectedIds = selectedIds.filter((id) => !drop.has(id));
+    }
+  }
 
   // Resolve tag chips for the visible page only.
   $effect(() => {
@@ -63,11 +82,9 @@
 
   async function refresh() {
     const rows = await all<Link>('links');
-    // Slushed links live in the slush archive, not the backlog. Priority 1
-    // floats to the top; newest capture wins within a priority.
-    links = rows
-      .filter((l) => !l.slushed_at)
-      .sort((a, b) => comparePriority(a, b));
+    // Slushed links live in the slush archive, not the backlog. Ordering is
+    // `ordered`'s job now, since it depends on the sort toggle.
+    links = rows.filter((l) => !l.slushed_at);
     searchTags = null; // stale after any data change
     // Selections whose links left the backlog (done/slushed) drop off.
     const ids = new Set(links.map((l) => l.id));
@@ -99,10 +116,16 @@
   </Card>
 
   <Card title={`Backlog (${ordered.length.toLocaleString()})`}>
-    <div class="controls">
-      <SearchInput bind:value={search} />
-      <ChipFilter options={FILTER_OPTIONS} bind:selected={filters} />
-    </div>
+    <ListToolbar
+      bind:search
+      bind:order
+      bind:filters
+      filterOptions={FLAG_FILTERS}
+      sortLabels={{ newest: 'Newest captured', oldest: 'Oldest captured' }}
+      selectedCount={selectedHere}
+      selectableCount={ordered.length}
+      onToggleAll={toggleAll}
+    />
     {#if loading}
       <p class="empty">Loading…</p>
     {:else}
@@ -128,14 +151,6 @@
     flex-direction: column;
     gap: var(--space-4);
   }
-
-  .controls {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin-bottom: var(--space-2);
-  }
-
 
   .empty {
     color: var(--text-muted-color);

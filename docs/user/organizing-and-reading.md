@@ -42,8 +42,32 @@ priority-3 links show nothing.
 **To read** and **Review** are a queue, so they sort by priority. **Done** is
 a record of what happened, so it sorts by *when* you finished — **newest read
 first**, with an **Oldest read** toggle when you want to replay the week in
-order. It has its own search too, since a productive week's Done list gets
-long faster than the other two.
+order. It has its own search, filters and pages, since a productive week's
+Done list gets long faster than the other two.
+
+## The list toolbar
+
+The **Backlog**, **Favourites** and the Reading List's **Done** card share one
+set of controls:
+
+- **Select all / none** — the checkbox on the left. It ticks whenever anything
+  is selected, so one click always clears a selection whatever state it's in;
+  from empty, one click takes in **everything the filters leave**, across every
+  page, not just the rows in front of you.
+- **Search** by title, URL or tag name.
+- **Sort** — newest or oldest. On Done that means when you *read* it; on the
+  Backlog and Favourites, when you *captured* it.
+- **Filters** for favourites and resources. Favourites only offers the
+  resources chip, since every row there is already a favourite.
+
+> Sorting never overrides priority. Flipping to oldest reverses the order
+> *within* each priority band, so a priority-1 link stays at the top either
+> way and the backlog's triage order survives.
+
+Everything composes: the count in the card title reads "9 of 55" when a search
+or filter is narrowing things, select-all then covers exactly those 9, and
+narrowing the list while you're on a later page brings you back rather than
+stranding you on an empty one.
 
 ## Plans (automation)
 
@@ -158,7 +182,8 @@ open a **bulk operations** panel. Select a range and, in one action:
 It's the fastest way to triage a big paste or reorganize after the fact.
 
 **Shift+click selects a range.** Tick one row, then shift+click another, and
-everything between them is ticked too — in either direction.
+everything between them is ticked too — in either direction. (For "all of
+them", use the select-all box in the toolbar above.)
 
 It follows whichever way the first click went, which is what makes it useful
 for *un*-picking as well: with rows 4–8 ticked, clicking 5 to untick it and

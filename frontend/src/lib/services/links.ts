@@ -302,6 +302,47 @@ export function comparePriority(
   return timeOf(a) < timeOf(b) ? 1 : timeOf(a) > timeOf(b) ? -1 : 0;
 }
 
+export type ListOrder = 'newest' | 'oldest';
+
+/**
+ * List ordering with a direction, for the newest/oldest toggle.
+ *
+ * Priority stays ahead of the toggle: flipping to 'oldest' reverses the
+ * time tiebreak *within* a priority band, it doesn't drag priority-3 links
+ * above priority-1 ones. Negating comparePriority would have inverted both,
+ * which would quietly undo the triage order the backlog depends on.
+ */
+export function compareByOrder(
+  order: ListOrder,
+  timeOf: (l: Link) => string = (l) => l.added_at
+): (a: Link, b: Link) => number {
+  return (a, b) => {
+    const byPriority = effectivePriority(a) - effectivePriority(b);
+    if (byPriority !== 0) return byPriority;
+    const at = timeOf(a);
+    const bt = timeOf(b);
+    const newestFirst = at < bt ? 1 : at > bt ? -1 : 0;
+    return order === 'newest' ? newestFirst : -newestFirst;
+  };
+}
+
+/**
+ * The flag filters offered above a link list. Shared so Backlog, Favourites
+ * and the Reading List's Done card label them identically; Favourites drops
+ * 'favourite' since every row there already is one.
+ */
+export const FLAG_FILTERS = [
+  { value: 'favourite', label: 'Favourites' },
+  { value: 'resource', label: 'Resources' },
+] as const;
+
+/** Does a link satisfy the active flag filters? */
+export function matchesFlagFilters(link: Link, filters: string[]): boolean {
+  if (filters.includes('favourite') && !link.favourite) return false;
+  if (filters.includes('resource') && !link.is_resource) return false;
+  return true;
+}
+
 /** Case-insensitive match on title, URL, or any tag name (list-page search). */
 export function matchesSearch(link: Link, tags: Tag[], query: string): boolean {
   const q = query.trim().toLowerCase();

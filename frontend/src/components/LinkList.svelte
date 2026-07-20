@@ -2,8 +2,9 @@
   /**
    * A list of LinkRows with a shared tags-per-link lookup. Hosts that offer
    * bulk operations pass `selectable` and bind `selectedIds` — each row
-   * gains a checkbox and a select-all row appears above the list; without
-   * it the list renders exactly as before.
+   * gains a checkbox; without it the list renders exactly as before.
+   * Select-all belongs to the host's ListToolbar, which can reach the whole
+   * filtered list rather than only the rows on this page.
    */
   import LinkRow from './LinkRow.svelte';
   import {
@@ -40,7 +41,6 @@
   } = $props();
 
   const selectedSet = $derived(new Set(selectedIds));
-  const allSelected = $derived(links.length > 0 && links.every((l) => selectedSet.has(l.id)));
 
   // Shift+click extends from the last plainly-clicked row (rangeSelect.ts).
   let anchor = $state<SelectionAnchor>(NO_ANCHOR);
@@ -59,24 +59,14 @@
     return result.selected.includes(id);
   }
 
-  function toggleAll() {
-    if (allSelected) {
-      const ids = new Set(links.map((l) => l.id));
-      selectedIds = selectedIds.filter((id) => !ids.has(id));
-    } else {
-      selectedIds = [...new Set([...selectedIds, ...links.map((l) => l.id)])];
-    }
-  }
 </script>
 
 {#if links.length === 0}
   <p class="empty">{empty}</p>
 {:else if selectable}
+  <!-- Select-all lives in the host's ListToolbar, where it can cover the
+       whole filtered list rather than just this page. -->
   <div class="select-bar">
-    <label class="select-all">
-      <input type="checkbox" checked={allSelected} onchange={toggleAll} />
-      Select all shown ({links.length})
-    </label>
     <span class="select-hint">Shift+click for a range</span>
   </div>
   <div class="list">
@@ -147,19 +137,8 @@
   .select-bar {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: var(--space-2);
+    justify-content: flex-end;
     margin: 0 0 var(--space-2);
-  }
-
-  .select-all {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--font-size-sm);
-    color: var(--text-muted-color);
-    cursor: pointer;
   }
 
   .select-hint {
@@ -167,7 +146,6 @@
     color: var(--text-muted-color);
   }
 
-  .select-all input,
   .row-check {
     width: auto;
     margin: 0;
