@@ -82,16 +82,24 @@
   <div class="list">
     {#each links as link (link.id)}
       <div class="select-row" class:selected={selectedSet.has(link.id)}>
-        <!-- click, not change: only a MouseEvent carries shiftKey. The
-             default is prevented and the box re-asserted from state, so the
-             tick can never drift from the row highlight (liveChecked). -->
+        <!--
+          click, not change: only a MouseEvent carries shiftKey.
+
+          The click default is deliberately NOT prevented. Cancelling it makes
+          the browser run its "canceled activation steps", which revert
+          .checked *after* the handler has already set it — so the tick sat a
+          frame behind until an effect corrected it. Letting the native toggle
+          stand means the box is right synchronously, and the assignment below
+          only has to correct the rows a shift-range flips the other way.
+          mousedown is still cancelled for shift, purely to stop the browser
+          selecting the text between the two clicks.
+        -->
         <input
           type="checkbox"
           class="row-check"
           use:liveChecked={{ checked: selectedSet.has(link.id) }}
           onmousedown={(e) => e.shiftKey && e.preventDefault()}
           onclick={(e) => {
-            e.preventDefault();
             e.currentTarget.checked = toggle(link.id, e.shiftKey);
           }}
           aria-label={`Select ${link.title}`}

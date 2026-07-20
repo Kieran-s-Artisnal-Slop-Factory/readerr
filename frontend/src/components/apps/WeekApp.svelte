@@ -384,7 +384,6 @@
           use:liveChecked={{ checked: selectedIds.includes(link.id) }}
           onmousedown={(e) => e.shiftKey && e.preventDefault()}
                 onclick={(e) => {
-                  e.preventDefault();
                   e.currentTarget.checked = toggleSelect(link.id, e.shiftKey);
                 }}
           aria-label={`Select ${link.title}`}
@@ -562,7 +561,6 @@
                 use:liveChecked={{ checked: selectedIds.includes(link.id) }}
                 onmousedown={(e) => e.shiftKey && e.preventDefault()}
                 onclick={(e) => {
-                  e.preventDefault();
                   e.currentTarget.checked = toggleSelect(link.id, e.shiftKey);
                 }}
                 aria-label={`Select ${link.title}`}
