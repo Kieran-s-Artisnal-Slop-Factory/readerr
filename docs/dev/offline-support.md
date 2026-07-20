@@ -54,22 +54,47 @@ flowchart TD
     F["fetch event"] --> G{"GET, same-origin,<br/>not /src/ /@ /node_modules/?"}
     G -->|no| Pass["pass through untouched<br/>(includes all /sync/* calls)"]
     G -->|yes| M{"navigation?"}
-    M -->|yes| NF["network-first:<br/>fetch → cache copy → serve"]
-    NF -->|offline| NC["cached page,<br/>else cached base '/'"]
+    M -->|yes| NF["network-first:<br/>fetch (retry 429/5xx) → cache if ok → serve"]
+    NF -->|"not ok"| NOK["cached page if any,<br/>else the error itself<br/>(never cached)"]
+    NF -->|offline| NC["cached page,<br/>else precached base '/',<br/>else Response.error()"]
     M -->|no: asset| SWR["stale-while-revalidate:<br/>serve cache immediately,<br/>refresh cache in background"]
-    SWR -->|no cache yet| Net["fetch (cache if ok)"]
+    SWR -->|no cache yet| Net["fetch (retry 429/5xx), cache if ok"]
 ```
 
 - **Navigations are network-first** so deploys show up on the next load
-  when online, with the cached page (then the cached root) as the offline
+  when online, with the cached page (then the precached root) as the offline
   fallback.
 - **Assets are stale-while-revalidate** — instant loads, background
   freshness.
-- `CACHE_VERSION` (`readerr-v1`) names the cache; bump it to invalidate
+- `CACHE_VERSION` (`readerr-v2`) names the cache; bump it to invalidate
   everything after a breaking asset change. `activate` deletes old caches
-  and claims clients; `install` calls `skipWaiting()`.
+  and claims clients.
 - Cross-origin requests and non-GETs (every `/sync/*` POST) bypass the
   worker entirely — offline caching must never make sync state lie.
+
+### Rules this worker follows deliberately
+
+Each of these is a bug that has bitten a sibling project's copy of this
+worker; the shapes are easy to reintroduce.
+
+- **`install` precaches the shell and nothing else.** The build emits ~250
+  fingerprinted chunks. Crawling the asset graph at install fires hundreds
+  of requests in a burst, static hosts rate-limit it (GitHub Pages answers
+  `503`), and because the crawl runs while the app is still booting, *the
+  app's own lazy imports queue behind the same limit* — so a chunk that
+  serves fine to a direct request 503s inside the app. The cache fills as
+  you browse instead.
+- **Never cache a non-`ok` response.** A 404 or a transient 503 page written
+  to the cache becomes that URL's offline copy until the cache is renamed.
+- **Never resolve `respondWith()` with `undefined`.** A cache miss whose
+  fetch rejects must return `Response.error()`; resolving with a
+  non-`Response` makes the browser report a synthetic failure against the
+  server, which reads like a host problem rather than a worker bug.
+- **Retry `429/500/502/503/504`.** Fingerprinted assets are immutable, so a
+  retry is always safe, and a throttle should not look permanent.
+- **Bump `CACHE_VERSION` whenever `sw.js` changes meaningfully** — the
+  rename is what makes `activate`'s purge run at all, and it is the only way
+  to clear a bad entry already stuck in someone's browser.
 
 **Dev mode is the opposite:** Layout.astro *unregisters* any service worker
 and clears its caches, because a worker caching Vite's module URLs serves
@@ -142,3 +167,9 @@ sequenceDiagram
   tick pushes the backlog of changes (watch the sync log).
 - After changing `sw.js`, bump `CACHE_VERSION` and verify old caches are
   dropped on activate.
+- Navigate to a URL that 404s, then check the cache does **not** contain it
+  (`caches.open(CACHE_VERSION).then(c => c.match('/that-url/'))` must be
+  `undefined`) — a cached error page is served offline forever.
+- Stopping `astro preview` mid-session is a faithful offline test: a cached
+  page must still render, and an *uncached* deep link must fall back to the
+  shell rather than a browser error page.
