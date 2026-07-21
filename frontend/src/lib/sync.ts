@@ -34,7 +34,12 @@ export interface SyncResult {
 }
 
 export function getSyncUrl(): string {
-  return localStorage.getItem(SYNC_URL_KEY) ?? '';
+  // No configured URL means same-origin. The base the app was built with is
+  // the correct same-origin prefix: '' at the root (the Go backend serving its
+  // own frontend), '/readerr' on GitHub Pages, '/alice/readerr' behind muxerr,
+  // whose sentinel base is rewritten per user at serve time. BASE_URL always
+  // ends in '/', which the leading-slash paths at every call site supply.
+  return localStorage.getItem(SYNC_URL_KEY) ?? import.meta.env.BASE_URL.replace(/\/+$/, '');
 }
 
 const SYNC_MODE_KEY = 'readerr-sync-mode';

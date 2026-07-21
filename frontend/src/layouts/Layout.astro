@@ -105,7 +105,10 @@ const swScope = href('/');
               for (const reg of regs) reg.unregister();
             });
             if (window.caches) {
-              caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+              // Only ours: this page may share an origin with other apps (muxerr
+              // serves several under one host), and dropping their caches is not
+              // this dev-teardown's business.
+              caches.keys().then((keys) => keys.filter((k) => k.startsWith('readerr-')).forEach((k) => caches.delete(k)));
             }
           }
         </script>
