@@ -123,8 +123,9 @@ Design decisions embedded here:
   `resource_list_links`) with soft-deleted rows, so label changes sync.
 - **Logical singletons keyed by UUID converge via reconcile.** Several rows
   are logically "one per natural key" — the settings row (a true singleton),
-  a plan per `(period, starts_on)`, a note per link, a join per `(left,
-  right)` pair — yet each is still stored under a random `id`. Two devices
+  a plan per `(period, starts_on)`, a note per link, a tag or topic per
+  `lower(name)`, a join per `(left, right)` pair — yet each is still stored
+  under a random `id`. Two devices
   that each create one *before* syncing mint separate rows, and row-level LWW
   never merges different ids: both go live, and a read that breaks the
   natural-key tie by store/UUID order resolves differently per device. A
@@ -149,6 +150,20 @@ Design decisions embedded here:
     local empty week while its entries hung off the synced twin. Closed weeks
     are excluded — a closed week and a fresh open week legitimately share a
     Monday, so this can't collapse to one fixed id.
+  - **Name-merge with children** where the natural key is a user-editable name:
+    `reconcileTags` / `reconcileTopics`
+    ([links.ts](../../frontend/src/lib/services/links.ts), keyed by
+    `lower(name)`, run from `tagsByRecentUse`/`topicsByRecentUse` and the
+    tag/topic index + detail pages) fan out widest — the survivor owns join
+    rows in *two* tables. They carry the freshest non-empty prose
+    (`tags.notes_md`/`topics.body_md`) onto the survivor, re-point
+    `link_tags.tag_id`/`link_topics.topic_id` (deduping a `(link_id, survivor)`
+    collision to its min-id row; for `link_topics` keeping the survivor's
+    footnote number for a shared reference and appending a stray-only one with a
+    *fresh* number, so `[^n]` in the kept document stays valid), and rewrite
+    merged tag ids out of every `focus_tag_ids` array — `user_settings`
+    ([settings.ts](../../frontend/src/lib/services/settings.ts)) and each
+    `plans` row ([plans.ts](../../frontend/src/lib/services/plans.ts)).
   - **Per-pair dedupe** for the junction tables (`link_tags`, `link_topics`,
     `resource_list_links`), whose natural key is a `(left, right)` pair: the
     assign helpers guard only against the local db, so two devices that form
@@ -160,8 +175,9 @@ Design decisions embedded here:
     [topics.ts](../../frontend/src/lib/services/topics.ts), `dedupeListLinks`
     in [resourceLists.ts](../../frontend/src/lib/services/resourceLists.ts)).
     `link_topics` also keeps the **lowest `ref_number`** so a `[^3]` citation
-    stays put. A future tag/topic *name*-merge re-points these same join rows,
-    so it must run **before** the pair-dedupe reads, not after.
+    stays put. The tag/topic name-merge above re-points these same join rows,
+    so it runs **before** the pair-dedupe on every shared read path (reconcile
+    at the top, then dedupe), never after.
 
   When adding a synced table that's "one row per natural key", make identity
   deterministic from that key (a fixed id, or a min-id reconcile) — never rely
@@ -209,7 +225,8 @@ and indexes append-only. Current version: **7**.
 | `user_settings` | `updated_at` | singleton at fixed id `USER_SETTINGS_ID`; `getUserSettings` collapses duplicates |
 | `plans` | `starts_on`, `updated_at` | one per `(period, starts_on)`; `reconcilePlans` collapses duplicates on read |
 | `links` | `url`, `added_at`, `updated_at` | `url` powers capture dedupe |
-| `tags`, `topics`, `resource_lists` | `updated_at` | |
+| `tags`, `topics` | `updated_at` | one per `lower(name)`; `reconcileTags`/`reconcileTopics` collapse duplicates, re-point join rows + `focus_tag_ids` |
+| `resource_lists` | `updated_at` | |
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
 | `notes`, `excerpts` | `link_id`, `updated_at` | note is one-per-link; `getNote` collapses duplicates on read |
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |

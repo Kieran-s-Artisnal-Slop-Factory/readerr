@@ -41,6 +41,42 @@ export async function getUserSettings(): Promise<UserSettings | null> {
   return (await all<UserSettings>('user_settings'))[0] ?? null;
 }
 
+/**
+ * Rewrite focus tag ids after a tag merge (reconcileTags in
+ * services/links.ts): a focus tag pointing at a merged-away duplicate now
+ * points at the surviving tag, de-duplicated in place so the same tag can't
+ * appear twice. A no-op when no focus tag was one of the merged ids — and
+ * applied to every live settings row, so pre-reconcile duplicates heal too.
+ */
+export async function remapFocusTags(remap: Map<string, string>): Promise<void> {
+  if (remap.size === 0) return;
+  for (const row of await all<UserSettings>('user_settings')) {
+    const current = focusIds(row);
+    const next = remapIds(current, remap);
+    if (!sameIds(current, next)) await put('user_settings', { ...row, focus_tag_ids: next });
+  }
+}
+
+/** Focus tag ids, tolerating rows written before focus tags became plural. */
+function focusIds(row: { focus_tag_ids?: string[]; focus_tag_id?: string | null }): string[] {
+  if (Array.isArray(row.focus_tag_ids)) return row.focus_tag_ids;
+  return row.focus_tag_id ? [row.focus_tag_id] : [];
+}
+
+/** Replace ids per the merge map, dropping the duplicates a merge introduces. */
+function remapIds(ids: string[], remap: Map<string, string>): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    const mapped = remap.get(id) ?? id;
+    if (!out.includes(mapped)) out.push(mapped);
+  }
+  return out;
+}
+
+function sameIds(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 export async function saveUserSettings(
   changes: Partial<
     Pick<

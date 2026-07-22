@@ -6,7 +6,7 @@
   import MarkdownEditor from '../MarkdownEditor.svelte';
   import Pagination from '../Pagination.svelte';
   import { get, put } from '../../lib/db/repo';
-  import { linksForTag, tagsForLinks } from '../../lib/services/links';
+  import { linksForTag, reconcileTags, tagsForLinks } from '../../lib/services/links';
   import type { Link, Tag } from '../../lib/db/types';
 
   const PAGE_SIZE = 100;
@@ -26,6 +26,9 @@
   });
 
   onMount(async () => {
+    // Heal same-name duplicates first so this tag's link list and count reflect
+    // the merged survivor (the index only ever links here with a survivor id).
+    await reconcileTags();
     const id = new URLSearchParams(location.search).get('id');
     tag = id ? ((await get<Tag>('tags', id)) ?? null) : null;
     if (!tag) {

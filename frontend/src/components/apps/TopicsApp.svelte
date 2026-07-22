@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
-  import { topicLinkCounts } from '../../lib/services/links';
+  import { reconcileTopics, topicLinkCounts } from '../../lib/services/links';
   import { href } from '../../lib/paths';
   import type { LinkTopic, Topic } from '../../lib/db/types';
 
@@ -15,6 +15,8 @@
   onMount(refresh);
 
   async function refresh() {
+    // Collapse any same-name duplicates from cross-device sync before listing.
+    await reconcileTopics();
     const [rows, c] = await Promise.all([all<Topic>('topics'), topicLinkCounts()]);
     rows.sort((a, b) => a.name.localeCompare(b.name));
     topics = rows;

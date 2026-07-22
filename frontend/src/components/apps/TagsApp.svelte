@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
-  import { tagLinkCounts } from '../../lib/services/links';
+  import { reconcileTags, tagLinkCounts } from '../../lib/services/links';
   import { href } from '../../lib/paths';
   import type { LinkTag, Tag } from '../../lib/db/types';
 
@@ -17,6 +17,8 @@
   onMount(refresh);
 
   async function refresh() {
+    // Collapse any same-name duplicates from cross-device sync before listing.
+    await reconcileTags();
     const [rows, c] = await Promise.all([all<Tag>('tags'), tagLinkCounts()]);
     rows.sort((a, b) => a.name.localeCompare(b.name));
     tags = rows;
