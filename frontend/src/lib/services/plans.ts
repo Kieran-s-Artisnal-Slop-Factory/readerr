@@ -63,6 +63,26 @@ export async function deletePlan(id: string): Promise<void> {
 }
 
 /**
+ * Rewrite focus tag ids on every plan after a tag merge (reconcileTags in
+ * services/links.ts): a plan's focus tag pointing at a merged-away duplicate
+ * now points at the surviving tag, de-duplicated in place. A no-op for plans
+ * that referenced none of the merged ids.
+ */
+export async function remapFocusTags(remap: Map<string, string>): Promise<void> {
+  if (remap.size === 0) return;
+  for (const plan of await all<Plan>('plans')) {
+    const current = focusIdsOf(plan);
+    const next: string[] = [];
+    for (const id of current) {
+      const mapped = remap.get(id) ?? id;
+      if (!next.includes(mapped)) next.push(mapped);
+    }
+    const changed = next.length !== current.length || next.some((id, i) => id !== current[i]);
+    if (changed) await put('plans', { ...plan, focus_tag_ids: next });
+  }
+}
+
+/**
  * The plan governing a given week: its own weekly plan if one exists,
  * otherwise the monthly plan covering it, otherwise null. Used by the
  * calendar to show what's planned for each week.

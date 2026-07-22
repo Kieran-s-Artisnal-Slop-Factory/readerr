@@ -2,9 +2,11 @@
  * Link assignment and query helpers over the join tables. All deletes are
  * soft (tombstoned join rows) so they sync.
  */
-import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
+import { all, byIndex, get, put, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
 import { nextRefNumber } from './topics';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
+import { remapFocusTags as remapSettingsFocusTags } from './settings';
+import { remapFocusTags as remapPlansFocusTags } from './plans';
 import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/types';
 
 /**
@@ -14,6 +16,7 @@ import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/typ
  * the top when the list is long enough to paginate.
  */
 export async function tagsByRecentUse(): Promise<Tag[]> {
+  await reconcileTags();
   const [tags, joins] = await Promise.all([all<Tag>('tags'), all<LinkTag>('link_tags')]);
   const lastUse = new Map<string, string>();
   for (const j of joins) {
@@ -24,6 +27,7 @@ export async function tagsByRecentUse(): Promise<Tag[]> {
 }
 
 export async function topicsByRecentUse(): Promise<Topic[]> {
+  await reconcileTopics();
   const [topics, joins] = await Promise.all([all<Topic>('topics'), all<LinkTopic>('link_topics')]);
   const lastUse = new Map<string, string>();
   for (const j of joins) {
@@ -46,6 +50,161 @@ function rankRecent(
   if (ub) return 1;
   if (a.updated_at !== b.updated_at) return a.updated_at < b.updated_at ? 1 : -1;
   return a.name.localeCompare(b.name);
+}
+
+/**
+ * Tags and topics are logical singletons keyed by lower(name) but stored
+ * under a random UUID, so two offline devices that each first-create the tag
+ * "AI" (or the topic "History") mint separate rows that row-level LWW can
+ * never merge — both go live as duplicates and their join rows scatter across
+ * the two ids. reconcileTags / reconcileTopics converge them the same way
+ * getUserSettings (services/settings.ts) converges the settings singleton:
+ * group the live rows by lower(name), and for every group of more than one
+ *
+ *   - keep the smallest-id row as the survivor (ids are identical on every
+ *     device, so both converge on the same winner with no coordination),
+ *   - carry the freshest non-empty prose (tags.notes_md / topics.body_md)
+ *     onto it,
+ *   - re-point the join rows (link_tags / link_topics) that referenced a
+ *     stray onto the survivor, deduping collisions, and
+ *   - soft-delete the strays.
+ *
+ * Called from the read paths that surface these rows (tagsByRecentUse /
+ * topicsByRecentUse and the tag/topic index + detail pages), so a device
+ * heals its duplicates the first time it looks at them. A group of one — the
+ * overwhelmingly common case — writes nothing. See the
+ * "readerr-singleton-uuid-divergence" note and docs/dev/data-model.md.
+ */
+export async function reconcileTags(): Promise<void> {
+  const remap = new Map<string, string>();
+  for (const group of groupByLowerName(await all<Tag>('tags'))) {
+    if (group.length < 2) continue;
+    const survivor = smallestId(group);
+    const strays = group.filter((t) => t.id !== survivor.id);
+    const notes_md = freshestProse(group, (t) => t.notes_md);
+    if (notes_md !== survivor.notes_md) await put('tags', { ...survivor, notes_md });
+    await repointTagJoins(survivor.id, group.map((t) => t.id));
+    for (const s of strays) remap.set(s.id, survivor.id);
+    await softDeleteMany('tags', strays.map((s) => s.id));
+  }
+  // A merged tag may have been a focus tag for suggestions — point those at
+  // the survivor too (settings singleton + every plan). No-ops when nothing merged.
+  if (remap.size > 0) {
+    await remapSettingsFocusTags(remap);
+    await remapPlansFocusTags(remap);
+  }
+}
+
+export async function reconcileTopics(): Promise<void> {
+  for (const group of groupByLowerName(await all<Topic>('topics'))) {
+    if (group.length < 2) continue;
+    const survivor = smallestId(group);
+    const strays = group.filter((t) => t.id !== survivor.id);
+    const body_md = freshestProse(group, (t) => t.body_md);
+    if (body_md !== survivor.body_md) await put('topics', { ...survivor, body_md });
+    await repointTopicJoins(survivor.id, group.map((t) => t.id));
+    await softDeleteMany('topics', strays.map((s) => s.id));
+  }
+}
+
+/** Group rows by lower(name) — the case-insensitive identity we dedupe on. */
+function groupByLowerName<T extends { name: string }>(rows: T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = row.name.toLowerCase();
+    const g = groups.get(key);
+    if (g) g.push(row);
+    else groups.set(key, [row]);
+  }
+  return [...groups.values()];
+}
+
+/** The device-independent survivor: smallest id wins (ids match across devices). */
+function smallestId<T extends { id: string }>(rows: T[]): T {
+  return rows.reduce((best, r) => (r.id < best.id ? r : best));
+}
+
+/**
+ * Prose to carry onto the survivor: newest non-empty value by updated_at, so a
+ * merge never drops a written note for an empty duplicate that merely happens
+ * to have been touched more recently. All-empty stays empty.
+ */
+function freshestProse<T extends SyncFields>(rows: T[], pick: (r: T) => string): string {
+  const written = rows.filter((r) => pick(r).trim() !== '');
+  const pool = written.length > 0 ? written : rows;
+  return pick(pool.reduce((best, r) => (r.updated_at > best.updated_at ? r : best)));
+}
+
+/** Group join rows by link_id, each bucket sorted by id ascending. */
+function byLinkId<T extends SyncFields & { link_id: string }>(joins: T[]): T[][] {
+  const buckets = new Map<string, T[]>();
+  for (const j of joins) {
+    const b = buckets.get(j.link_id);
+    if (b) b.push(j);
+    else buckets.set(j.link_id, [j]);
+  }
+  for (const b of buckets.values()) b.sort((a, z) => (a.id < z.id ? -1 : a.id > z.id ? 1 : 0));
+  return [...buckets.values()];
+}
+
+/**
+ * Move every live link_tags row pointing at any id in the group onto the
+ * survivor. Rows that then duplicate a (link_id, survivor) pair collapse to
+ * the smallest-id one (device-independent), the rest tombstoned.
+ */
+async function repointTagJoins(survivorId: string, groupIds: string[]): Promise<void> {
+  const joins = (
+    await Promise.all(groupIds.map((id) => byIndex<LinkTag>('link_tags', 'tag_id', id)))
+  ).flat();
+  for (const [keeper, ...losers] of byLinkId(joins)) {
+    if (keeper.tag_id !== survivorId) await put('link_tags', { ...keeper, tag_id: survivorId });
+    await softDeleteMany('link_tags', losers.map((l) => l.id));
+  }
+}
+
+/**
+ * Topic twin of repointTagJoins, with the footnote-number bookkeeping
+ * link_tags lacks. A reference the survivor already carries keeps the
+ * survivor's number, so `[^n]` citations in the kept document stay valid; a
+ * reference only the strays had is appended with a fresh number (one past the
+ * survivor's highest ever, tombstones counted — exactly what assignTopic
+ * issues), so the survivor's numbering stays unique and monotonic rather than
+ * inheriting a stray topic's independent 1, 2, 3….
+ */
+async function repointTopicJoins(survivorId: string, groupIds: string[]): Promise<void> {
+  const joins = (
+    await Promise.all(groupIds.map((id) => byIndex<LinkTopic>('link_topics', 'topic_id', id)))
+  ).flat();
+  let next = await nextRefNumber(survivorId);
+  const used = new Set<number>();
+  // Stable link_id order so both devices append fresh numbers identically.
+  const buckets = byLinkId(joins).sort((a, z) => (a[0].link_id < z[0].link_id ? -1 : 1));
+  for (const rows of buckets) {
+    const [keeper, ...losers] = rows; // min-id keeper survives, rest tombstoned
+    const onSurvivor = rows.find((r) => r.topic_id === survivorId);
+    let ref: number;
+    if (onSurvivor) {
+      // The survivor already references this link — keep its footnote number so
+      // the kept document's `[^n]` stays valid (fall back to the lowest a
+      // duplicate carried if the survivor's own row was never numbered).
+      ref = onSurvivor.ref_number > 0 ? onSurvivor.ref_number : lowestRef(rows);
+    } else {
+      // A reference only the strays had: append it with a fresh number.
+      ref = 0;
+    }
+    if (ref <= 0 || used.has(ref)) ref = next++;
+    used.add(ref);
+    if (keeper.topic_id !== survivorId || keeper.ref_number !== ref) {
+      await put('link_topics', { ...keeper, topic_id: survivorId, ref_number: ref });
+    }
+    await softDeleteMany('link_topics', losers.map((l) => l.id));
+  }
+}
+
+/** Lowest assigned (positive) footnote number among rows, or 0 if none. */
+function lowestRef(rows: LinkTopic[]): number {
+  const positive = rows.map((r) => r.ref_number).filter((n) => n > 0);
+  return positive.length > 0 ? Math.min(...positive) : 0;
 }
 
 export async function tagsForLink(linkId: string): Promise<Tag[]> {

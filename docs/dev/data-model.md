@@ -153,6 +153,47 @@ Design decisions embedded here:
   marked *inline extension* rather than a regex over the document is what
   keeps a `[^1]` inside a code span or fenced block from being linked.
 
+## Logical singletons keyed by UUID converge via reconcile
+
+Some rows are *logically* unique on something other than their `id`, yet still
+carry a client-minted UUID `id` like everything else. Two offline devices can
+then each mint a **different `id` for the same logical row**, and row-level LWW
+— which only ever compares two rows with the *same* `id` — never merges them:
+both go live as duplicates that no sync can collapse.
+
+| Logical key | Rows | Convergence |
+|---|---|---|
+| the app has exactly one | `user_settings` | fixed id `readerr-user-settings`; `getUserSettings` collapses stragglers ([settings.ts](../../frontend/src/lib/services/settings.ts)) |
+| `lower(name)` | `tags`, `topics` | `reconcileTags` / `reconcileTopics` ([links.ts](../../frontend/src/lib/services/links.ts)) |
+
+The settings singleton avoids the problem outright by pinning a **fixed id**, so
+every device writes the same row. `tags`/`topics` can't — a name is user data,
+not a constant — so they **reconcile on read** instead. Grouping the live rows
+by `lower(name)`, every group of more than one:
+
+- keeps the **smallest-id** row as the survivor. `id` is identical on every
+  device, so both pick the same winner with no coordination — the same reason
+  the fixed-id trick works, applied to a key the devices don't share up front.
+- carries the **freshest non-empty** prose (`tags.notes_md` / `topics.body_md`)
+  onto the survivor, so a merge never drops a written note for an empty
+  duplicate that merely synced later.
+- **re-points the join rows** the survivor's identity fans out into — this is
+  what makes tags/topics harder than settings, which owns no foreign rows.
+  `link_tags.tag_id` / `link_topics.topic_id` move onto the survivor; a join
+  that would then duplicate a `(link_id, survivor_id)` pair collapses to its
+  smallest-id row. For `link_topics` the survivor keeps its own footnote number
+  for a shared reference (so `[^n]` in the kept document stays valid) and
+  appends a stray-only reference with a *fresh* number (one past the survivor's
+  highest, exactly what `assignTopic` issues) rather than importing the stray
+  topic's independent 1, 2, 3…. Merged tag ids are also rewritten out of every
+  `focus_tag_ids` array (`user_settings` and each `plans` row).
+- **soft-deletes the strays**, like every other deletion, so the collapse syncs.
+
+Reconcile runs from the read paths that surface these rows (`tagsByRecentUse` /
+`topicsByRecentUse` and the tag/topic index + detail pages), so a device heals
+its own duplicates the first time it looks — a group of one, the common case,
+writes nothing. Covered by [reconcile.test.ts](../../frontend/test/reconcile.test.ts).
+
 ## IndexedDB layout
 
 `STORES` in types.ts defines one object store per SQL table (keyPath `id`)

@@ -12,7 +12,7 @@
   import Pagination from '../Pagination.svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
-  import { assignTopic, domainOf, tagsForLinks } from '../../lib/services/links';
+  import { assignTopic, domainOf, reconcileTopics, tagsForLinks } from '../../lib/services/links';
   import { topicReferences, type TopicReference } from '../../lib/services/topics';
   import { citationSuggestions, type CitationSuggestion } from '../../lib/services/citationSuggest';
   import { downloadTopicHtml, downloadTopicMarkdown } from '../../lib/services/topicExport';
@@ -63,6 +63,9 @@
   });
 
   onMount(async () => {
+    // Heal same-name duplicates first so this topic's references and footnote
+    // numbers reflect the merged survivor (the index links here with its id).
+    await reconcileTopics();
     const id = new URLSearchParams(location.search).get('id');
     topic = id ? ((await get<Topic>('topics', id)) ?? null) : null;
     if (!topic) {
