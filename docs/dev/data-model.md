@@ -123,11 +123,12 @@ Design decisions embedded here:
   `resource_list_links`) with soft-deleted rows, so label changes sync.
 - **Logical singletons keyed by UUID converge via reconcile.** Several rows
   are logically "one per natural key" — the settings row (a true singleton),
-  a plan per `(period, starts_on)`, a note per link — yet each is still stored
-  under a random `id`. Two devices that each create one *before* syncing mint
-  separate rows, and row-level LWW never merges different ids: both go live,
-  and a read that breaks the natural-key tie by store/UUID order resolves
-  differently per device. Two guards close this:
+  a plan per `(period, starts_on)`, a note per link, a join per `(left,
+  right)` pair — yet each is still stored under a random `id`. Two devices
+  that each create one *before* syncing mint separate rows, and row-level LWW
+  never merges different ids: both go live, and a read that breaks the
+  natural-key tie by store/UUID order resolves differently per device. A
+  family of guards closes this:
   - **Fixed id** where only one row can ever exist: `user_settings` lives at
     `USER_SETTINGS_ID`, and `getUserSettings` collapses any pre-fix duplicates
     into it ([settings.ts](../../frontend/src/lib/services/settings.ts)).
@@ -148,6 +149,19 @@ Design decisions embedded here:
     local empty week while its entries hung off the synced twin. Closed weeks
     are excluded — a closed week and a fresh open week legitimately share a
     Monday, so this can't collapse to one fixed id.
+  - **Per-pair dedupe** for the junction tables (`link_tags`, `link_topics`,
+    `resource_list_links`), whose natural key is a `(left, right)` pair: the
+    assign helpers guard only against the local db, so two devices that form
+    the same pair each mint a join row — cosmetic duplicate chips and inflated
+    counts. `dedupePairs` ([repo.ts](../../frontend/src/lib/db/repo.ts)) groups
+    live rows by pair, keeps the **smallest-id** survivor and tombstones the
+    rest, surfaced through every join read (`dedupeLinkTags`/`dedupeLinkTopics`
+    in [links.ts](../../frontend/src/lib/services/links.ts) /
+    [topics.ts](../../frontend/src/lib/services/topics.ts), `dedupeListLinks`
+    in [resourceLists.ts](../../frontend/src/lib/services/resourceLists.ts)).
+    `link_topics` also keeps the **lowest `ref_number`** so a `[^3]` citation
+    stays put. A future tag/topic *name*-merge re-points these same join rows,
+    so it must run **before** the pair-dedupe reads, not after.
 
   When adding a synced table that's "one row per natural key", make identity
   deterministic from that key (a fixed id, or a min-id reconcile) — never rely
