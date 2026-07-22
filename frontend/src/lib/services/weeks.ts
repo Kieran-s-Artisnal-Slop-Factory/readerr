@@ -36,8 +36,60 @@ export function weekStartPlus(weekStart: string, weeks: number): string {
   return weekStartOf(d);
 }
 
+/**
+ * Fold duplicate OPEN weeks for the same Monday into one. Two devices that
+ * each `ensureWeek()` a Monday before syncing the other's row mint separate
+ * week rows, and row-level LWW never merges different ids — so the /week page
+ * could render the local (empty) row while the entries hung off its synced
+ * twin. Collapse every group of open weeks sharing a `week_start` into the
+ * smallest-id row (device-independent → both devices converge on the same
+ * survivor), re-point the strays' `week_links` onto it (dropping any that
+ * duplicate a link the survivor already holds), and tombstone the strays.
+ *
+ * Closed weeks are deliberately left alone: a closed week and a fresh open
+ * week legitimately share a Monday (reopening a Monday queues into a new row),
+ * so identity can't collapse to one fixed id the way `user_settings` does —
+ * it's a per-key min-id reconcile. Idempotent: one open week per Monday
+ * writes nothing. Same fix class as `reconcilePlans` and `getNote`.
+ */
+export async function reconcileOpenWeeks(): Promise<void> {
+  const weeks = await all<Week>('weeks');
+  const openByStart = new Map<string, Week[]>();
+  for (const w of weeks) {
+    if (w.closed_at) continue;
+    const group = openByStart.get(w.week_start);
+    if (group) group.push(w);
+    else openByStart.set(w.week_start, [w]);
+  }
+
+  const dupes = [...openByStart.values()].filter((g) => g.length > 1);
+  if (dupes.length === 0) return;
+
+  for (const group of dupes) {
+    const survivor = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];
+    const survivorEntries = await byIndex<WeekLink>('week_links', 'week_id', survivor.id);
+    const seenLinks = new Set(survivorEntries.map((e) => e.link_id));
+    let nextPosition = survivorEntries.reduce((max, e) => Math.max(max, e.position), -1) + 1;
+
+    for (const stray of group.filter((w) => w.id !== survivor.id)) {
+      for (const entry of await byIndex<WeekLink>('week_links', 'week_id', stray.id)) {
+        if (seenLinks.has(entry.link_id)) {
+          // The link is already scheduled in the survivor week — the stray's
+          // duplicate entry drops (survivor's wins, so both devices agree).
+          await softDelete('week_links', entry.id);
+        } else {
+          seenLinks.add(entry.link_id);
+          await put('week_links', { ...entry, week_id: survivor.id, position: nextPosition++ });
+        }
+      }
+      await softDelete('weeks', stray.id);
+    }
+  }
+}
+
 /** The (open, else any) week row for a Monday without creating one. */
 export async function findWeek(weekStart: string): Promise<Week | null> {
+  await reconcileOpenWeeks();
   const weeks = await all<Week>('weeks');
   return (
     weeks.find((w) => w.week_start === weekStart && !w.closed_at) ??
@@ -51,6 +103,7 @@ export async function findWeek(weekStart: string): Promise<Week | null> {
  * week for the same Monday stays closed — links queue into a fresh row.
  */
 export async function ensureWeek(weekStart: string): Promise<Week> {
+  await reconcileOpenWeeks();
   const weeks = await all<Week>('weeks');
   const existing = weeks.find((w) => w.week_start === weekStart && !w.closed_at);
   if (existing) return existing;
@@ -63,6 +116,7 @@ export async function ensureWeek(weekStart: string): Promise<Week> {
  * pre-created for future Mondays don't count until their Monday arrives.
  */
 export async function ensureOpenWeek(): Promise<Week> {
+  await reconcileOpenWeeks();
   const today = currentWeekStart();
   const weeks = await all<Week>('weeks');
   const open = weeks
@@ -341,6 +395,9 @@ export async function closeWeek(week: Week): Promise<CloseResult> {
  * loads). Aggregates the outcome counts for a "week ended" notice.
  */
 export async function autoCloseStaleWeeks(): Promise<CloseResult | null> {
+  // Collapse duplicate open weeks first, so a synced twin of a stale week
+  // isn't closed twice (and its entries close under one row).
+  await reconcileOpenWeeks();
   const today = currentWeekStart();
   const weeks = await all<Week>('weeks');
   const stale = weeks

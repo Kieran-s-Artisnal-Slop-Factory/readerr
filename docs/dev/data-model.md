@@ -121,6 +121,37 @@ Design decisions embedded here:
   is queryable (`weekHistoryForLink`).
 - **Joins are their own tables** (`link_tags`, `link_topics`,
   `resource_list_links`) with soft-deleted rows, so label changes sync.
+- **Logical singletons keyed by UUID converge via reconcile.** Several rows
+  are logically "one per natural key" — the settings row (a true singleton),
+  a plan per `(period, starts_on)`, a note per link — yet each is still stored
+  under a random `id`. Two devices that each create one *before* syncing mint
+  separate rows, and row-level LWW never merges different ids: both go live,
+  and a read that breaks the natural-key tie by store/UUID order resolves
+  differently per device. Two guards close this:
+  - **Fixed id** where only one row can ever exist: `user_settings` lives at
+    `USER_SETTINGS_ID`, and `getUserSettings` collapses any pre-fix duplicates
+    into it ([settings.ts](../../frontend/src/lib/services/settings.ts)).
+  - **Reconcile-on-read** where many keys exist: `reconcilePlans` (inside
+    `listPlans`, [plans.ts](../../frontend/src/lib/services/plans.ts)) and
+    `getNote` ([notes.ts](../../frontend/src/lib/services/notes.ts)) group live
+    rows by natural key, fold each group into the **smallest `id`** — a
+    device-independent choice, so every device converges on the *same*
+    survivor — merge the freshest field values onto it (row-level LWW on
+    `updated_at`, `id` as the tiebreak), and tombstone the strays. Idempotent:
+    with one row per key they write nothing.
+  - **Reconcile with children** when the survivor owns rows in another table:
+    `reconcileOpenWeeks` ([weeks.ts](../../frontend/src/lib/services/weeks.ts),
+    run from every week read path) folds duplicate *open* weeks sharing a
+    `week_start` and additionally re-points the strays' `week_links` onto the
+    survivor (dropping any that duplicate a link it already holds). It's the
+    highest-impact instance: a freshly-synced device could otherwise show the
+    local empty week while its entries hung off the synced twin. Closed weeks
+    are excluded — a closed week and a fresh open week legitimately share a
+    Monday, so this can't collapse to one fixed id.
+
+  When adding a synced table that's "one row per natural key", make identity
+  deterministic from that key (a fixed id, or a min-id reconcile) — never rely
+  on a random UUID plus a local-only "ensure".
 - **`priority` is nullable, and `null` means 3.** Lists sort priority-first
   (1 highest); leaving it unset is the common case, so the column is nullable
   rather than `DEFAULT 3` — that keeps pre-priority rows and older backups
@@ -161,14 +192,14 @@ and indexes append-only. Current version: **7**.
 
 | Store | Indexes | Notes |
 |---|---|---|
-| `user_settings` | `updated_at` | singleton row, created lazily |
-| `plans` | `starts_on`, `updated_at` | |
+| `user_settings` | `updated_at` | singleton at fixed id `USER_SETTINGS_ID`; `getUserSettings` collapses duplicates |
+| `plans` | `starts_on`, `updated_at` | one per `(period, starts_on)`; `reconcilePlans` collapses duplicates on read |
 | `links` | `url`, `added_at`, `updated_at` | `url` powers capture dedupe |
 | `tags`, `topics`, `resource_lists` | `updated_at` | |
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
-| `notes`, `excerpts` | `link_id`, `updated_at` | |
+| `notes`, `excerpts` | `link_id`, `updated_at` | note is one-per-link; `getNote` collapses duplicates on read |
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
-| `weeks` | `week_start`, `updated_at` | |
+| `weeks` | `week_start`, `updated_at` | one *open* week per Monday; `reconcileOpenWeeks` collapses duplicates and re-points `week_links` |
 | `week_links` | `week_id`, `link_id`, `updated_at` | |
 
 The `updated_at` index on every synced store (migration v7) powers the

@@ -6,7 +6,7 @@
  */
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { get, put, withSyncFields } from '../src/lib/db/repo';
+import { all, get, put, withSyncFields } from '../src/lib/db/repo';
 import { getDB } from '../src/lib/db/db';
 import { STORES } from '../src/lib/db/types';
 import { markLinkDone, toggleFavourite } from '../src/lib/services/links';
@@ -15,9 +15,11 @@ import {
   autoCloseStaleWeeks,
   closeWeek,
   currentWeekStart,
+  ensureOpenWeek,
   ensureWeek,
   findWeek,
   pendingWeeksForLink,
+  reconcileOpenWeeks,
   reviewLink,
   scheduleLinkForWeek,
   setEntryDone,
@@ -25,7 +27,7 @@ import {
   weekEntries,
   weekStartPlus,
 } from '../src/lib/services/weeks';
-import type { Link } from '../src/lib/db/types';
+import type { Link, Week, WeekLink } from '../src/lib/db/types';
 
 // Each test starts from an empty DB — fake-indexeddb persists across `it`s in
 // a file, and these tests reuse the current-week Monday.
@@ -191,6 +193,121 @@ describe('scheduleLinkForWeek', () => {
     const entry = (await pendingWeeksForLink(link.id))[0];
     expect(entry.entry.kind).toBe('review');
     expect(entry.week.week_start).toBe(target);
+  });
+});
+
+describe('reconcileOpenWeeks', () => {
+  // Seed rows VERBATIM (bypassing put's updated_at stamp / random ids) so the
+  // tests can pin ids — which row is the smallest-id survivor is the whole point.
+  async function seedWeek(id: string, over: Partial<Week> = {}): Promise<Week> {
+    const row: Week = {
+      updated_at: '2024-01-01T00:00:00.000Z',
+      deleted_at: null,
+      server_seq: null,
+      week_start: currentWeekStart(),
+      closed_at: null,
+      ...over,
+      id,
+    };
+    await (await getDB()).put('weeks', row);
+    return row;
+  }
+
+  async function seedWeekLink(
+    id: string,
+    weekId: string,
+    linkId: string,
+    over: Partial<WeekLink> = {}
+  ): Promise<WeekLink> {
+    const row: WeekLink = {
+      updated_at: '2024-01-01T00:00:00.000Z',
+      deleted_at: null,
+      server_seq: null,
+      week_id: weekId,
+      link_id: linkId,
+      position: 0,
+      kind: 'reading',
+      done_at: null,
+      outcome: null,
+      ...over,
+      id,
+    };
+    await (await getDB()).put('week_links', row);
+    return row;
+  }
+
+  it('folds duplicate open weeks into the smallest-id row and re-points their entries', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-a', { week_start: ws });
+    await seedWeek('week-b', { week_start: ws });
+    const l1 = await makeLink();
+    const l2 = await makeLink();
+    await seedWeekLink('wl-1', 'week-a', l1.id);
+    await seedWeekLink('wl-2', 'week-b', l2.id);
+
+    await reconcileOpenWeeks();
+
+    const liveWeeks = await all<Week>('weeks');
+    expect(liveWeeks).toHaveLength(1);
+    expect(liveWeeks[0].id).toBe('week-a'); // smallest id survives
+
+    // Both links now hang off the survivor, so the /week page renders them.
+    const entries = await weekEntries('week-a');
+    expect(entries.map((e) => e.link.id).sort()).toEqual([l1.id, l2.id].sort());
+
+    const rawB = (await (await getDB()).get('weeks', 'week-b')) as Week;
+    expect(rawB.deleted_at).not.toBeNull(); // stray week tombstoned
+  });
+
+  it('drops the stray entry when the same link is scheduled in both weeks', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-a', { week_start: ws });
+    await seedWeek('week-b', { week_start: ws });
+    const shared = await makeLink();
+    await seedWeekLink('wl-a', 'week-a', shared.id);
+    await seedWeekLink('wl-b', 'week-b', shared.id);
+
+    await reconcileOpenWeeks();
+
+    const entries = await weekEntries('week-a');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].entry.id).toBe('wl-a'); // survivor's own entry wins
+    const rawStray = (await (await getDB()).get('week_links', 'wl-b')) as WeekLink;
+    expect(rawStray.deleted_at).not.toBeNull();
+  });
+
+  it('leaves a closed week sharing the Monday alone, folding only the open twins', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-closed', { week_start: ws, closed_at: '2024-06-10T00:00:00.000Z' });
+    await seedWeek('week-open-b', { week_start: ws });
+    await seedWeek('week-open-c', { week_start: ws });
+
+    await reconcileOpenWeeks();
+
+    const ids = (await all<Week>('weeks')).map((w) => w.id).sort();
+    expect(ids).toEqual(['week-closed', 'week-open-b']);
+  });
+
+  it('ensureOpenWeek converges on the surviving week', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-z', { week_start: ws });
+    await seedWeek('week-a', { week_start: ws });
+
+    const open = await ensureOpenWeek();
+    expect(open.id).toBe('week-a');
+    expect(await all<Week>('weeks')).toHaveLength(1);
+  });
+
+  it('is idempotent for a single open week (no tombstones, no updated_at churn)', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('solo', { week_start: ws, updated_at: '2024-06-02T00:00:00.000Z' });
+
+    await reconcileOpenWeeks();
+
+    const live = await all<Week>('weeks');
+    expect(live).toHaveLength(1);
+    expect(live[0].id).toBe('solo');
+    expect(live[0].updated_at).toBe('2024-06-02T00:00:00.000Z');
   });
 });
 
