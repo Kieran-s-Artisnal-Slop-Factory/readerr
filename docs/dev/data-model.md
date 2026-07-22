@@ -120,7 +120,21 @@ Design decisions embedded here:
   entry's `outcome` rather than deleting it; a link's whole reading history
   is queryable (`weekHistoryForLink`).
 - **Joins are their own tables** (`link_tags`, `link_topics`,
-  `resource_list_links`) with soft-deleted rows, so label changes sync.
+  `resource_list_links`) with soft-deleted rows, so label changes sync. Each
+  is logically "one row per (left, right) pair" but keyed by a random UUID,
+  so two devices that form the same pair before syncing each mint a separate
+  row that row-level LWW never merges — cosmetic duplicate chips and
+  double-counts. The read paths collapse these convergently: `dedupePairs`
+  in [repo.ts](../../frontend/src/lib/db/repo.ts) groups live rows by pair
+  and, for any group larger than one, keeps the **smallest-id** row (a
+  device-independent choice) and tombstones the rest, so every client settles
+  on the same survivor without coordinating — the same reconcile-on-read
+  shape as the settings/plans/weeks singletons. `link_topics` additionally
+  keeps the **lowest `ref_number`** on the survivor so a `[^3]` citation
+  stays put (`dedupeLinkTopics` in
+  [topics.ts](../../frontend/src/lib/services/topics.ts)). Because the
+  survivor is chosen by id, a future tag/topic *name*-merge that re-points
+  these join rows must run **before** the pair-dedupe reads, not after.
 - **`priority` is nullable, and `null` means 3.** Lists sort priority-first
   (1 highest); leaving it unset is the common case, so the column is nullable
   rather than `DEFAULT 3` — that keeps pre-priority rows and older backups

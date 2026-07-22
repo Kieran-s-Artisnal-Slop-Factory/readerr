@@ -2,10 +2,24 @@
  * Link assignment and query helpers over the join tables. All deletes are
  * soft (tombstoned join rows) so they sync.
  */
-import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
-import { nextRefNumber } from './topics';
+import { all, byIndex, dedupePairs, get, put, softDelete, withSyncFields } from '../db/repo';
+import { dedupeLinkTopics, nextRefNumber } from './topics';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
 import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/types';
+
+/** The (link, tag) pair a join row stands for — its logical identity. */
+const tagPairKey = (j: LinkTag): string => `${j.link_id} ${j.tag_id}`;
+
+/**
+ * Collapse duplicate (link, tag) joins to one per pair (see dedupePairs).
+ * Every read of link_tags runs through here so a tag assigned to a link on
+ * two devices never surfaces as a doubled chip or an inflated tag count.
+ * link_topics has its own twin (dedupeLinkTopics) that also keeps footnote
+ * numbers stable.
+ */
+async function dedupeLinkTags(rows: LinkTag[]): Promise<LinkTag[]> {
+  return dedupePairs('link_tags', rows, tagPairKey);
+}
 
 /**
  * Tags ordered by most-recent assignment to a link (the join row's
@@ -14,7 +28,10 @@ import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/typ
  * the top when the list is long enough to paginate.
  */
 export async function tagsByRecentUse(): Promise<Tag[]> {
-  const [tags, joins] = await Promise.all([all<Tag>('tags'), all<LinkTag>('link_tags')]);
+  const [tags, joins] = await Promise.all([
+    all<Tag>('tags'),
+    all<LinkTag>('link_tags').then(dedupeLinkTags),
+  ]);
   const lastUse = new Map<string, string>();
   for (const j of joins) {
     const prev = lastUse.get(j.tag_id);
@@ -24,7 +41,10 @@ export async function tagsByRecentUse(): Promise<Tag[]> {
 }
 
 export async function topicsByRecentUse(): Promise<Topic[]> {
-  const [topics, joins] = await Promise.all([all<Topic>('topics'), all<LinkTopic>('link_topics')]);
+  const [topics, joins] = await Promise.all([
+    all<Topic>('topics'),
+    all<LinkTopic>('link_topics').then(dedupeLinkTopics),
+  ]);
   const lastUse = new Map<string, string>();
   for (const j of joins) {
     const prev = lastUse.get(j.topic_id);
@@ -49,25 +69,25 @@ function rankRecent(
 }
 
 export async function tagsForLink(linkId: string): Promise<Tag[]> {
-  const joins = await byIndex<LinkTag>('link_tags', 'link_id', linkId);
+  const joins = await dedupeLinkTags(await byIndex<LinkTag>('link_tags', 'link_id', linkId));
   const tags = await Promise.all(joins.map((j) => get<Tag>('tags', j.tag_id)));
   return tags.filter((t): t is Tag => !!t);
 }
 
 export async function topicsForLink(linkId: string): Promise<Topic[]> {
-  const joins = await byIndex<LinkTopic>('link_topics', 'link_id', linkId);
+  const joins = await dedupeLinkTopics(await byIndex<LinkTopic>('link_topics', 'link_id', linkId));
   const topics = await Promise.all(joins.map((j) => get<Topic>('topics', j.topic_id)));
   return topics.filter((t): t is Topic => !!t);
 }
 
 export async function linksForTag(tagId: string): Promise<Link[]> {
-  const joins = await byIndex<LinkTag>('link_tags', 'tag_id', tagId);
+  const joins = await dedupeLinkTags(await byIndex<LinkTag>('link_tags', 'tag_id', tagId));
   const links = await Promise.all(joins.map((j) => get<Link>('links', j.link_id)));
   return links.filter((l): l is Link => !!l);
 }
 
 export async function linksForTopic(topicId: string): Promise<Link[]> {
-  const joins = await byIndex<LinkTopic>('link_topics', 'topic_id', topicId);
+  const joins = await dedupeLinkTopics(await byIndex<LinkTopic>('link_topics', 'topic_id', topicId));
   const links = await Promise.all(joins.map((j) => get<Link>('links', j.link_id)));
   return links.filter((l): l is Link => !!l);
 }
@@ -141,22 +161,21 @@ export async function unassignTopic(linkId: string, topicId: string): Promise<vo
 
 /** Live-link count per tag id (for the tags index page). */
 export async function tagLinkCounts(): Promise<Map<string, number>> {
-  return joinCounts<LinkTag>('link_tags', (j) => j.tag_id);
+  const joins = await dedupeLinkTags(await all<LinkTag>('link_tags'));
+  return countBy(joins, (j) => j.tag_id);
 }
 
 /** Live-link count per topic id (for the topics index page). */
 export async function topicLinkCounts(): Promise<Map<string, number>> {
-  return joinCounts<LinkTopic>('link_topics', (j) => j.topic_id);
+  const joins = await dedupeLinkTopics(await all<LinkTopic>('link_topics'));
+  return countBy(joins, (j) => j.topic_id);
 }
 
-async function joinCounts<T extends SyncFields & { link_id: string }>(
-  store: 'link_tags' | 'link_topics',
-  key: (j: T) => string
-): Promise<Map<string, number>> {
-  const joins = await all<T>(store);
+/** Tally rows by a chosen key — one entry per row (duplicates removed upstream). */
+function countBy<T>(rows: T[], key: (row: T) => string): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const j of joins) {
-    counts.set(key(j), (counts.get(key(j)) ?? 0) + 1);
+  for (const row of rows) {
+    counts.set(key(row), (counts.get(key(row)) ?? 0) + 1);
   }
   return counts;
 }
@@ -170,7 +189,7 @@ export async function tagsForLinks(links: Link[]): Promise<Map<string, Tag[]>> {
   const map = new Map<string, Tag[]>();
   const cache = new Map<string, Tag | undefined>();
   for (const link of links) {
-    const joins = await byIndex<LinkTag>('link_tags', 'link_id', link.id);
+    const joins = await dedupeLinkTags(await byIndex<LinkTag>('link_tags', 'link_id', link.id));
     const tags: Tag[] = [];
     for (const j of joins) {
       if (!cache.has(j.tag_id)) cache.set(j.tag_id, await get<Tag>('tags', j.tag_id));
@@ -187,7 +206,7 @@ export async function topicsForLinks(links: Link[]): Promise<Map<string, Topic[]
   const map = new Map<string, Topic[]>();
   const cache = new Map<string, Topic | undefined>();
   for (const link of links) {
-    const joins = await byIndex<LinkTopic>('link_topics', 'link_id', link.id);
+    const joins = await dedupeLinkTopics(await byIndex<LinkTopic>('link_topics', 'link_id', link.id));
     const topics: Topic[] = [];
     for (const j of joins) {
       if (!cache.has(j.topic_id)) cache.set(j.topic_id, await get<Topic>('topics', j.topic_id));
@@ -201,7 +220,10 @@ export async function topicsForLinks(links: Link[]): Promise<Map<string, Topic[]
 
 /** All live tag assignments as a link_id → Tag[] map (for list pages). */
 export async function tagsByLinkMap(): Promise<Map<string, Tag[]>> {
-  const [joins, tags] = await Promise.all([all<LinkTag>('link_tags'), all<Tag>('tags')]);
+  const [joins, tags] = await Promise.all([
+    all<LinkTag>('link_tags').then(dedupeLinkTags),
+    all<Tag>('tags'),
+  ]);
   const tagById = new Map(tags.map((t) => [t.id, t]));
   const byLink = new Map<string, Tag[]>();
   for (const j of joins) {
@@ -213,7 +235,10 @@ export async function tagsByLinkMap(): Promise<Map<string, Tag[]>> {
 
 /** All live topic assignments as a link_id → Topic[] map (for list pages). */
 export async function topicsByLinkMap(): Promise<Map<string, Topic[]>> {
-  const [joins, topics] = await Promise.all([all<LinkTopic>('link_topics'), all<Topic>('topics')]);
+  const [joins, topics] = await Promise.all([
+    all<LinkTopic>('link_topics').then(dedupeLinkTopics),
+    all<Topic>('topics'),
+  ]);
   const topicById = new Map(topics.map((t) => [t.id, t]));
   const byLink = new Map<string, Topic[]>();
   for (const j of joins) {

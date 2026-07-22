@@ -102,3 +102,66 @@ export async function softDeleteMany(store: StoreName, ids: string[]): Promise<v
   }
   await tx.done;
 }
+
+/**
+ * Collapse logical-duplicate rows in a join table to one row per pair.
+ *
+ * Junction tables (link_tags, link_topics, resource_list_links) are
+ * conceptually "one row per (left, right) pair" but keyed by a random UUID,
+ * so two devices that form the same pair before syncing each mint a separate
+ * row. Row-level LWW never merges different ids, so both go live — duplicate
+ * chips and inflated counts. This picks a device-independent survivor per
+ * pair (the smallest id, so every client agrees without coordinating) and
+ * tombstones the rest. The choice is deterministic, so each device converges
+ * on the same row exactly as the settings/plans/weeks singletons do (see the
+ * "logical singletons keyed by UUID" note in docs/dev/data-model.md).
+ *
+ * `rows` must be a COMPLETE set of live rows for every pair it contains —
+ * true of `all(store)` and of any `byIndex` on one side of the pair, since
+ * the index returns every live row on that axis. `mergeSurvivor` folds any
+ * duplicate-carried state onto the survivor before the strays drop (return
+ * the row to persist, or null to leave it as is); link_topics uses it to keep
+ * the lowest footnote number so citations stay stable.
+ *
+ * Runs on read and heals in place: with no duplicates it writes nothing, and
+ * once a pair has collapsed its tombstoned strays never resurface, so later
+ * reads are a cheap in-memory grouping.
+ */
+export async function dedupePairs<T extends SyncFields>(
+  store: StoreName,
+  rows: T[],
+  keyOf: (row: T) => string,
+  mergeSurvivor?: (survivor: T, duplicates: T[]) => T | null
+): Promise<T[]> {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
+  }
+
+  const survivors: T[] = [];
+  const strays: string[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      survivors.push(group[0]);
+      continue;
+    }
+    // Smallest id wins — a fixed, device-independent choice, so two clients
+    // deduping the same pair keep the same row without coordinating.
+    const [survivor, ...duplicates] = [...group].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    );
+    let kept = survivor;
+    if (mergeSurvivor) {
+      const merged = mergeSurvivor(survivor, duplicates);
+      if (merged) kept = await put(store, merged);
+    }
+    survivors.push(kept);
+    for (const dup of duplicates) strays.push(dup.id);
+  }
+
+  if (strays.length) await softDeleteMany(store, strays);
+  return survivors;
+}
