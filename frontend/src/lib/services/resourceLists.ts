@@ -4,8 +4,30 @@
  * a list flags it as a resource — lists are the organizational layer over
  * the flat ⚒ resources view.
  */
-import { all, byIndex, get, put, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
+import {
+  all,
+  byIndex,
+  dedupePairs,
+  get,
+  put,
+  softDelete,
+  softDeleteMany,
+  withSyncFields,
+} from '../db/repo';
 import type { Link, ResourceList, ResourceListLink } from '../db/types';
+
+/** The (list, link) pair a membership row stands for — its logical identity. */
+const listPairKey = (j: ResourceListLink): string => `${j.list_id} ${j.link_id}`;
+
+/**
+ * Collapse duplicate (list, link) memberships to one per pair (see
+ * dedupePairs). Every read of resource_list_links runs through here so a link
+ * added to the same list on two devices shows once and counts once; the
+ * smallest-id survivor keeps its position, which is device-independent too.
+ */
+async function dedupeListLinks(rows: ResourceListLink[]): Promise<ResourceListLink[]> {
+  return dedupePairs('resource_list_links', rows, listPairKey);
+}
 
 export async function listResourceLists(): Promise<ResourceList[]> {
   return (await all<ResourceList>('resource_lists')).sort((a, b) => a.name.localeCompare(b.name));
@@ -28,7 +50,9 @@ export interface ListMember {
 }
 
 export async function listMembers(listId: string): Promise<ListMember[]> {
-  const joins = await byIndex<ResourceListLink>('resource_list_links', 'list_id', listId);
+  const joins = await dedupeListLinks(
+    await byIndex<ResourceListLink>('resource_list_links', 'list_id', listId)
+  );
   const members: ListMember[] = [];
   for (const entry of joins) {
     const link = await get<Link>('links', entry.link_id);
@@ -58,7 +82,7 @@ export async function removeFromList(entryId: string): Promise<void> {
 
 /** Per-list member counts for the Resources index. */
 export async function listMemberCounts(): Promise<Map<string, number>> {
-  const joins = await all<ResourceListLink>('resource_list_links');
+  const joins = await dedupeListLinks(await all<ResourceListLink>('resource_list_links'));
   const counts = new Map<string, number>();
   for (const j of joins) {
     counts.set(j.list_id, (counts.get(j.list_id) ?? 0) + 1);
