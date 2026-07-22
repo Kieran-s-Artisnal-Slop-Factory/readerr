@@ -284,6 +284,50 @@ func TestStatsAndReset(t *testing.T) {
 	}
 }
 
+// A restarted seq counter must be observable: the epoch names one lifetime of
+// the counter, is stable across ordinary syncs, and rotates on /sync/reset so
+// clients know to throw away their cursors.
+func TestEpochStableAcrossSyncsAndRotatedByReset(t *testing.T) {
+	s := newTestServer(t)
+
+	push := doPush(t, s, map[string][]map[string]any{
+		"links": {linkRow("a", "2026-07-10T10:00:00Z", nil)},
+	})
+	if push.Epoch == "" {
+		t.Fatalf("push response missing epoch")
+	}
+
+	w := httptest.NewRecorder()
+	s.handleSyncStats(w, httptest.NewRequest("GET", "/sync/stats", nil))
+	var stats struct {
+		Epoch string `json:"epoch"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &stats)
+	if stats.Epoch != push.Epoch {
+		t.Fatalf("stats epoch %q != push epoch %q", stats.Epoch, push.Epoch)
+	}
+
+	pw := httptest.NewRecorder()
+	s.handlePull(pw, httptest.NewRequest("GET", "/sync/pull?since=0", nil))
+	var pull struct {
+		Epoch string `json:"epoch"`
+	}
+	json.Unmarshal(pw.Body.Bytes(), &pull)
+	if pull.Epoch != push.Epoch {
+		t.Fatalf("pull epoch %q != push epoch %q", pull.Epoch, push.Epoch)
+	}
+
+	rw := httptest.NewRecorder()
+	s.handleSyncReset(rw, httptest.NewRequest("POST", "/sync/reset", nil))
+	if rw.Code != 200 {
+		t.Fatalf("reset status %d", rw.Code)
+	}
+	after := s.epoch()
+	if after == "" || after == push.Epoch {
+		t.Fatalf("epoch after reset = %q, want a fresh non-empty value (was %q)", after, push.Epoch)
+	}
+}
+
 func TestPushRejectsRowMissingRequiredFields(t *testing.T) {
 	s := newTestServer(t)
 	body, _ := json.Marshal(pushRequest{Rows: map[string][]map[string]any{

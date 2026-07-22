@@ -16,9 +16,10 @@ var schemaSQL string
 const serverDDL = `
 CREATE TABLE sync_state (
     id       INTEGER PRIMARY KEY CHECK (id = 1),
-    last_seq INTEGER NOT NULL
+    last_seq INTEGER NOT NULL,
+    epoch    TEXT NOT NULL
 );
-INSERT INTO sync_state (id, last_seq) VALUES (1, 0);
+INSERT INTO sync_state (id, last_seq, epoch) VALUES (1, 0, lower(hex(randomblob(16))));
 `
 
 // Migrations for databases created before the current schema.sql shape.
@@ -141,6 +142,15 @@ ALTER TABLE links ADD COLUMN priority INTEGER CHECK (priority IN (1, 2, 3));
 	// first time it opens the topic and syncs them up from there.
 	`
 ALTER TABLE link_topics ADD COLUMN ref_number INTEGER NOT NULL DEFAULT 0;
+`,
+	// v15 → v16: sync epoch — identifies one lifetime of the seq counter. A
+	// counter restart (new database, /sync/reset) mints a new epoch, so clients
+	// can tell their pull cursor no longer means anything and resync from zero.
+	// Without this, a row accepted at a low seq after a restart sits below
+	// every existing client's cursor and is invisible to them forever.
+	`
+ALTER TABLE sync_state ADD COLUMN epoch TEXT NOT NULL DEFAULT '';
+UPDATE sync_state SET epoch = lower(hex(randomblob(16)));
 `,
 }
 

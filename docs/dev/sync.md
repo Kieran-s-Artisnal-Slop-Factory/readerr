@@ -98,15 +98,22 @@ shared history. UI lives in
 [SettingsApp.svelte](../../frontend/src/components/apps/SettingsApp.svelte)
 (`saveSyncUrl` / `resolveConflict`).
 
-> **Sharp edge — "Use local data" strands other devices.** `POST /sync/reset`
-> zeroes the server's `last_seq` counter, and the triggering device
-> repopulates from seq 1. But any *other* device still holds a high
-> `lastPullSeq`, so it will `pull?since=<high>` and see none of the
-> repopulated low-seq rows — it silently stays on its old data until it
-> re-onboards or re-enters the URL and picks **Use server data** (both call
-> `resetLocalSyncState`). This is inherent to "make this device
-> authoritative"; **Merge both** never strands a device and is the default
-> recommendation. Surface this in the UI if reset ever becomes common.
+> **Sharp edge (now guarded) — a restarted counter strands other devices.**
+> `POST /sync/reset` zeroes the server's `last_seq` counter, and the
+> triggering device repopulates from seq 1. Any *other* device still holds a
+> high `lastPullSeq`, so it would `pull?since=<high>` and never see the
+> repopulated low-seq rows — it silently kept its old data, and rows it
+> lacked entirely (e.g. the open week everything's entries point at, stuck at
+> seq 2) stayed invisible forever, blanking the week page. The **epoch**
+> guard closes this: `sync_state` carries an `epoch` id minted per counter
+> lifetime (fresh database, or rotated by `/sync/reset`), returned by
+> `/sync/stats`, `/sync/push`, and `/sync/pull`. `syncNow()` probes
+> `/sync/stats` first; a changed epoch triggers `resetLocalSyncState()` so
+> that sync exchanges complete datasets under LWW instead of trusting dead
+> cursors. As a second belt, `reconcileOpenWeeks` re-`put`s the surviving
+> week when it folds duplicates, so the row every entry now hangs off is
+> re-pushed under a fresh `server_seq` and reaches devices whose cursor had
+> already passed its original one.
 
 ## Sync history & status
 
@@ -243,8 +250,8 @@ echo; it costs a little bandwidth, never correctness.
 | `GET /healthz` | Liveness probe (used by *Test connection*). |
 | `POST /sync/push` | Accept client rows (LWW, stamps `server_seq`). |
 | `GET /sync/pull?since=N&limit=M` | Rows past the cursor, optionally paged; gzip'd. |
-| `GET /sync/stats` | `{latestSeq}` — cheap "does this server have data?" probe. |
-| `POST /sync/reset` | Wipe all server data and restart the sequence (the *Use local data* option). |
+| `GET /sync/stats` | `{latestSeq, epoch}` — cheap "does this server have data?" probe; the epoch also fronts every sync so clients detect counter restarts. |
+| `POST /sync/reset` | Wipe all server data, restart the sequence, and rotate the epoch (the *Use local data* option). |
 | `GET /backup` | Download the server's SQLite file (WAL-checkpointed first). |
 | `GET /title?url=…` | Server-side page-title fetch for captured links. |
 | `GET /dbsize` | Server database size in bytes (shown on the Stats page). |

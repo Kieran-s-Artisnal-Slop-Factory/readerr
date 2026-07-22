@@ -257,6 +257,12 @@ describe('reconcileOpenWeeks', () => {
 
     const rawB = (await (await getDB()).get('weeks', 'week-b')) as Week;
     expect(rawB.deleted_at).not.toBeNull(); // stray week tombstoned
+
+    // The survivor is touched so the next push re-stamps its server_seq — a
+    // device whose pull cursor already passed the survivor's original seq
+    // would otherwise never receive the row its entries now point at.
+    const rawA = (await (await getDB()).get('weeks', 'week-a')) as Week;
+    expect(rawA.updated_at > '2024-01-01T00:00:00.000Z').toBe(true);
   });
 
   it('drops the stray entry when the same link is scheduled in both weeks', async () => {

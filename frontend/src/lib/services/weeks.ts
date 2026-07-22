@@ -84,6 +84,15 @@ export async function reconcileOpenWeeks(): Promise<void> {
       }
       await softDelete('weeks', stray.id);
     }
+
+    // Touch the survivor so it re-pushes with a fresh server_seq. The fold
+    // re-points entries onto the survivor but the row itself would otherwise
+    // keep the seq from when it was first accepted — and a device whose pull
+    // cursor is already past that seq can never receive it, leaving it with
+    // entries that reference a week it doesn't have (an empty /week page that
+    // mints yet another duplicate). Re-stamping makes every device's next
+    // pull deliver the row everything now hangs off.
+    await put('weeks', survivor);
   }
 }
 

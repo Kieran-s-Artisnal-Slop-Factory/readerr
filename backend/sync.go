@@ -121,6 +121,20 @@ type acceptedRow struct {
 type pushResponse struct {
 	Accepted  []acceptedRow `json:"accepted"`
 	LatestSeq int64         `json:"latestSeq"`
+	Epoch     string        `json:"epoch"`
+}
+
+// epoch identifies one lifetime of the seq counter: it changes whenever the
+// counter restarts (fresh database, /sync/reset), telling clients their pull
+// cursor belongs to a different numbering and must be discarded. Pre-epoch
+// databases (older sync_state without the column) surface it as '' — clients
+// skip the check.
+func (s *server) epoch() string {
+	var epoch string
+	if err := s.db.QueryRow("SELECT epoch FROM sync_state WHERE id = 1").Scan(&epoch); err != nil {
+		return ""
+	}
+	return epoch
 }
 
 // toDBValue converts a wire value to what the sqlite column stores.
@@ -232,7 +246,7 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("sync push", "accepted", len(accepted), "latestSeq", lastSeq)
-	writeJSON(w, pushResponse{Accepted: accepted, LatestSeq: lastSeq})
+	writeJSON(w, pushResponse{Accepted: accepted, LatestSeq: lastSeq, Epoch: s.epoch()})
 }
 
 // GET /sync/pull?since=<server_seq>&limit=<n> — return rows (tombstones
@@ -320,7 +334,7 @@ func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, map[string]any{"rows": out, "latestSeq": latest})
+	writeJSON(w, map[string]any{"rows": out, "latestSeq": latest, "epoch": s.epoch()})
 }
 
 // fromDBValue converts a sqlite value back to the wire format.
@@ -355,7 +369,7 @@ func (s *server) handleSyncStats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"latestSeq": lastSeq})
+	writeJSON(w, map[string]any{"latestSeq": lastSeq, "epoch": s.epoch()})
 }
 
 // POST /sync/reset — wipe every synced table and restart the sequence. Used
@@ -375,7 +389,10 @@ func (s *server) handleSyncReset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := tx.Exec("UPDATE sync_state SET last_seq = 0 WHERE id = 1"); err != nil {
+	// Restarting the counter invalidates every client's pull cursor — rotate
+	// the epoch so they notice and resync from zero instead of silently
+	// missing rows accepted at low seqs.
+	if _, err := tx.Exec("UPDATE sync_state SET last_seq = 0, epoch = lower(hex(randomblob(16))) WHERE id = 1"); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

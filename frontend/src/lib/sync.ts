@@ -200,6 +200,35 @@ export async function getSyncStatus(): Promise<SyncStatus> {
   };
 }
 
+/**
+ * Guard against a restarted server seq counter. The pull cursor is only
+ * meaningful within one lifetime of the counter — after a /sync/reset or a
+ * fresh server database, rows re-accepted at low seqs would sit below our
+ * high-water mark and never be pulled (an open week stuck at seq 2 while the
+ * counter is in the thousands silently blanks the reading list on every
+ * other device). The server names each counter lifetime with an epoch id;
+ * when it changes, drop all local sync bookkeeping so this sync pushes the
+ * full dataset and pulls from zero. Old backends without the epoch (probe
+ * fails or omits it) skip the check — no worse than before.
+ */
+async function checkServerEpoch(base: string): Promise<void> {
+  let epoch: string | undefined;
+  try {
+    const res = await fetch(`${base}/sync/stats`);
+    if (!res.ok) return;
+    epoch = ((await res.json()) as { epoch?: string }).epoch;
+  } catch {
+    return; // unreachable — the push right after will surface the real error
+  }
+  if (!epoch) return;
+  const known = await getMeta<string>('serverEpoch');
+  if (known && known !== epoch) {
+    console.warn('[readerr sync] server epoch changed — resyncing from scratch');
+    await resetLocalSyncState();
+  }
+  await setMeta('serverEpoch', epoch);
+}
+
 /** Rows per push request — LWW makes multi-request pushes safe (§scaling). */
 const PUSH_CHUNK = 2000;
 /** Rows per pull page; the client loops until a short page arrives. */
@@ -209,6 +238,8 @@ export async function syncNow(): Promise<SyncResult> {
   try {
     const db = await getDB();
     const base = getSyncUrl();
+
+    await checkServerEpoch(base);
 
     // ---- push (dirty rows via the per-store updated_at index, so the scan
     // cost tracks changes since the last push, not history — scaling.md §4)
