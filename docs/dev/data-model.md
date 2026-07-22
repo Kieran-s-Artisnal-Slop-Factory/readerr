@@ -123,21 +123,22 @@ Design decisions embedded here:
   `resource_list_links`) with soft-deleted rows, so label changes sync.
 - **Logical singletons keyed by UUID converge via reconcile.** Several rows
   are logically "one per natural key" — the settings row (a true singleton),
-  a plan per `(period, starts_on)` — yet each is still stored under a random
-  `id`. Two devices that each create one *before* syncing the other's mint
+  a plan per `(period, starts_on)`, a note per link — yet each is still stored
+  under a random `id`. Two devices that each create one *before* syncing mint
   separate rows, and row-level LWW never merges different ids: both go live,
   and a read that breaks the natural-key tie by store/UUID order resolves
   differently per device. Two guards close this:
   - **Fixed id** where only one row can ever exist: `user_settings` lives at
     `USER_SETTINGS_ID`, and `getUserSettings` collapses any pre-fix duplicates
     into it ([settings.ts](../../frontend/src/lib/services/settings.ts)).
-  - **Reconcile-on-read** where many keys exist: `reconcilePlans` (run inside
-    `listPlans`, [plans.ts](../../frontend/src/lib/services/plans.ts)) groups
-    live rows by natural key, folds each group into the **smallest `id`** — a
+  - **Reconcile-on-read** where many keys exist: `reconcilePlans` (inside
+    `listPlans`, [plans.ts](../../frontend/src/lib/services/plans.ts)) and
+    `getNote` ([notes.ts](../../frontend/src/lib/services/notes.ts)) group live
+    rows by natural key, fold each group into the **smallest `id`** — a
     device-independent choice, so every device converges on the *same*
-    survivor — merges the freshest field values onto it (row-level LWW on
-    `updated_at`, `id` as the tiebreak), and tombstones the strays. It is
-    idempotent: with one row per key it writes nothing.
+    survivor — merge the freshest field values onto it (row-level LWW on
+    `updated_at`, `id` as the tiebreak), and tombstone the strays. Idempotent:
+    with one row per key they write nothing.
 
   When adding a synced table that's "one row per natural key", make identity
   deterministic from that key (a fixed id, or a min-id reconcile) — never rely
@@ -187,7 +188,7 @@ and indexes append-only. Current version: **7**.
 | `links` | `url`, `added_at`, `updated_at` | `url` powers capture dedupe |
 | `tags`, `topics`, `resource_lists` | `updated_at` | |
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
-| `notes`, `excerpts` | `link_id`, `updated_at` | |
+| `notes`, `excerpts` | `link_id`, `updated_at` | note is one-per-link; `getNote` collapses duplicates on read |
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
 | `weeks` | `week_start`, `updated_at` | |
 | `week_links` | `week_id`, `link_id`, `updated_at` | |
