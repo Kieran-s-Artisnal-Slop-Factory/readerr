@@ -139,6 +139,15 @@ Design decisions embedded here:
     survivor — merge the freshest field values onto it (row-level LWW on
     `updated_at`, `id` as the tiebreak), and tombstone the strays. Idempotent:
     with one row per key they write nothing.
+  - **Reconcile with children** when the survivor owns rows in another table:
+    `reconcileOpenWeeks` ([weeks.ts](../../frontend/src/lib/services/weeks.ts),
+    run from every week read path) folds duplicate *open* weeks sharing a
+    `week_start` and additionally re-points the strays' `week_links` onto the
+    survivor (dropping any that duplicate a link it already holds). It's the
+    highest-impact instance: a freshly-synced device could otherwise show the
+    local empty week while its entries hung off the synced twin. Closed weeks
+    are excluded — a closed week and a fresh open week legitimately share a
+    Monday, so this can't collapse to one fixed id.
 
   When adding a synced table that's "one row per natural key", make identity
   deterministic from that key (a fixed id, or a min-id reconcile) — never rely
@@ -190,7 +199,7 @@ and indexes append-only. Current version: **7**.
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
 | `notes`, `excerpts` | `link_id`, `updated_at` | note is one-per-link; `getNote` collapses duplicates on read |
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
-| `weeks` | `week_start`, `updated_at` | |
+| `weeks` | `week_start`, `updated_at` | one *open* week per Monday; `reconcileOpenWeeks` collapses duplicates and re-points `week_links` |
 | `week_links` | `week_id`, `link_id`, `updated_at` | |
 
 The `updated_at` index on every synced store (migration v7) powers the
