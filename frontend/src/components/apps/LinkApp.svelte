@@ -12,6 +12,7 @@
   import TopicPicker from '../TopicPicker.svelte';
   import { byIndex, get, put, softDelete, withSyncFields } from '../../lib/db/repo';
   import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../../lib/services/links';
+  import { getNote } from '../../lib/services/notes';
   import {
     entryKindFor,
     pendingWeeksForLink,
@@ -53,8 +54,9 @@
       missing = true;
       return;
     }
-    const notes = await byIndex<Note>('notes', 'link_id', id);
-    note = notes[0] ?? null;
+    // Collapse any duplicate note rows (two devices editing offline) so the
+    // freshest body shows and both devices converge on one row.
+    note = await getNote(id);
     excerpts = (await byIndex<Excerpt>('excerpts', 'link_id', id)).sort(
       (a, b) => a.position - b.position
     );
