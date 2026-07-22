@@ -121,6 +121,49 @@ Design decisions embedded here:
   is queryable (`weekHistoryForLink`).
 - **Joins are their own tables** (`link_tags`, `link_topics`,
   `resource_list_links`) with soft-deleted rows, so label changes sync.
+- **Logical singletons keyed by UUID converge via reconcile.** Several rows
+  are logically "one per natural key" — the settings row (a true singleton),
+  a plan per `(period, starts_on)`, a note per link — yet each is still stored
+  under a random `id`. Two devices that each create one *before* syncing mint
+  separate rows, and row-level LWW never merges different ids: both go live,
+  and a read that breaks the natural-key tie by store/UUID order resolves
+  differently per device. Two guards close this:
+  - **Fixed id** where only one row can ever exist: `user_settings` lives at
+    `USER_SETTINGS_ID`, and `getUserSettings` collapses any pre-fix duplicates
+    into it ([settings.ts](../../frontend/src/lib/services/settings.ts)).
+  - **Reconcile-on-read** where many keys exist: `reconcilePlans` (inside
+    `listPlans`, [plans.ts](../../frontend/src/lib/services/plans.ts)) and
+    `getNote` ([notes.ts](../../frontend/src/lib/services/notes.ts)) group live
+    rows by natural key, fold each group into the **smallest `id`** — a
+    device-independent choice, so every device converges on the *same*
+    survivor — merge the freshest field values onto it (row-level LWW on
+    `updated_at`, `id` as the tiebreak), and tombstone the strays. Idempotent:
+    with one row per key they write nothing.
+  - **Reconcile with children** when the survivor owns rows in another table:
+    `reconcileOpenWeeks` ([weeks.ts](../../frontend/src/lib/services/weeks.ts),
+    run from every week read path) folds duplicate *open* weeks sharing a
+    `week_start` and additionally re-points the strays' `week_links` onto the
+    survivor (dropping any that duplicate a link it already holds). It's the
+    highest-impact instance: a freshly-synced device could otherwise show the
+    local empty week while its entries hung off the synced twin. Closed weeks
+    are excluded — a closed week and a fresh open week legitimately share a
+    Monday, so this can't collapse to one fixed id. `reconcileTags` /
+    `reconcileTopics` ([links.ts](../../frontend/src/lib/services/links.ts),
+    keyed by `lower(name)`, run from `tagsByRecentUse`/`topicsByRecentUse` and
+    the tag/topic index + detail pages) fan out widest — the survivor owns join
+    rows in *two* tables. They carry the freshest non-empty prose
+    (`tags.notes_md`/`topics.body_md`) onto the survivor, re-point
+    `link_tags.tag_id`/`link_topics.topic_id` (deduping a `(link_id, survivor)`
+    collision to its min-id row; for `link_topics` keeping the survivor's
+    footnote number for a shared reference and appending a stray-only one with a
+    *fresh* number, so `[^n]` in the kept document stays valid), and rewrite
+    merged tag ids out of every `focus_tag_ids` array — `user_settings`
+    ([settings.ts](../../frontend/src/lib/services/settings.ts)) and each
+    `plans` row ([plans.ts](../../frontend/src/lib/services/plans.ts)).
+
+  When adding a synced table that's "one row per natural key", make identity
+  deterministic from that key (a fixed id, or a min-id reconcile) — never rely
+  on a random UUID plus a local-only "ensure".
 - **`priority` is nullable, and `null` means 3.** Lists sort priority-first
   (1 highest); leaving it unset is the common case, so the column is nullable
   rather than `DEFAULT 3` — that keeps pre-priority rows and older backups
@@ -153,47 +196,6 @@ Design decisions embedded here:
   marked *inline extension* rather than a regex over the document is what
   keeps a `[^1]` inside a code span or fenced block from being linked.
 
-## Logical singletons keyed by UUID converge via reconcile
-
-Some rows are *logically* unique on something other than their `id`, yet still
-carry a client-minted UUID `id` like everything else. Two offline devices can
-then each mint a **different `id` for the same logical row**, and row-level LWW
-— which only ever compares two rows with the *same* `id` — never merges them:
-both go live as duplicates that no sync can collapse.
-
-| Logical key | Rows | Convergence |
-|---|---|---|
-| the app has exactly one | `user_settings` | fixed id `readerr-user-settings`; `getUserSettings` collapses stragglers ([settings.ts](../../frontend/src/lib/services/settings.ts)) |
-| `lower(name)` | `tags`, `topics` | `reconcileTags` / `reconcileTopics` ([links.ts](../../frontend/src/lib/services/links.ts)) |
-
-The settings singleton avoids the problem outright by pinning a **fixed id**, so
-every device writes the same row. `tags`/`topics` can't — a name is user data,
-not a constant — so they **reconcile on read** instead. Grouping the live rows
-by `lower(name)`, every group of more than one:
-
-- keeps the **smallest-id** row as the survivor. `id` is identical on every
-  device, so both pick the same winner with no coordination — the same reason
-  the fixed-id trick works, applied to a key the devices don't share up front.
-- carries the **freshest non-empty** prose (`tags.notes_md` / `topics.body_md`)
-  onto the survivor, so a merge never drops a written note for an empty
-  duplicate that merely synced later.
-- **re-points the join rows** the survivor's identity fans out into — this is
-  what makes tags/topics harder than settings, which owns no foreign rows.
-  `link_tags.tag_id` / `link_topics.topic_id` move onto the survivor; a join
-  that would then duplicate a `(link_id, survivor_id)` pair collapses to its
-  smallest-id row. For `link_topics` the survivor keeps its own footnote number
-  for a shared reference (so `[^n]` in the kept document stays valid) and
-  appends a stray-only reference with a *fresh* number (one past the survivor's
-  highest, exactly what `assignTopic` issues) rather than importing the stray
-  topic's independent 1, 2, 3…. Merged tag ids are also rewritten out of every
-  `focus_tag_ids` array (`user_settings` and each `plans` row).
-- **soft-deletes the strays**, like every other deletion, so the collapse syncs.
-
-Reconcile runs from the read paths that surface these rows (`tagsByRecentUse` /
-`topicsByRecentUse` and the tag/topic index + detail pages), so a device heals
-its own duplicates the first time it looks — a group of one, the common case,
-writes nothing. Covered by [reconcile.test.ts](../../frontend/test/reconcile.test.ts).
-
 ## IndexedDB layout
 
 `STORES` in types.ts defines one object store per SQL table (keyPath `id`)
@@ -202,14 +204,15 @@ and indexes append-only. Current version: **7**.
 
 | Store | Indexes | Notes |
 |---|---|---|
-| `user_settings` | `updated_at` | singleton row, created lazily |
-| `plans` | `starts_on`, `updated_at` | |
+| `user_settings` | `updated_at` | singleton at fixed id `USER_SETTINGS_ID`; `getUserSettings` collapses duplicates |
+| `plans` | `starts_on`, `updated_at` | one per `(period, starts_on)`; `reconcilePlans` collapses duplicates on read |
 | `links` | `url`, `added_at`, `updated_at` | `url` powers capture dedupe |
-| `tags`, `topics`, `resource_lists` | `updated_at` | |
+| `tags`, `topics` | `updated_at` | one per `lower(name)`; `reconcileTags`/`reconcileTopics` collapse duplicates, re-point join rows + `focus_tag_ids` |
+| `resource_lists` | `updated_at` | |
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
-| `notes`, `excerpts` | `link_id`, `updated_at` | |
+| `notes`, `excerpts` | `link_id`, `updated_at` | note is one-per-link; `getNote` collapses duplicates on read |
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
-| `weeks` | `week_start`, `updated_at` | |
+| `weeks` | `week_start`, `updated_at` | one *open* week per Monday; `reconcileOpenWeeks` collapses duplicates and re-points `week_links` |
 | `week_links` | `week_id`, `link_id`, `updated_at` | |
 
 The `updated_at` index on every synced store (migration v7) powers the

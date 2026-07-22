@@ -5,7 +5,7 @@
  * A plan "kicks in" simply by existing for the period the week page is
  * looking at — nothing runs in the background.
  */
-import { all, put, softDelete, withSyncFields } from '../db/repo';
+import { all, put, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
 import type { Plan, PlanPeriod } from '../db/types';
 import { getUserSettings } from './settings';
 import { weekStartOf } from './weeks';
@@ -31,8 +31,67 @@ export function periodEnd(plan: Plan): string {
   return `${y}-${m}-${dd}`;
 }
 
+/** The logical identity of a plan: one row per (period, starts_on). */
+function planKey(p: Plan): string {
+  return `${p.period}${p.starts_on}`;
+}
+
+/**
+ * Freshest row in a group wins its field values (row-level LWW on updated_at).
+ * Ties break on id so two devices pick the same winner from the same rows.
+ */
+function freshest(rows: Plan[]): Plan {
+  return [...rows].sort((a, b) => {
+    const t = (b.updated_at ?? '').localeCompare(a.updated_at ?? '');
+    return t !== 0 ? t : a.id.localeCompare(b.id);
+  })[0];
+}
+
+/**
+ * Plans are logically "one per (period, starts_on)" but keyed by a random
+ * UUID, so — exactly like user_settings and open weeks before them — two
+ * synced devices can each mint a separate row for the same period, and
+ * row-level LWW never merges different ids. Collapse every such group into
+ * the smallest-id row (a device-independent choice, so both devices converge
+ * on the SAME survivor), fold the freshest field values onto it, and
+ * tombstone the strays. Idempotent: with one row per period it writes nothing.
+ */
+export async function reconcilePlans(): Promise<Plan[]> {
+  const rows = await all<Plan>('plans');
+  const groups = new Map<string, Plan[]>();
+  for (const p of rows) {
+    const key = planKey(p);
+    const group = groups.get(key);
+    if (group) group.push(p);
+    else groups.set(key, [p]);
+  }
+
+  const dupes = [...groups.values()].filter((g) => g.length > 1);
+  if (dupes.length === 0) return rows;
+
+  for (const group of dupes) {
+    const survivor = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];
+    const best = freshest(group);
+    // Only rewrite the survivor when a stray actually held the newer values,
+    // so a converged DB doesn't churn updated_at (and re-sync) on every read.
+    if (best.id !== survivor.id) {
+      await put('plans', {
+        ...survivor,
+        period: best.period,
+        starts_on: best.starts_on,
+        articles_per_week: best.articles_per_week,
+        focus_tag_ids: focusIdsOf(best),
+        note: best.note,
+      });
+    }
+    const strays = group.filter((p) => p.id !== survivor.id).map((p) => p.id);
+    await softDeleteMany('plans', strays);
+  }
+  return all<Plan>('plans');
+}
+
 export async function listPlans(): Promise<Plan[]> {
-  return (await all<Plan>('plans')).sort((a, b) => a.starts_on.localeCompare(b.starts_on));
+  return (await reconcilePlans()).sort((a, b) => a.starts_on.localeCompare(b.starts_on));
 }
 
 /**
