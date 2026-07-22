@@ -153,11 +153,13 @@ export async function dedupePairs<T extends SyncFields>(
     const [survivor, ...duplicates] = [...group].sort((a, b) =>
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     );
-    let kept = survivor;
-    if (mergeSurvivor) {
-      const merged = mergeSurvivor(survivor, duplicates);
-      if (merged) kept = await put(store, merged);
-    }
+    // The survivor is re-put even when the merge changed nothing: touching it
+    // bumps updated_at so the next push re-stamps its server_seq, and a device
+    // whose pull cursor already passed the original seq still receives the row
+    // the duplicates folded into (same delivery hazard as reconcileOpenWeeks).
+    // Only fires on a fold — converged pairs skip this branch entirely.
+    const merged = mergeSurvivor ? mergeSurvivor(survivor, duplicates) : null;
+    const kept = await put(store, merged ?? survivor);
     survivors.push(kept);
     for (const dup of duplicates) strays.push(dup.id);
   }

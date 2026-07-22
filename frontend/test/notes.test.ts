@@ -69,16 +69,21 @@ describe('getNote', () => {
     expect(raw.deleted_at).not.toBeNull();
   });
 
-  it('keeps the survivor untouched when it is already the freshest', async () => {
+  it('keeps the survivor content but touches it when it is already the freshest', async () => {
     await seedNote('note-a', { updated_at: '2024-06-05T00:00:00.000Z', body_md: 'keep me' });
     await seedNote('note-b', { updated_at: '2024-06-01T00:00:00.000Z', body_md: 'drop me' });
 
     const note = await getNote('link-1');
     expect(note?.id).toBe('note-a');
     expect(note?.body_md).toBe('keep me');
-    // No merge write was needed, so its updated_at is untouched.
-    expect(note?.updated_at).toBe('2024-06-05T00:00:00.000Z');
+    // The fold touches the survivor even when its body already won, so the
+    // next push re-stamps its server_seq and cursor-passed devices receive it.
+    expect(note!.updated_at > '2024-06-05T00:00:00.000Z').toBe(true);
     expect(await all<Note>('notes')).toHaveLength(1);
+
+    // …but a converged single note is returned as-is, with no churn.
+    const again = await getNote('link-1');
+    expect(again?.updated_at).toBe(note?.updated_at);
   });
 
   it('never merges notes belonging to different links', async () => {

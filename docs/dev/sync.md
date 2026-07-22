@@ -110,10 +110,13 @@ shared history. UI lives in
 > `/sync/stats`, `/sync/push`, and `/sync/pull`. `syncNow()` probes
 > `/sync/stats` first; a changed epoch triggers `resetLocalSyncState()` so
 > that sync exchanges complete datasets under LWW instead of trusting dead
-> cursors. As a second belt, `reconcileOpenWeeks` re-`put`s the surviving
-> week when it folds duplicates, so the row every entry now hangs off is
-> re-pushed under a fresh `server_seq` and reaches devices whose cursor had
-> already passed its original one.
+> cursors. As a second belt, every reconcile-on-read that folds duplicates
+> re-`put`s its survivor even when the survivor's values already won —
+> `reconcileOpenWeeks`, `reconcilePlans`, `getNote`, `reconcileTags`,
+> `reconcileTopics`, and the generic `dedupePairs` (`getUserSettings` always
+> did) — so the row everything now hangs off is re-pushed under a fresh
+> `server_seq` and reaches devices whose cursor had already passed its
+> original one. Folds are one-time events, so converged data never churns.
 
 ## Sync history & status
 

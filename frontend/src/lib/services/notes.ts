@@ -33,10 +33,12 @@ export async function getNote(linkId: string): Promise<Note | null> {
 
   const survivor = [...rows].sort((a, b) => a.id.localeCompare(b.id))[0];
   const best = freshest(rows);
-  // Only rewrite the survivor when a stray held the newer body, so a converged
-  // note doesn't churn updated_at (and re-sync) every time the link is opened.
-  const canonical =
-    best.id === survivor.id ? survivor : await put('notes', { ...survivor, body_md: best.body_md });
+  // Rewritten even when the survivor already held the freshest body: touching
+  // it re-pushes the row under a fresh server_seq, so a device whose pull
+  // cursor passed its original seq still receives the note the strays folded
+  // into (same delivery hazard as reconcileOpenWeeks). Runs only on a fold —
+  // a converged single note takes the early return above and never churns.
+  const canonical = await put('notes', { ...survivor, body_md: best.body_md });
   const strays = rows.filter((r) => r.id !== survivor.id).map((r) => r.id);
   await softDeleteMany('notes', strays);
   return canonical;

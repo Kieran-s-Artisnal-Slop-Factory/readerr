@@ -72,18 +72,19 @@ export async function reconcilePlans(): Promise<Plan[]> {
   for (const group of dupes) {
     const survivor = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];
     const best = freshest(group);
-    // Only rewrite the survivor when a stray actually held the newer values,
-    // so a converged DB doesn't churn updated_at (and re-sync) on every read.
-    if (best.id !== survivor.id) {
-      await put('plans', {
-        ...survivor,
-        period: best.period,
-        starts_on: best.starts_on,
-        articles_per_week: best.articles_per_week,
-        focus_tag_ids: focusIdsOf(best),
-        note: best.note,
-      });
-    }
+    // Rewritten even when the survivor already held the freshest values:
+    // touching it re-pushes the row under a fresh server_seq, so a device
+    // whose pull cursor passed its original seq still receives the row the
+    // strays folded into (same delivery hazard as reconcileOpenWeeks).
+    // Idempotent: once the group is a singleton this branch never runs again.
+    await put('plans', {
+      ...survivor,
+      period: best.period,
+      starts_on: best.starts_on,
+      articles_per_week: best.articles_per_week,
+      focus_tag_ids: focusIdsOf(best),
+      note: best.note,
+    });
     const strays = group.filter((p) => p.id !== survivor.id).map((p) => p.id);
     await softDeleteMany('plans', strays);
   }

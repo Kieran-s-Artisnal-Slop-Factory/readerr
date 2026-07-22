@@ -77,7 +77,7 @@ describe('reconcilePlans', () => {
     expect(live[0].focus_tag_ids).toEqual(['new-1', 'new-2']);
   });
 
-  it('drops strays without rewriting the survivor when it is already freshest', async () => {
+  it('drops strays and touches the survivor even when it is already freshest', async () => {
     await seedPlan('plan-a', { updated_at: '2024-06-05T00:00:00.000Z', articles_per_week: 7 });
     await seedPlan('plan-b', { updated_at: '2024-06-01T00:00:00.000Z', articles_per_week: 2 });
 
@@ -87,8 +87,14 @@ describe('reconcilePlans', () => {
     expect(live).toHaveLength(1);
     expect(live[0].id).toBe('plan-a');
     expect(live[0].articles_per_week).toBe(7);
-    // No merge write was needed, so the survivor's updated_at is untouched.
-    expect(live[0].updated_at).toBe('2024-06-05T00:00:00.000Z');
+    // The fold touches the survivor even when its values already won, so the
+    // next push re-stamps its server_seq and cursor-passed devices receive it.
+    expect(live[0].updated_at > '2024-06-05T00:00:00.000Z').toBe(true);
+
+    // …but a converged table never churns on later reads.
+    const touched = live[0].updated_at;
+    await reconcilePlans();
+    expect((await all<Plan>('plans'))[0].updated_at).toBe(touched);
   });
 
   it('never merges across different periods or different starts', async () => {

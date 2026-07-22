@@ -109,7 +109,10 @@ export async function reconcileTags(): Promise<void> {
     const survivor = smallestId(group);
     const strays = group.filter((t) => t.id !== survivor.id);
     const notes_md = freshestProse(group, (t) => t.notes_md);
-    if (notes_md !== survivor.notes_md) await put('tags', { ...survivor, notes_md });
+    // Unconditional on a fold: touching the survivor re-pushes it under a
+    // fresh server_seq so devices whose pull cursor passed its original seq
+    // still receive the row the joins now point at (see reconcileOpenWeeks).
+    await put('tags', { ...survivor, notes_md });
     await repointTagJoins(survivor.id, group.map((t) => t.id));
     for (const s of strays) remap.set(s.id, survivor.id);
     await softDeleteMany('tags', strays.map((s) => s.id));
@@ -128,7 +131,8 @@ export async function reconcileTopics(): Promise<void> {
     const survivor = smallestId(group);
     const strays = group.filter((t) => t.id !== survivor.id);
     const body_md = freshestProse(group, (t) => t.body_md);
-    if (body_md !== survivor.body_md) await put('topics', { ...survivor, body_md });
+    // Unconditional on a fold — same delivery rationale as reconcileTags.
+    await put('topics', { ...survivor, body_md });
     await repointTopicJoins(survivor.id, group.map((t) => t.id));
     await softDeleteMany('topics', strays.map((s) => s.id));
   }
