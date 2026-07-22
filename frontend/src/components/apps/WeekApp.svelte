@@ -49,6 +49,7 @@
     type CloseResult,
     type WeekEntry,
   } from '../../lib/services/weeks';
+  import { SYNC_EVENT, type SyncResult } from '../../lib/sync';
   import type { Excerpt, Link, Note, Tag, Week, WeekLink } from '../../lib/db/types';
 
   let loaded = $state(false);
@@ -194,7 +195,15 @@
     return `${r.read} read, ${r.slushed} slushed, ${r.returned} returned to the backlog`;
   }
 
-  onMount(async () => {
+  onMount(() => {
+    void init();
+    // A background pull can land this week's real row after we first render;
+    // heal the view when a sync actually brings data down.
+    window.addEventListener(SYNC_EVENT, onSync);
+    return () => window.removeEventListener(SYNC_EVENT, onSync);
+  });
+
+  async function init() {
     // A week whose Monday has passed closes itself (#14).
     const autoClosed = await autoCloseStaleWeeks();
     if (autoClosed) {
@@ -205,7 +214,25 @@
     focusStart = ow.week_start;
     await loadWeek();
     loaded = true;
-  });
+  }
+
+  /**
+   * The ensureOpenWeek/first-sync race can leave an empty local open week on
+   * screen while the pull is still bringing this week's real row and entries
+   * down. Re-run ensureOpenWeek (which folds away any duplicate open week for
+   * the Monday via reconcileOpenWeeks) and reload whenever a sync actually
+   * pulled something, so the current week heals itself with no manual refresh —
+   * and stay put if the user has navigated away to a past week.
+   */
+  async function onSync(e: Event) {
+    const detail = (e as CustomEvent<SyncResult>).detail;
+    if (!loaded || !detail?.ok || detail.pulled === 0) return;
+    const viewingOpen = focusStart === openWeekStart;
+    const ow = await ensureOpenWeek();
+    openWeekStart = ow.week_start;
+    if (viewingOpen) focusStart = ow.week_start;
+    await loadWeek();
+  }
 
   /** Load whichever week `focusStart` points at (may not have a row yet). */
   async function loadWeek() {
