@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The sync engine is generic over table metadata rather than sqlc-generated
@@ -127,7 +128,7 @@ type pushResponse struct {
 // epoch identifies one lifetime of the seq counter: it changes whenever the
 // counter restarts (fresh database, /sync/reset), telling clients their pull
 // cursor belongs to a different numbering and must be discarded. Pre-epoch
-// databases (older sync_state without the column) surface it as '' — clients
+// databases (older sync_state without the column) surface it as ” — clients
 // skip the check.
 func (s *server) epoch() string {
 	var epoch string
@@ -236,6 +237,18 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Server-side fold of duplicate open weeks, inside the same transaction.
+	// The client pushes before it pulls, so the pull half of this very sync
+	// already delivers the folded result to the device that pushed the twin.
+	folded, err := reconcileWeeks(tx, &lastSeq)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if folded > 0 {
+		slog.Info("sync push: folded duplicate open weeks", "strays", folded)
+	}
+
 	if _, err := tx.Exec("UPDATE sync_state SET last_seq = ? WHERE id = 1", lastSeq); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -247,6 +260,142 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("sync push", "accepted", len(accepted), "latestSeq", lastSeq)
 	writeJSON(w, pushResponse{Accepted: accepted, LatestSeq: lastSeq, Epoch: s.epoch()})
+}
+
+// nowISO formats the moment exactly the way clients write updated_at
+// (JS Date.toISOString(): millisecond precision, trailing Z), so the
+// string-compared LWW ordering stays coherent across both writers.
+func nowISO() string {
+	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+// reconcileWeeks folds duplicate OPEN weeks sharing a week_start into the
+// smallest-id row — the same device-independent rule as the client's
+// reconcileOpenWeeks, so server and clients converge on one survivor without
+// coordinating. Strays are tombstoned and their live entries re-pointed onto
+// the survivor, appended after its existing positions; an entry whose link
+// the survivor (or an earlier stray) already holds is tombstoned instead.
+// Closed weeks are left alone: a closed and a fresh open week legitimately
+// share a Monday.
+//
+// Every touched row — the survivor included — gets a fresh updated_at and
+// the next server_seq, so the folded state lands ABOVE every client's pull
+// cursor and wins client-side LWW on arrival. This is what makes the fold
+// authoritative: whichever device pushed a twin pulls back the merged week
+// in the same sync, and no device can be left holding entries that point at
+// a week it never receives. Runs inside the push transaction on every push;
+// with no duplicate open weeks it writes nothing.
+func reconcileWeeks(tx *sql.Tx, lastSeq *int64) (int, error) {
+	rows, err := tx.Query(
+		"SELECT id, week_start FROM weeks WHERE deleted_at IS NULL AND closed_at IS NULL")
+	if err != nil {
+		return 0, err
+	}
+	byStart := map[string][]string{}
+	for rows.Next() {
+		var id, ws string
+		if err := rows.Scan(&id, &ws); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		byStart[ws] = append(byStart[ws], id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	now := nowISO()
+	folded := 0
+	for _, ids := range byStart {
+		if len(ids) < 2 {
+			continue
+		}
+		sort.Strings(ids)
+		survivor, strays := ids[0], ids[1:]
+
+		// Links the survivor already schedules, and the next free position.
+		seen := map[string]bool{}
+		var nextPos int64
+		sRows, err := tx.Query(
+			"SELECT link_id, position FROM week_links WHERE week_id = ? AND deleted_at IS NULL", survivor)
+		if err != nil {
+			return folded, err
+		}
+		for sRows.Next() {
+			var linkID string
+			var pos int64
+			if err := sRows.Scan(&linkID, &pos); err != nil {
+				sRows.Close()
+				return folded, err
+			}
+			seen[linkID] = true
+			if pos+1 > nextPos {
+				nextPos = pos + 1
+			}
+		}
+		sRows.Close()
+		if err := sRows.Err(); err != nil {
+			return folded, err
+		}
+
+		for _, stray := range strays {
+			type entry struct{ id, linkID string }
+			var entries []entry
+			eRows, err := tx.Query(
+				"SELECT id, link_id FROM week_links WHERE week_id = ? AND deleted_at IS NULL ORDER BY position, id", stray)
+			if err != nil {
+				return folded, err
+			}
+			for eRows.Next() {
+				var e entry
+				if err := eRows.Scan(&e.id, &e.linkID); err != nil {
+					eRows.Close()
+					return folded, err
+				}
+				entries = append(entries, e)
+			}
+			eRows.Close()
+			if err := eRows.Err(); err != nil {
+				return folded, err
+			}
+
+			for _, e := range entries {
+				*lastSeq++
+				if seen[e.linkID] {
+					_, err = tx.Exec(
+						"UPDATE week_links SET deleted_at = ?, updated_at = ?, server_seq = ? WHERE id = ?",
+						now, now, *lastSeq, e.id)
+				} else {
+					seen[e.linkID] = true
+					_, err = tx.Exec(
+						"UPDATE week_links SET week_id = ?, position = ?, updated_at = ?, server_seq = ? WHERE id = ?",
+						survivor, nextPos, now, *lastSeq, e.id)
+					nextPos++
+				}
+				if err != nil {
+					return folded, err
+				}
+			}
+
+			*lastSeq++
+
+			if _, err := tx.Exec(
+				"UPDATE weeks SET deleted_at = ?, updated_at = ?, server_seq = ? WHERE id = ?",
+				now, now, *lastSeq, stray); err != nil {
+				return folded, err
+			}
+			folded++
+		}
+
+		*lastSeq++
+		if _, err := tx.Exec(
+			"UPDATE weeks SET updated_at = ?, server_seq = ? WHERE id = ?",
+			now, *lastSeq, survivor); err != nil {
+			return folded, err
+		}
+	}
+	return folded, nil
 }
 
 // GET /sync/pull?since=<server_seq>&limit=<n> — return rows (tombstones

@@ -117,6 +117,14 @@ shared history. UI lives in
 > did) — so the row everything now hangs off is re-pushed under a fresh
 > `server_seq` and reaches devices whose cursor had already passed its
 > original one. Folds are one-time events, so converged data never churns.
+> As a third belt, the **server folds duplicate open weeks itself**
+> (`reconcileWeeks` in [sync.go](../../backend/sync.go)), inside every push
+> transaction: same min-id survivor rule as the client's
+> `reconcileOpenWeeks` (so the two never fight), strays tombstoned, entries
+> re-pointed, and every touched row re-stamped with a fresh `updated_at` and
+> the next `server_seq` — the client pushes before it pulls, so the very sync
+> that uploads a twin pulls back the merged week, and offline manual DB edits
+> converge on the next sync without SQL surgery.
 
 ## Sync history & status
 

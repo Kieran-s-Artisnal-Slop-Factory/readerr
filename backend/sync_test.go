@@ -83,6 +83,25 @@ func tagRow(id, updatedAt string) map[string]any {
 	}
 }
 
+func weekRow(id, weekStart, updatedAt string, over map[string]any) map[string]any {
+	r := map[string]any{
+		"id": id, "week_start": weekStart, "closed_at": nil,
+		"updated_at": updatedAt, "deleted_at": nil, "server_seq": nil,
+	}
+	for k, v := range over {
+		r[k] = v
+	}
+	return r
+}
+
+func weekLinkRow(id, weekID, linkID string, pos int, updatedAt string) map[string]any {
+	return map[string]any{
+		"id": id, "week_id": weekID, "link_id": linkID, "position": pos,
+		"kind": "reading", "done_at": nil, "outcome": nil,
+		"updated_at": updatedAt, "deleted_at": nil, "server_seq": nil,
+	}
+}
+
 // --- tests -----------------------------------------------------------------
 
 func TestPushAssignsSeqAndPullRoundTrips(t *testing.T) {
@@ -281,6 +300,95 @@ func TestStatsAndReset(t *testing.T) {
 	}
 	if res.LatestSeq != 0 {
 		t.Fatalf("after reset, latestSeq = %d, want 0", res.LatestSeq)
+	}
+}
+
+// The server folds duplicate open weeks itself, inside the push transaction,
+// and re-stamps everything it touches — so a device that was fully caught up
+// BEFORE the duplicate appeared still receives the entire folded result.
+func TestPushFoldsDuplicateOpenWeeks(t *testing.T) {
+	s := newTestServer(t)
+	// Device A's week with two entries, fully synced.
+	doPush(t, s, map[string][]map[string]any{
+		"weeks": {weekRow("week-a", "2026-07-20", "2026-07-20T10:00:00Z", nil)},
+		"week_links": {
+			weekLinkRow("wl-1", "week-a", "l1", 0, "2026-07-20T10:00:00Z"),
+			weekLinkRow("wl-2", "week-a", "l2", 1, "2026-07-20T10:00:00Z"),
+		},
+	})
+	cursor := doPull(t, s, 0, 0).LatestSeq // a second device is caught up here
+
+	// Device B pushes its own twin of the same Monday: one new link, one
+	// duplicating l1.
+	doPush(t, s, map[string][]map[string]any{
+		"weeks": {weekRow("week-b", "2026-07-20", "2026-07-20T11:00:00Z", nil)},
+		"week_links": {
+			weekLinkRow("wl-3", "week-b", "l3", 0, "2026-07-20T11:00:00Z"),
+			weekLinkRow("wl-4", "week-b", "l1", 1, "2026-07-20T11:00:00Z"),
+		},
+	})
+
+	// Everything the fold touched lands ABOVE the caught-up device's cursor.
+	res := doPull(t, s, int(cursor), 0)
+	weeks := map[string]map[string]any{}
+	for _, wk := range res.Rows["weeks"] {
+		weeks[wk["id"].(string)] = wk
+	}
+	if wk := weeks["week-a"]; wk == nil || wk["deleted_at"] != nil {
+		t.Fatalf("survivor week-a not delivered live above the old cursor: %#v", wk)
+	}
+	if wk := weeks["week-b"]; wk == nil || wk["deleted_at"] == nil {
+		t.Fatalf("stray week-b not delivered as a tombstone: %#v", wk)
+	}
+
+	entries := map[string]map[string]any{}
+	for _, e := range res.Rows["week_links"] {
+		entries[e["id"].(string)] = e
+	}
+	if e := entries["wl-3"]; e == nil || e["week_id"] != "week-a" || e["deleted_at"] != nil {
+		t.Fatalf("wl-3 not re-pointed at the survivor: %#v", e)
+	}
+	if e := entries["wl-3"]; e["position"] != float64(2) {
+		t.Errorf("wl-3 position = %v, want 2 (appended after the survivor's entries)", e["position"])
+	}
+	if e := entries["wl-4"]; e == nil || e["deleted_at"] == nil {
+		t.Fatalf("duplicate-link entry wl-4 not tombstoned: %#v", e)
+	}
+
+	// Final state: exactly one live open week for the Monday.
+	live := 0
+	for _, wk := range doPull(t, s, 0, 0).Rows["weeks"] {
+		if wk["deleted_at"] == nil && wk["closed_at"] == nil {
+			live++
+		}
+	}
+	if live != 1 {
+		t.Fatalf("live open weeks = %d, want 1", live)
+	}
+
+	// Idempotent: the empty push every syncNow sends must not re-fold.
+	before := doPull(t, s, 0, 0).LatestSeq
+	doPush(t, s, map[string][]map[string]any{})
+	if after := doPull(t, s, 0, 0).LatestSeq; after != before {
+		t.Errorf("empty push after fold moved latestSeq %d → %d; reconcile is not idempotent", before, after)
+	}
+}
+
+// A closed week and a fresh open week legitimately share a Monday (reopening
+// queues into a new row) — the server fold must never collapse that pair.
+func TestPushLeavesClosedWeeksAlone(t *testing.T) {
+	s := newTestServer(t)
+	doPush(t, s, map[string][]map[string]any{
+		"weeks": {
+			weekRow("week-closed", "2026-07-13", "2026-07-20T10:00:00Z",
+				map[string]any{"closed_at": "2026-07-20T09:00:00Z"}),
+			weekRow("week-open", "2026-07-13", "2026-07-20T10:00:00Z", nil),
+		},
+	})
+	for _, wk := range doPull(t, s, 0, 0).Rows["weeks"] {
+		if wk["deleted_at"] != nil {
+			t.Fatalf("week %v was tombstoned; closed + open sharing a Monday is legitimate", wk["id"])
+		}
 	}
 }
 
