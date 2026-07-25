@@ -322,6 +322,7 @@ export async function syncNow(): Promise<SyncResult> {
       if (!pushRes.ok) throw new Error(await describeHttpError('push', pushRes));
       const pushJson = (await pushRes.json()) as {
         accepted: { table: string; id: string; server_seq: number }[];
+        conflicts?: Record<string, SyncFields[]>;
       };
 
       // Record assigned seqs without touching updated_at (not a user edit).
@@ -333,6 +334,23 @@ export async function syncNow(): Promise<SyncResult> {
         }
       }
       accepted += pushJson.accepted.length;
+
+      // Adopt rows the server rejected under LWW (it holds an equal-or-newer
+      // version): the client's cursor may already be past them, so a pull would
+      // never re-deliver the winner. Applying under the same >= rule converges
+      // a clock-skewed loser and resolves a millisecond tie onto the server's
+      // incumbent (fixing the client >= / server <= asymmetry). The server's
+      // row (existing) is always >= our pushed copy, so this can only advance
+      // the local row, never regress it.
+      for (const [store, rows2] of Object.entries(pushJson.conflicts ?? {})) {
+        if (!(store in STORES)) continue;
+        for (const row of rows2) {
+          const local = (await db.get(store, row.id)) as SyncFields | undefined;
+          if (!local || row.updated_at >= local.updated_at) {
+            await db.put(store, row);
+          }
+        }
+      }
     }
     await setMeta('lastPushAt', maxPushedUpdatedAt);
 

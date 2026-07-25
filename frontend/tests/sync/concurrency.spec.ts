@@ -144,31 +144,60 @@ test('concurrent push while B pulls: B eventually receives every row', async ({
 });
 
 // ---------------------------------------------------------------------------
-// CONFIRMED-BUG TRIPWIRES (red now → green after fix)
+// Clock-skew / tie divergence — FIXED via push conflict-return (sync.go +
+// sync.ts): the server returns LWW-rejected rows so the losing device adopts
+// the winner even when its pull cursor is already past that row.
 // ---------------------------------------------------------------------------
 
-test.describe('confirmed bugs', () => {
-  test.use({ allowPageErrors: true });
+test('clock-skew rejected edit adopts the winner instead of diverging', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  const B = hook(deviceB);
+  const fx = linkFixture({ title: 'server-value' });
+  await A.repoPut('links', fx);
+  await propagate(deviceA, deviceB); // both hold it; B's cursor is past its seq
+  // B (slow clock) edits with a stale timestamp. Server LWW rejects it and
+  // returns the authoritative row in the push response; B adopts it rather than
+  // keeping its rejected copy forever.
+  const bRow = (await B.rawGet('links', fx.id as string))!;
+  await B.rawPut('links', {
+    ...bRow,
+    title: 'B-stale-loser',
+    updated_at: '2000-01-01T00:00:00.000Z',
+  });
+  const bSync = await B.syncNow();
+  expect(bSync.ok).toBe(true);
+  await A.syncNow();
+  expect((await B.rawGet('links', fx.id as string))!.title).toBe('server-value');
+  const snap = await snapshotThreeWay(backend, deviceA, deviceB);
+  assertThreeWayConverged(snap, { stores: ['links'] });
+});
 
-  test.fail(
-    'clock-skew rejected edit is never re-pulled → permanent divergence [audit: sync.ts:322/sync.go:210]',
-    async ({ backend, deviceA, deviceB }) => {
-      const A = hook(deviceA);
-      const B = hook(deviceB);
-      const fx = linkFixture({ title: 'server-value' });
-      await A.repoPut('links', fx);
-      await propagate(deviceA, deviceB); // both hold it; B's cursor is past its seq
-      // B (slow clock) edits with a stale timestamp. Server LWW rejects it, but
-      // B's pull cursor is already past that row's seq, so B never re-pulls the
-      // winning value — B keeps its rejected edit forever while A/server hold
-      // the real one.
-      const bRow = (await B.rawGet('links', fx.id as string))!;
-      await B.rawPut('links', { ...bRow, title: 'B-stale-loser', updated_at: '2000-01-01T00:00:00.000Z' });
-      await B.syncNow();
-      await A.syncNow();
-      const snap = await snapshotThreeWay(backend, deviceA, deviceB);
-      // This SHOULD hold once the protocol re-delivers the winner to B.
-      assertThreeWayConverged(snap, { stores: ['links'] });
-    }
-  );
+test('a millisecond LWW tie converges both devices onto the server incumbent', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  const B = hook(deviceB);
+  const fx = linkFixture({ title: 'base' });
+  await A.repoPut('links', fx);
+  await propagate(deviceA, deviceB);
+  // Both edit to different values at the SAME updated_at (a real tie).
+  const tie = new Date(Date.parse((await A.rawGet('links', fx.id as string))!.updated_at) + 5000).toISOString();
+  await A.rawPut('links', { ...(await A.rawGet('links', fx.id as string))!, title: 'A-tie', updated_at: tie });
+  await B.rawPut('links', { ...(await B.rawGet('links', fx.id as string))!, title: 'B-tie', updated_at: tie });
+  // A pushes first (server incumbent = A-tie); B's tie push is rejected and B
+  // adopts the incumbent via the conflict return.
+  await A.syncNow();
+  const bSync = await B.syncNow();
+  expect(bSync.ok).toBe(true);
+  await A.syncNow();
+  expect((await B.rawGet('links', fx.id as string))!.title).toBe('A-tie');
+  expect((await A.rawGet('links', fx.id as string))!.title).toBe('A-tie');
+  const snap = await snapshotThreeWay(backend, deviceA, deviceB);
+  assertThreeWayConverged(snap, { stores: ['links'] });
 });

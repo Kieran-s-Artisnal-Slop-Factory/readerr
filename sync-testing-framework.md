@@ -36,11 +36,13 @@ is trustworthy — one that fails loudly when sync is broken instead of printing
   actually ship — service worker included), controls every sync explicitly, and
   produces a machine-readable + HTML report with a coverage matrix and a
   regression diff against the previous run.
-- **Current run: 94 cases, self-verification 12/12, 13/13 stores covered, 0
-  unexpected failures.** Eight confirmed bugs are already fixed with regression
-  guards (the reconcile-on-read stale clobber and the whole week-fold orphaning
-  family included); the one remaining red tripwire is the clock-skew LWW
-  divergence, which needs server-authoritative timestamps.
+- **Current run: 95 cases, self-verification 12/12, 13/13 stores covered, 0
+  unexpected failures, 0 red tripwires.** Nine confirmed bugs are fixed with
+  regression guards — the reconcile-on-read stale clobber, the whole week-fold
+  orphaning family, and the clock-skew / tie LWW divergence included. The
+  remaining audit items (non-transactional server pull, archive resurrection,
+  server-side chunk-boundary fold) are documented; none currently has a red
+  tripwire.
 
 ---
 
@@ -141,14 +143,18 @@ symptom-relevant and data-loss subset:
 
 ### 2.2 Cursor / protocol data-loss
 
-- **Clock-skew rejected edits are never re-pulled** ([`sync.ts:322`](frontend/src/lib/sync.ts:322)
-  + `sync.go:210`): a device whose edit loses LWW already holds a `server_seq`
-  past that row, so it never re-pulls the winner — permanent divergence. Also the
-  **tie asymmetry** (client applies on `>=`, server skips on `<=`) resolves a
-  millisecond tie in opposite directions. Captured as a red tripwire in
-  [`concurrency.spec.ts`](frontend/tests/sync/concurrency.spec.ts). **Open** —
-  inherent to client-timestamp LWW; the real fix is server-authoritative
-  timestamps.
+- **Clock-skew rejected edits were never re-pulled** ([`sync.ts`](frontend/src/lib/sync.ts)
+  + [`sync.go`](backend/sync.go)): a device whose edit lost LWW already held a
+  `server_seq` past that row, so it never re-pulled the winner — permanent
+  divergence. Plus the **tie asymmetry** (client applies on `>=`, server skips on
+  `<=`) resolved a millisecond tie in opposite directions. ✅ **FIXED** — the
+  server now returns LWW-rejected rows in the push response
+  (`pushResponse.Conflicts`), and the client adopts each under the same `>=`
+  rule. The rejected device converges on the winner even with its cursor past
+  the row, and a tie resolves onto the server's incumbent on both sides. No
+  clock authority needed. Guarded by two
+  [`concurrency.spec.ts`](frontend/tests/sync/concurrency.spec.ts) cases
+  (skew-loser adopts the winner; tie converges on the incumbent).
 - **`lastPushAt` watermark poisoning / below-watermark strands**: pulled rows
   re-enter the dirty scan; an edit stamped at/below the exclusive lower bound is
   never pushed ([`sync.ts:296`](frontend/src/lib/sync.ts:247)). **Open.**
@@ -332,7 +338,7 @@ cd frontend && npm run test:sync
 | Week fold orphans entries (server chunk / client race) | data-loss | ✅ fixed (orphan self-heal + isSyncing guard) |
 | Week fold drops `done_at`/`kind` on the twin | data-loss | ✅ fixed (entry-state merge) |
 | Cross-locale fold ping-pong (localeCompare survivor) | major | ✅ fixed (code-unit order, weeks/plans/notes) |
-| Clock-skew / tie rejected-row divergence | data-loss | ⏳ open tripwire (needs server time) |
+| Clock-skew / tie rejected-row divergence | data-loss | ✅ fixed (push conflict-return) |
 | Non-transactional server pull skips rows | data-loss | ⏳ open |
 | Archive hard-delete resurrection | major | ⏳ open |
 | Legacy-row poison push (server side) | critical | ⏳ open |
@@ -356,7 +362,10 @@ any fix "done": its case flips red→green AND the full suite — isolation diff
 1. Self-verification is **12/12** on every run. ✅ (met every run)
 2. Coverage matrix has **no uncovered store**. ✅ (13/13)
 3. Every confirmed bug has a case that **was red before the fix and is green
-   after**. ⏳ (4 done; the rest are red tripwires awaiting fixes)
+   after**. ✅ (nine fixed with red-before/green-after guards; **0 red tripwires
+   remain**. The residual audit items — non-transactional server pull, archive
+   resurrection, server-side chunk-boundary fold — are documented and mitigated,
+   not yet tripwired.)
 4. The regression diff has run across at least two runs and caught a seeded
    regression. ✅ (diff wired; identical runs produce empty deltas)
 5. The suite runs green **three times in a row** with no flakes. ✅ (repeated

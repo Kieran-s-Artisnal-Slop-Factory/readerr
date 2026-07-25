@@ -120,9 +120,16 @@ type acceptedRow struct {
 }
 
 type pushResponse struct {
-	Accepted  []acceptedRow `json:"accepted"`
-	LatestSeq int64         `json:"latestSeq"`
-	Epoch     string        `json:"epoch"`
+	Accepted []acceptedRow `json:"accepted"`
+	// Conflicts are rows the client pushed that lost last-write-wins (the server
+	// already holds an equal-or-newer version). Returned so the pushing client
+	// can adopt the authoritative row even when its pull cursor is already past
+	// that row's server_seq — otherwise a clock-skewed or tie-losing edit would
+	// diverge permanently (the client applies ties on >=, the server skips on
+	// <=, so a millisecond tie would otherwise resolve in opposite directions).
+	Conflicts map[string][]map[string]any `json:"conflicts"`
+	LatestSeq int64                       `json:"latestSeq"`
+	Epoch     string                      `json:"epoch"`
 }
 
 // epoch identifies one lifetime of the seq counter: it changes whenever the
@@ -189,6 +196,7 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accepted := []acceptedRow{}
+	conflicts := map[string][]map[string]any{}
 	for _, table := range tableOrder {
 		meta := tables[table]
 		for _, row := range req.Rows[table] {
@@ -208,6 +216,17 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 			// LWW: only strictly newer rows replace existing ones (ISO 8601
 			// UTC strings compare correctly as strings).
 			if existing.Valid && updatedAt <= existing.String {
+				// Incumbent wins. Return the authoritative row so the pushing
+				// client adopts it instead of keeping its rejected copy forever
+				// (its pull cursor may already be past this row's seq).
+				full, rerr := readRow(tx, table, meta, id)
+				if rerr != nil {
+					http.Error(w, rerr.Error(), http.StatusInternalServerError)
+					return
+				}
+				if full != nil {
+					conflicts[table] = append(conflicts[table], full)
+				}
 				continue
 			}
 
@@ -258,8 +277,8 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("sync push", "accepted", len(accepted), "latestSeq", lastSeq)
-	writeJSON(w, pushResponse{Accepted: accepted, LatestSeq: lastSeq, Epoch: s.epoch()})
+	slog.Info("sync push", "accepted", len(accepted), "conflicts", len(conflicts), "latestSeq", lastSeq)
+	writeJSON(w, pushResponse{Accepted: accepted, Conflicts: conflicts, LatestSeq: lastSeq, Epoch: s.epoch()})
 }
 
 // nowISO formats the moment exactly the way clients write updated_at
@@ -484,6 +503,29 @@ func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, map[string]any{"rows": out, "latestSeq": latest, "epoch": s.epoch()})
+}
+
+// readRow reads one row by id (within the push transaction) as a wire object,
+// or nil if it no longer exists. Used to return the authoritative row for a
+// push that lost last-write-wins (see pushResponse.Conflicts).
+func readRow(tx *sql.Tx, table string, meta tableMeta, id string) (map[string]any, error) {
+	query := "SELECT " + strings.Join(meta.columns, ", ") + " FROM " + table + " WHERE id = ?"
+	vals := make([]any, len(meta.columns))
+	ptrs := make([]any, len(meta.columns))
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+	if err := tx.QueryRow(query, id).Scan(ptrs...); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	row := make(map[string]any, len(meta.columns))
+	for i, col := range meta.columns {
+		row[col] = fromDBValue(meta, col, vals[i])
+	}
+	return row, nil
 }
 
 // fromDBValue converts a sqlite value back to the wire format.
