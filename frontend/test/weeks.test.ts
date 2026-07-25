@@ -258,11 +258,16 @@ describe('reconcileOpenWeeks', () => {
     const rawB = (await (await getDB()).get('weeks', 'week-b')) as Week;
     expect(rawB.deleted_at).not.toBeNull(); // stray week tombstoned
 
-    // The survivor is touched so the next push re-stamps its server_seq — a
-    // device whose pull cursor already passed the survivor's original seq
-    // would otherwise never receive the row its entries now point at.
+    // The survivor's updated_at is PRESERVED (not stamped now) so the fold
+    // can't clobber a concurrent close/edit under LWW. Re-delivery to a device
+    // whose pull cursor passed the survivor's seq rides the pendingRepush
+    // rescue instead — assert the survivor was recorded for re-push.
     const rawA = (await (await getDB()).get('weeks', 'week-a')) as Week;
-    expect(rawA.updated_at > '2024-01-01T00:00:00.000Z').toBe(true);
+    expect(rawA.updated_at).toBe('2024-01-01T00:00:00.000Z');
+    const pending = (await (await getDB()).get('sync_meta', 'pendingRepush')) as
+      | { key: string; value: string[] }
+      | undefined;
+    expect(pending?.value ?? []).toContain('weeks:week-a');
   });
 
   it('drops the stray entry when the same link is scheduled in both weeks', async () => {
@@ -280,6 +285,71 @@ describe('reconcileOpenWeeks', () => {
     expect(entries[0].entry.id).toBe('wl-a'); // survivor's own entry wins
     const rawStray = (await (await getDB()).get('week_links', 'wl-b')) as WeekLink;
     expect(rawStray.deleted_at).not.toBeNull();
+  });
+
+  it('merges a duplicate stray entry’s done_at onto the survivor instead of dropping it', async () => {
+    // Two devices scheduled the same link into twin weeks; only the stray copy
+    // was marked done. Folding must not lose that completion (audit data-loss).
+    const ws = currentWeekStart();
+    await seedWeek('week-a', { week_start: ws });
+    await seedWeek('week-b', { week_start: ws });
+    const shared = await makeLink();
+    await seedWeekLink('wl-a', 'week-a', shared.id, { done_at: null, kind: 'reading' });
+    await seedWeekLink('wl-b', 'week-b', shared.id, {
+      done_at: '2026-07-20T12:00:00.000Z',
+      kind: 'review',
+    });
+
+    await reconcileOpenWeeks();
+
+    const entries = await weekEntries('week-a');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].entry.id).toBe('wl-a');
+    expect(entries[0].entry.done_at, 'completion survives the fold').toBe('2026-07-20T12:00:00.000Z');
+    expect(entries[0].entry.kind, "'review' state survives the fold").toBe('review');
+  });
+
+  it('re-attaches an orphaned entry whose week was tombstoned by another device', async () => {
+    // The end-state of the server chunk-boundary fold and the client pull race:
+    // a LIVE entry points at a TOMBSTONED week, while a live open week exists
+    // for the same Monday. The self-heal must rescue the entry, not lose it.
+    const ws = currentWeekStart();
+    await seedWeek('week-live', { week_start: ws });
+    await seedWeek('week-dead', { week_start: ws, deleted_at: '2026-07-19T00:00:00.000Z' });
+    const l = await makeLink();
+    await seedWeekLink('wl-orphan', 'week-dead', l.id, {
+      done_at: '2026-07-20T09:00:00.000Z',
+      position: 3,
+    });
+
+    await reconcileOpenWeeks();
+
+    const entries = await weekEntries('week-live');
+    expect(entries.map((e) => e.link.id)).toEqual([l.id]);
+    const healed = entries[0].entry;
+    expect(healed.id, 'same entry row, re-pointed').toBe('wl-orphan');
+    expect(healed.week_id).toBe('week-live');
+    expect(healed.done_at, 'orphan keeps its completion').toBe('2026-07-20T09:00:00.000Z');
+  });
+
+  it('orphan re-attach dedupes + merges when the survivor already holds the link', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-live', { week_start: ws });
+    await seedWeek('week-dead', { week_start: ws, deleted_at: '2026-07-19T00:00:00.000Z' });
+    const l = await makeLink();
+    await seedWeekLink('wl-live', 'week-live', l.id, { done_at: null });
+    await seedWeekLink('wl-orphan', 'week-dead', l.id, { done_at: '2026-07-20T09:00:00.000Z' });
+
+    await reconcileOpenWeeks();
+
+    const entries = await weekEntries('week-live');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].entry.id).toBe('wl-live');
+    expect(entries[0].entry.done_at, 'orphan completion merged onto survivor').toBe(
+      '2026-07-20T09:00:00.000Z'
+    );
+    const rawOrphan = (await (await getDB()).get('week_links', 'wl-orphan')) as WeekLink;
+    expect(rawOrphan.deleted_at).not.toBeNull();
   });
 
   it('leaves a closed week sharing the Monday alone, folding only the open twins', async () => {

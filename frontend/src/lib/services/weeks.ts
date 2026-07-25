@@ -10,8 +10,10 @@
  *   - unfinished → 'rolled', and the link just returns to the backlog
  * Entries keep their week_link rows forever, so past weeks are history.
  */
-import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
+import { all, byIndex, get, put, putReconciled, softDelete, withSyncFields } from '../db/repo';
+import { getDB } from '../db/db';
 import { healsAllowed } from '../testMode';
+import { isSyncing } from '../sync';
 import type { Link, LinkTag, LinkTopic, Week, WeekLink, WeekLinkKind } from '../db/types';
 
 /** Local Monday of the week containing `d`, as 'YYYY-MM-DD'. */
@@ -53,7 +55,49 @@ export function weekStartPlus(weekStart: string, weeks: number): string {
  * it's a per-key min-id reconcile. Idempotent: one open week per Monday
  * writes nothing. Same fix class as `reconcilePlans` and `getNote`.
  */
+/** Device-independent order: raw code-unit comparison, matching the server's
+ * byte-order sort and dedupePairs. `localeCompare` would let a da/nb-locale
+ * device pick a different survivor (it collates 'aa' after 'z'), so the two
+ * devices tombstone each other's week forever. */
+function byId(a: { id: string }, b: { id: string }): number {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Fold a stray entry's user state onto the survivor's entry for the same link,
+ * so a duplicate about to be tombstoned never silently loses its completion.
+ * Returns the updated survivor entry, or null when there is nothing to merge.
+ */
+function mergeEntryState(survivor: WeekLink, stray: WeekLink): WeekLink | null {
+  const next = { ...survivor };
+  let changed = false;
+  // Keep the earliest completion (either device finishing it counts as done).
+  if (stray.done_at && (!next.done_at || stray.done_at < next.done_at)) {
+    next.done_at = stray.done_at;
+    changed = true;
+  }
+  if (!next.outcome && stray.outcome) {
+    next.outcome = stray.outcome;
+    changed = true;
+  }
+  // 'review' (rescued from slush) is stickier than a plain 'reading' entry.
+  if (next.kind === 'reading' && stray.kind === 'review') {
+    next.kind = 'review';
+    changed = true;
+  }
+  return changed ? next : null;
+}
+
 export async function reconcileOpenWeeks(): Promise<void> {
+  // Test mode: the fold is a write — run it only when invoked explicitly
+  // (window.__readerr.reconcileOpenWeeksNow), never as a read side effect.
+  if (!healsAllowed()) return;
+  // Don't fold over a half-applied pull: syncNow applies weeks before their
+  // week_links, so folding mid-pull could tombstone a just-arrived week before
+  // its entries land and orphan them. The next read after the sync settles
+  // reconciles with complete data.
+  if (isSyncing()) return;
+
   const weeks = await all<Week>('weeks');
   const openByStart = new Map<string, Week[]>();
   for (const w of weeks) {
@@ -63,40 +107,88 @@ export async function reconcileOpenWeeks(): Promise<void> {
     else openByStart.set(w.week_start, [w]);
   }
 
-  const dupes = [...openByStart.values()].filter((g) => g.length > 1);
-  if (dupes.length === 0) return;
-  // Test mode: the fold is a write — run it only when invoked explicitly
-  // (window.__readerr.reconcileOpenWeeksNow), never as a read side effect.
-  if (!healsAllowed()) return;
-
-  for (const group of dupes) {
-    const survivor = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];
+  for (const group of openByStart.values()) {
+    if (group.length < 2) continue;
+    const survivor = [...group].sort(byId)[0];
     const survivorEntries = await byIndex<WeekLink>('week_links', 'week_id', survivor.id);
-    const seenLinks = new Set(survivorEntries.map((e) => e.link_id));
+    const byLink = new Map<string, WeekLink>(survivorEntries.map((e) => [e.link_id, e]));
     let nextPosition = survivorEntries.reduce((max, e) => Math.max(max, e.position), -1) + 1;
 
     for (const stray of group.filter((w) => w.id !== survivor.id)) {
       for (const entry of await byIndex<WeekLink>('week_links', 'week_id', stray.id)) {
-        if (seenLinks.has(entry.link_id)) {
-          // The link is already scheduled in the survivor week — the stray's
-          // duplicate entry drops (survivor's wins, so both devices agree).
+        const existing = byLink.get(entry.link_id);
+        if (existing) {
+          // The link is already scheduled in the survivor week. Merge the
+          // stray's completion state onto the survivor's entry before dropping
+          // it, so done_at/outcome/kind isn't lost, then tombstone the stray.
+          const merged = mergeEntryState(existing, entry);
+          if (merged) byLink.set(entry.link_id, await put('week_links', merged));
           await softDelete('week_links', entry.id);
         } else {
-          seenLinks.add(entry.link_id);
-          await put('week_links', { ...entry, week_id: survivor.id, position: nextPosition++ });
+          const moved = await put('week_links', {
+            ...entry,
+            week_id: survivor.id,
+            position: nextPosition++,
+          });
+          byLink.set(entry.link_id, moved);
         }
       }
       await softDelete('weeks', stray.id);
     }
 
-    // Touch the survivor so it re-pushes with a fresh server_seq. The fold
-    // re-points entries onto the survivor but the row itself would otherwise
-    // keep the seq from when it was first accepted — and a device whose pull
-    // cursor is already past that seq can never receive it, leaving it with
-    // entries that reference a week it doesn't have (an empty /week page that
-    // mints yet another duplicate). Re-stamping makes every device's next
-    // pull deliver the row everything now hangs off.
-    await put('weeks', survivor);
+    // Re-deliver the survivor to devices whose pull cursor passed its original
+    // seq (so they don't hold entries referencing a week they never receive).
+    // putReconciled PRESERVES the survivor's updated_at instead of stamping now
+    // — stamping now let a fold re-open a week another device had just closed
+    // (and clobber other survivor edits) under LWW; the pendingRepush rescue
+    // still gets it to the server.
+    await putReconciled('weeks', survivor);
+  }
+
+  await healOrphanedEntries();
+}
+
+/**
+ * Rescue live entries whose week is tombstoned or missing — the end-state of
+ * the server's chunk-boundary fold (a stray week tombstoned before its
+ * week_links arrive) and the client pull-race (a just-pulled week folded away
+ * before its entries land). Such entries are invisible everywhere, because
+ * weekEntries resolves the week via get(), which filters tombstones. Re-attach
+ * each to the live open week for the same Monday (deduping + merging completion
+ * as the fold does). Entries whose week can't be located, or whose Monday has
+ * no live open week, are left untouched.
+ */
+async function healOrphanedEntries(): Promise<void> {
+  const db = await getDB();
+  const allWeeks = (await db.getAll('weeks')) as Week[];
+  const weekById = new Map(allWeeks.map((w) => [w.id, w]));
+  const liveWeekIds = new Set(allWeeks.filter((w) => !w.deleted_at).map((w) => w.id));
+  const liveOpenByStart = new Map<string, Week>();
+  for (const w of allWeeks) {
+    if (w.deleted_at || w.closed_at) continue;
+    const cur = liveOpenByStart.get(w.week_start);
+    if (!cur || byId(w, cur) < 0) liveOpenByStart.set(w.week_start, w);
+  }
+
+  const allEntries = (await db.getAll('week_links')) as WeekLink[];
+  const orphans = allEntries.filter((e) => !e.deleted_at && !liveWeekIds.has(e.week_id));
+  if (orphans.length === 0) return;
+
+  for (const orphan of orphans) {
+    const deadWeek = weekById.get(orphan.week_id);
+    if (!deadWeek) continue; // week never seen locally — can't determine its Monday
+    const target = liveOpenByStart.get(deadWeek.week_start);
+    if (!target) continue; // no live open week for that Monday — leave it be
+    const targetEntries = await byIndex<WeekLink>('week_links', 'week_id', target.id);
+    const existing = targetEntries.find((e) => e.link_id === orphan.link_id);
+    if (existing) {
+      const merged = mergeEntryState(existing, orphan);
+      if (merged) await put('week_links', merged);
+      await softDelete('week_links', orphan.id);
+    } else {
+      const nextPos = targetEntries.reduce((max, e) => Math.max(max, e.position), -1) + 1;
+      await put('week_links', { ...orphan, week_id: target.id, position: nextPos });
+    }
   }
 }
 

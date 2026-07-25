@@ -235,7 +235,19 @@ const PUSH_CHUNK = 2000;
 /** Rows per pull page; the client loops until a short page arrives. */
 const PULL_LIMIT = 5000;
 
+/**
+ * True while a sync is applying rows. On-read reconcilers (notably
+ * reconcileOpenWeeks) check this and defer: folding over a half-applied pull
+ * could tombstone a just-pulled week before its child rows land, orphaning
+ * them. The next read after the sync settles reconciles with complete data.
+ */
+let syncInProgress = false;
+export function isSyncing(): boolean {
+  return syncInProgress;
+}
+
 export async function syncNow(): Promise<SyncResult> {
+  syncInProgress = true;
   try {
     const db = await getDB();
     const base = getSyncUrl();
@@ -246,15 +258,44 @@ export async function syncNow(): Promise<SyncResult> {
     // cost tracks changes since the last push, not history — scaling.md §4)
     const lastPushAt = (await getMeta<string>('lastPushAt')) ?? '';
     const range = lastPushAt ? IDBKeyRange.lowerBound(lastPushAt, true) : undefined;
+
+    // Fold-reset rows (putReconciled) carry their real, preserved content time,
+    // which usually sits below the watermark — so the scan below would miss
+    // them. Pull them in explicitly by id so merged content and re-delivered
+    // survivors actually reach the server. Cleared after a successful push.
+    const pendingRefs = (await getMeta<string[]>('pendingRepush')) ?? [];
+    const pendingByStore = new Map<string, Set<string>>();
+    for (const ref of pendingRefs) {
+      const sep = ref.indexOf(':');
+      if (sep < 0) continue;
+      const store = ref.slice(0, sep);
+      if (!(store in STORES)) continue;
+      (pendingByStore.get(store) ?? pendingByStore.set(store, new Set()).get(store)!).add(
+        ref.slice(sep + 1)
+      );
+    }
+
     const dirty: { store: string; row: SyncFields }[] = [];
     let maxPushedUpdatedAt = lastPushAt;
     // STORES order puts parents before children, and chunk boundaries keep
     // that order, so a child never lands in an earlier request than its parent.
     for (const store of Object.keys(STORES)) {
+      const seen = new Set<string>();
       const rows = (await db.getAllFromIndex(store, 'updated_at', range)) as SyncFields[];
       for (const row of rows) {
         dirty.push({ store, row });
+        seen.add(row.id);
         if (row.updated_at > maxPushedUpdatedAt) maxPushedUpdatedAt = row.updated_at;
+      }
+      // Fold-reset rows below the watermark: their old updated_at deliberately
+      // does NOT advance maxPushedUpdatedAt.
+      const pend = pendingByStore.get(store);
+      if (pend) {
+        for (const id of pend) {
+          if (seen.has(id)) continue;
+          const row = (await db.get(store, id)) as SyncFields | undefined;
+          if (row) dirty.push({ store, row });
+        }
       }
     }
 
@@ -294,6 +335,16 @@ export async function syncNow(): Promise<SyncResult> {
       accepted += pushJson.accepted.length;
     }
     await setMeta('lastPushAt', maxPushedUpdatedAt);
+
+    // Every fold-reset row we set out to re-send has now been pushed (accepted
+    // if genuinely newer, else LWW-rejected because the server already holds an
+    // equal-or-newer version — either way it is resolved). Drop exactly those
+    // refs, keeping any a concurrent fold added mid-push.
+    if (pendingRefs.length) {
+      const current = (await getMeta<string[]>('pendingRepush')) ?? [];
+      const handled = new Set(pendingRefs);
+      await setMeta('pendingRepush', current.filter((r) => !handled.has(r)));
+    }
 
     // ---- pull, one bounded page at a time; the cursor advances per page so
     // an interrupted first sync resumes where it stopped.
@@ -354,6 +405,8 @@ export async function syncNow(): Promise<SyncResult> {
     });
     window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: result }));
     return result;
+  } finally {
+    syncInProgress = false;
   }
 }
 

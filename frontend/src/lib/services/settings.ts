@@ -3,7 +3,7 @@
  * triage knobs: articles_per_week (weekly quota, null = off) and
  * focus_tag_id (tag to prefer when suggesting links, null = none).
  */
-import { all, put, softDeleteMany, withSyncFields } from '../db/repo';
+import { all, put, putReconciled, softDeleteMany, withSyncFields } from '../db/repo';
 import { healsAllowed } from '../testMode';
 import type { UserSettings } from '../db/types';
 
@@ -39,7 +39,12 @@ export async function getUserSettings(): Promise<UserSettings | null> {
   // Test mode: reading settings must not restamp them (the heal is invoked
   // explicitly via window.__readerr.healSettingsNow instead).
   if (!healsAllowed()) return best;
-  await put('user_settings', { ...best, id: USER_SETTINGS_ID });
+  // Collapse onto the canonical id, preserving the FRESHEST content time across
+  // the group (pickBest ranks by onboarding-then-recency, not purely recency,
+  // so use the max updated_at). putReconciled preserves it rather than stamping
+  // now, so collapsing a stale duplicate can't clobber a newer settings edit.
+  const freshestAt = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), best.updated_at);
+  await putReconciled('user_settings', { ...best, id: USER_SETTINGS_ID, updated_at: freshestAt });
   const strays = rows.filter((r) => r.id !== USER_SETTINGS_ID).map((r) => r.id);
   if (strays.length) await softDeleteMany('user_settings', strays);
   return (await all<UserSettings>('user_settings'))[0] ?? null;

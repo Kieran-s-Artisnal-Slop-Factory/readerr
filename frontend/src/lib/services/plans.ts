@@ -5,7 +5,7 @@
  * A plan "kicks in" simply by existing for the period the week page is
  * looking at — nothing runs in the background.
  */
-import { all, put, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
+import { all, put, putReconciled, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
 import { healsAllowed } from '../testMode';
 import type { Plan, PlanPeriod } from '../db/types';
 import { getUserSettings } from './settings';
@@ -42,9 +42,12 @@ function planKey(p: Plan): string {
  * Ties break on id so two devices pick the same winner from the same rows.
  */
 function freshest(rows: Plan[]): Plan {
+  // Code-unit comparison (not localeCompare) so every device breaks ties on the
+  // same row as the server's byte order — see the note in notes.ts.
+  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
   return [...rows].sort((a, b) => {
-    const t = (b.updated_at ?? '').localeCompare(a.updated_at ?? '');
-    return t !== 0 ? t : a.id.localeCompare(b.id);
+    const t = cmp(b.updated_at ?? '', a.updated_at ?? '');
+    return t !== 0 ? t : cmp(a.id, b.id);
   })[0];
 }
 
@@ -73,20 +76,19 @@ export async function reconcilePlans(): Promise<Plan[]> {
   if (!healsAllowed()) return rows;
 
   for (const group of dupes) {
-    const survivor = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];
+    const survivor = [...group].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
     const best = freshest(group);
-    // Rewritten even when the survivor already held the freshest values:
-    // touching it re-pushes the row under a fresh server_seq, so a device
-    // whose pull cursor passed its original seq still receives the row the
-    // strays folded into (same delivery hazard as reconcileOpenWeeks).
-    // Idempotent: once the group is a singleton this branch never runs again.
-    await put('plans', {
+    // Carry the freshest field values onto the survivor under their REAL
+    // updated_at (putReconciled preserves it, never stamps now) so a stale fold
+    // can't clobber a newer edit; the pendingRepush rescue still delivers it.
+    await putReconciled('plans', {
       ...survivor,
       period: best.period,
       starts_on: best.starts_on,
       articles_per_week: best.articles_per_week,
       focus_tag_ids: focusIdsOf(best),
       note: best.note,
+      updated_at: best.updated_at,
     });
     const strays = group.filter((p) => p.id !== survivor.id).map((p) => p.id);
     await softDeleteMany('plans', strays);

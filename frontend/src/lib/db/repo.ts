@@ -77,6 +77,51 @@ export async function put<T extends SyncFields>(store: StoreName, row: T): Promi
   return stamped;
 }
 
+/**
+ * Persist a reconcile-fold survivor WITHOUT restamping updated_at.
+ *
+ * repo.put() stamps updated_at = now, which is correct for a user edit but
+ * catastrophic for a fold: a device folding stale local duplicates would write
+ * old content under a fresh timestamp that then beats another device's
+ * genuinely newer edit under LWW (silent, permanent data loss — the widest
+ * such channel in the audit). This preserves the row's own updated_at (the
+ * real time its content was last edited), so the fold orders correctly under
+ * LWW and can only ever LOSE to a genuinely newer edit, never clobber it.
+ *
+ * The tradeoff: a folded survivor's preserved timestamp usually sits BELOW the
+ * push watermark, so the watermark scan (sync.ts) would never send it — and the
+ * merged content (which may live only on a stray about to be tombstoned) would
+ * be lost instead. So the row is recorded in `pendingRepush`; the next push
+ * re-sends it by id regardless of the watermark, then clears the record. The
+ * server LWW-accepts it only if it is genuinely newer, so this both delivers
+ * merged content and cannot resurrect stale data.
+ */
+export async function putReconciled<T extends SyncFields>(store: StoreName, row: T): Promise<T> {
+  const plain = toPlain(row); // preserves updated_at — deliberately NOT restamped
+  const db = await getDB();
+  await db.put(store, plain);
+  await recordPendingRepush(db, store, plain.id);
+  requestSync();
+  return plain;
+}
+
+/** Note a fold-reset row so the next push re-sends it (see putReconciled). */
+async function recordPendingRepush(
+  db: Awaited<ReturnType<typeof getDB>>,
+  store: StoreName,
+  id: string
+): Promise<void> {
+  if (!db.objectStoreNames.contains('sync_meta')) return;
+  const ref = `${store}:${id}`;
+  const existing = (await db.get('sync_meta', 'pendingRepush')) as
+    | { key: string; value: string[] }
+    | undefined;
+  const set = new Set(existing?.value ?? []);
+  if (set.has(ref)) return;
+  set.add(ref);
+  await db.put('sync_meta', { key: 'pendingRepush', value: [...set] });
+}
+
 export async function bulkPut<T extends SyncFields>(store: StoreName, rows: T[]): Promise<T[]> {
   const db = await getDB();
   const tx = db.transaction(store, 'readwrite');
@@ -167,12 +212,12 @@ export async function dedupePairs<T extends SyncFields>(
       survivors.push(merged ?? survivor);
       continue;
     }
-    // The survivor is re-put even when the merge changed nothing: touching it
-    // bumps updated_at so the next push re-stamps its server_seq, and a device
-    // whose pull cursor already passed the original seq still receives the row
-    // the duplicates folded into (same delivery hazard as reconcileOpenWeeks).
-    // Only fires on a fold — converged pairs skip this branch entirely.
-    const kept = await put(store, merged ?? survivor);
+    // Re-put the survivor to re-deliver it (and any merged state) to devices
+    // whose pull cursor passed its original seq — but via putReconciled, which
+    // PRESERVES updated_at instead of stamping now. Stamping now let a stale
+    // fold clobber a concurrent edit under LWW; the pendingRepush rescue still
+    // gets the row to the server. Only fires on a fold.
+    const kept = await putReconciled(store, merged ?? survivor);
     survivors.push(kept);
     for (const dup of duplicates) strays.push(dup.id);
   }

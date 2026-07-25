@@ -36,10 +36,11 @@ is trustworthy — one that fails loudly when sync is broken instead of printing
   actually ship — service worker included), controls every sync explicitly, and
   produces a machine-readable + HTML report with a coverage matrix and a
   regression diff against the previous run.
-- **Current run: 90 cases, self-verification 12/12, 13/13 stores covered, 0
-  unexpected failures.** Four confirmed bugs are already fixed with regression
-  guards; the remaining confirmed data-loss bugs are red tripwires that must flip
-  green as they're fixed.
+- **Current run: 94 cases, self-verification 12/12, 13/13 stores covered, 0
+  unexpected failures.** Eight confirmed bugs are already fixed with regression
+  guards (the reconcile-on-read stale clobber and the whole week-fold orphaning
+  family included); the one remaining red tripwire is the clock-skew LWW
+  divergence, which needs server-authoritative timestamps.
 
 ---
 
@@ -87,28 +88,44 @@ symptom-relevant and data-loss subset:
 
 ### 2.1 Data-loss that is firing in the field
 
-- **Reconcile-on-read folds stamp `updated_at = now` onto content computed from
-  the folding device's *local* copies** ([`notes.ts:41`](frontend/src/lib/services/notes.ts:41),
+- **Reconcile-on-read folds stamped `updated_at = now` onto content computed
+  from the folding device's *local* copies** ([`notes.ts`](frontend/src/lib/services/notes.ts),
   and the same pattern in `plans.ts`, `settings.ts`, `links.ts` tag/topic
-  merges, `weeks.ts`). A device that still holds pre-fold duplicates re-runs the
-  fold later and writes **old content under a newer timestamp**, which then beats
-  the other device's genuinely newer edit under LWW — and the loser is never
-  re-pushed. *Adversarially verified (2 votes).* This is the widest data-loss
-  channel and is **open** (it needs a per-field-timestamp or fold-preserving-
-  `updated_at` redesign).
-- **Server `reconcileWeeks` between push chunks tombstones a stray week before
-  its `week_links` arrive** ([`sync.go:243`](backend/sync.go:243)): the client
-  chunks pushes at 2000 rows and `weeks` precedes `week_links`, so a chunk
-  boundary orphans the entries onto a tombstoned week — unreachable on the server
-  and every client. *Verified.* **Open.**
-- **Client `reconcileOpenWeeks` racing an in-flight pull** tombstones a
-  just-pulled week before its entries arrive, then pushes the tombstone
-  ([`weeks.ts:85`](frontend/src/lib/services/weeks.ts:85)) — the other device's
-  whole week disappears everywhere. *Verified.* **Open** (mitigated in test mode;
-  the production race remains).
-- **Week folds drop a duplicate entry wholesale** — `done_at`/`kind` on the
-  tombstoned twin is lost, with no `mergeSurvivor` for `week_links`
-  ([`weeks.ts:79`](frontend/src/lib/services/weeks.ts:79)). *Verified.* **Open.**
+  merges, `repo.ts` `dedupePairs`, `weeks.ts`). A device that still held pre-fold
+  duplicates re-ran the fold later and wrote **old content under a newer
+  timestamp**, which then beat the other device's genuinely newer edit under
+  LWW — and the loser was never re-pushed. *Adversarially verified (2 votes) —
+  the widest data-loss channel.* ✅ **FIXED** — a new
+  [`putReconciled`](frontend/src/lib/db/repo.ts) preserves the folded content's
+  **real** `updated_at` (never stamps now), so a fold can only ever LOSE to a
+  genuinely newer edit, never clobber it; a `pendingRepush` push rescue
+  ([`sync.ts`](frontend/src/lib/sync.ts)) still delivers the merged content /
+  re-delivers the survivor to cursor-advanced devices, since its preserved
+  timestamp sits below the push watermark. Guarded by
+  [`reconcile-clobber.spec.ts`](frontend/tests/sync/reconcile-clobber.spec.ts)
+  (clobber-avoided **and** merged-content-still-propagates, for notes + settings).
+- **Week-fold orphaning** — a week gets tombstoned by a fold that can't yet see
+  its entries: the **server** fold between push chunks
+  ([`sync.go:243`](backend/sync.go:243)) tombstones a stray week before its
+  `week_links` arrive, and the **client** fold racing an in-flight pull
+  ([`weeks.ts`](frontend/src/lib/services/weeks.ts)) tombstones a just-pulled week
+  before its entries land — either way live entries end up pointing at a dead
+  week, invisible everywhere. *Both verified.* ✅ **FIXED** — `reconcileOpenWeeks`
+  now (a) **self-heals orphans**: any live entry whose week is tombstoned is
+  re-attached to the live open week for that Monday (repairs the server- and
+  client-side orphan regardless of cause); (b) **bails while a sync is applying
+  rows** (`isSyncing()` in [`sync.ts`](frontend/src/lib/sync.ts)) so it never
+  folds over a half-pulled week; and (c) picks the survivor by **code-unit
+  order** instead of locale-sensitive `localeCompare` (which let a da/nb device
+  choose a different survivor and fold-ping-pong forever — also fixed in
+  `plans.ts`/`notes.ts`). Guarded by
+  [`week-fold.spec.ts`](frontend/tests/sync/week-fold.spec.ts) + four
+  [`weeks.test.ts`](frontend/test/weeks.test.ts) cases.
+- **Week folds dropped a duplicate entry wholesale** — `done_at`/`kind`/`outcome`
+  on the tombstoned twin was lost, with no merge for `week_links`
+  ([`weeks.ts`](frontend/src/lib/services/weeks.ts)). *Verified.* ✅ **FIXED** —
+  the fold now merges the stray entry's completion state (earliest `done_at`,
+  any `outcome`, sticky `review` kind) onto the survivor before tombstoning it.
 - **Merge-mode import blindly overwrites newer local rows** and resurrects
   tombstones with no LWW check ([`export.ts:216`](frontend/src/lib/db/export.ts:216)).
   ✅ **FIXED** — merge now applies LWW by `updated_at`.
@@ -311,9 +328,10 @@ cd frontend && npm run test:sync
 | Merge import clobbers newer local rows (no LWW) | data-loss | ✅ fixed |
 | Full restore keeps `lastPullSeq` → device forks | data-loss | ✅ fixed |
 | Import poison (unvalidated row bricks all sync) | critical | ✅ fixed (import side) |
-| Reconcile-on-read stale-content restamp clobber | data-loss | ⏳ open (needs per-field ts) |
-| Week fold orphans entries (server chunk / client race) | data-loss | ⏳ open |
-| Week fold drops `done_at`/`kind` on the twin | data-loss | ⏳ open |
+| Reconcile-on-read stale-content restamp clobber | data-loss | ✅ fixed (`putReconciled` + pendingRepush) |
+| Week fold orphans entries (server chunk / client race) | data-loss | ✅ fixed (orphan self-heal + isSyncing guard) |
+| Week fold drops `done_at`/`kind` on the twin | data-loss | ✅ fixed (entry-state merge) |
+| Cross-locale fold ping-pong (localeCompare survivor) | major | ✅ fixed (code-unit order, weeks/plans/notes) |
 | Clock-skew / tie rejected-row divergence | data-loss | ⏳ open tripwire (needs server time) |
 | Non-transactional server pull skips rows | data-loss | ⏳ open |
 | Archive hard-delete resurrection | major | ⏳ open |

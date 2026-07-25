@@ -69,19 +69,21 @@ describe('getNote', () => {
     expect(raw.deleted_at).not.toBeNull();
   });
 
-  it('keeps the survivor content but touches it when it is already the freshest', async () => {
+  it('preserves the survivor content and its real timestamp when it is already freshest', async () => {
     await seedNote('note-a', { updated_at: '2024-06-05T00:00:00.000Z', body_md: 'keep me' });
     await seedNote('note-b', { updated_at: '2024-06-01T00:00:00.000Z', body_md: 'drop me' });
 
     const note = await getNote('link-1');
     expect(note?.id).toBe('note-a');
     expect(note?.body_md).toBe('keep me');
-    // The fold touches the survivor even when its body already won, so the
-    // next push re-stamps its server_seq and cursor-passed devices receive it.
-    expect(note!.updated_at > '2024-06-05T00:00:00.000Z').toBe(true);
+    // The fold must NOT stamp now — it preserves the freshest content's real
+    // updated_at, so a stale fold can never clobber a genuinely newer edit.
+    // Re-delivery to cursor-passed devices rides the pendingRepush rescue, not
+    // a timestamp bump.
+    expect(note!.updated_at).toBe('2024-06-05T00:00:00.000Z');
     expect(await all<Note>('notes')).toHaveLength(1);
 
-    // …but a converged single note is returned as-is, with no churn.
+    // …and a converged single note is returned as-is, with no churn.
     const again = await getNote('link-1');
     expect(again?.updated_at).toBe(note?.updated_at);
   });

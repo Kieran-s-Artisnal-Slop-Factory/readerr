@@ -2,7 +2,17 @@
  * Link assignment and query helpers over the join tables. All deletes are
  * soft (tombstoned join rows) so they sync.
  */
-import { all, byIndex, dedupePairs, get, put, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
+import {
+  all,
+  byIndex,
+  dedupePairs,
+  get,
+  put,
+  putReconciled,
+  softDelete,
+  softDeleteMany,
+  withSyncFields,
+} from '../db/repo';
 import { healsAllowed } from '../testMode';
 import { dedupeLinkTopics, nextRefNumber } from './topics';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
@@ -112,10 +122,11 @@ export async function reconcileTags(): Promise<void> {
     const survivor = smallestId(group);
     const strays = group.filter((t) => t.id !== survivor.id);
     const notes_md = freshestProse(group, (t) => t.notes_md);
-    // Unconditional on a fold: touching the survivor re-pushes it under a
-    // fresh server_seq so devices whose pull cursor passed its original seq
-    // still receive the row the joins now point at (see reconcileOpenWeeks).
-    await put('tags', { ...survivor, notes_md });
+    // Preserve the freshest content time across the group (putReconciled does
+    // not stamp now), so a stale-duplicate fold can't clobber a newer notes_md
+    // edit under LWW; the pendingRepush rescue still re-delivers the survivor
+    // the joins now point at.
+    await putReconciled('tags', { ...survivor, notes_md, updated_at: maxUpdatedAt(group) });
     await repointTagJoins(survivor.id, group.map((t) => t.id));
     for (const s of strays) remap.set(s.id, survivor.id);
     await softDeleteMany('tags', strays.map((s) => s.id));
@@ -136,8 +147,9 @@ export async function reconcileTopics(): Promise<void> {
     const survivor = smallestId(group);
     const strays = group.filter((t) => t.id !== survivor.id);
     const body_md = freshestProse(group, (t) => t.body_md);
-    // Unconditional on a fold — same delivery rationale as reconcileTags.
-    await put('topics', { ...survivor, body_md });
+    // Preserve the freshest content time (see reconcileTags) so a stale fold
+    // can't clobber a newer topic document under LWW.
+    await putReconciled('topics', { ...survivor, body_md, updated_at: maxUpdatedAt(group) });
     await repointTopicJoins(survivor.id, group.map((t) => t.id));
     await softDeleteMany('topics', strays.map((s) => s.id));
   }
@@ -158,6 +170,11 @@ function groupByLowerName<T extends { name: string }>(rows: T[]): T[][] {
 /** The device-independent survivor: smallest id wins (ids match across devices). */
 function smallestId<T extends { id: string }>(rows: T[]): T {
   return rows.reduce((best, r) => (r.id < best.id ? r : best));
+}
+
+/** The freshest content time across a fold group (what a merged survivor carries). */
+function maxUpdatedAt<T extends { updated_at: string }>(rows: T[]): string {
+  return rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), '');
 }
 
 /**
