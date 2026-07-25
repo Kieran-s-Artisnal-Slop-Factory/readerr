@@ -11,6 +11,7 @@
  * Entries keep their week_link rows forever, so past weeks are history.
  */
 import { all, byIndex, get, put, softDelete, withSyncFields } from '../db/repo';
+import { healsAllowed } from '../testMode';
 import type { Link, LinkTag, LinkTopic, Week, WeekLink, WeekLinkKind } from '../db/types';
 
 /** Local Monday of the week containing `d`, as 'YYYY-MM-DD'. */
@@ -64,6 +65,9 @@ export async function reconcileOpenWeeks(): Promise<void> {
 
   const dupes = [...openByStart.values()].filter((g) => g.length > 1);
   if (dupes.length === 0) return;
+  // Test mode: the fold is a write — run it only when invoked explicitly
+  // (window.__readerr.reconcileOpenWeeksNow), never as a read side effect.
+  if (!healsAllowed()) return;
 
   for (const group of dupes) {
     const survivor = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];

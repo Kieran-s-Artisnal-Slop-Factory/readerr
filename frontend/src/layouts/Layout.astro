@@ -63,8 +63,16 @@ const swScope = href('/');
       import { getUserSettings, saveUserSettings } from '../lib/services/settings';
       import type { Link } from '../lib/db/types';
       import { href, isPath } from '../lib/paths';
+      import { isTestMode } from '../lib/testMode';
+      import { installTestHook } from '../lib/testHook';
 
-      if (!isPath(location.pathname, '/onboarding/')) {
+      // Sync-harness hook: a no-op (not even defined) outside test mode.
+      installTestHook();
+
+      // In test mode the gate is skipped wholesale: it both redirects and
+      // WRITES (settings heal + the grandfather stamp), and the harness needs
+      // page loads to be side-effect free.
+      if (!isTestMode() && !isPath(location.pathname, '/onboarding/')) {
         try {
           // getUserSettings reconciles duplicate settings rows into the singleton.
           const settings = await getUserSettings();

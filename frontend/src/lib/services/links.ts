@@ -3,6 +3,7 @@
  * soft (tombstoned join rows) so they sync.
  */
 import { all, byIndex, dedupePairs, get, put, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
+import { healsAllowed } from '../testMode';
 import { dedupeLinkTopics, nextRefNumber } from './topics';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
 import { remapFocusTags as remapSettingsFocusTags } from './settings';
@@ -103,6 +104,8 @@ function rankRecent(
  * note and docs/dev/data-model.md.
  */
 export async function reconcileTags(): Promise<void> {
+  // Test mode: name-merges are writes — explicit only (reconcileTagsNow).
+  if (!healsAllowed()) return;
   const remap = new Map<string, string>();
   for (const group of groupByLowerName(await all<Tag>('tags'))) {
     if (group.length < 2) continue;
@@ -126,6 +129,8 @@ export async function reconcileTags(): Promise<void> {
 }
 
 export async function reconcileTopics(): Promise<void> {
+  // Test mode: name-merges are writes — explicit only (reconcileTopicsNow).
+  if (!healsAllowed()) return;
   for (const group of groupByLowerName(await all<Topic>('topics'))) {
     if (group.length < 2) continue;
     const survivor = smallestId(group);

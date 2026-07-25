@@ -50,6 +50,7 @@
     type WeekEntry,
   } from '../../lib/services/weeks';
   import { SYNC_EVENT, type SyncResult } from '../../lib/sync';
+  import { isTestMode } from '../../lib/testMode';
   import type { Excerpt, Link, Note, Tag, Week, WeekLink } from '../../lib/db/types';
 
   let loaded = $state(false);
@@ -204,6 +205,14 @@
   });
 
   async function init() {
+    // Harness: mounting the week page must not write (auto-close stamps
+    // outcomes, ensureOpenWeek mints a week row). Tests drive both explicitly
+    // via window.__readerr; here we just render whatever exists.
+    if (isTestMode()) {
+      await loadWeek();
+      loaded = true;
+      return;
+    }
     // A week whose Monday has passed closes itself (#14).
     const autoClosed = await autoCloseStaleWeeks();
     if (autoClosed) {
@@ -227,6 +236,11 @@
   async function onSync(e: Event) {
     const detail = (e as CustomEvent<SyncResult>).detail;
     if (!loaded || !detail?.ok || detail.pulled === 0) return;
+    // Harness: refresh the view but never write from an event handler.
+    if (isTestMode()) {
+      await loadWeek();
+      return;
+    }
     const viewingOpen = focusStart === openWeekStart;
     const ow = await ensureOpenWeek();
     openWeekStart = ow.week_start;

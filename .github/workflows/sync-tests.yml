@@ -1,0 +1,68 @@
+# In-browser, multi-device sync test harness (frontend/tests/sync/).
+# Builds the production frontend + the Go backend and dbdump binaries, then
+# runs the Playwright suite against a real backend per test file. A failing
+# sabotage self-test is a suite failure, so <12/12 self-verification exits
+# non-zero automatically — there is no way for this job to go green over a
+# broken sync system.
+name: Sync tests
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/lib/sync.ts'
+      - 'frontend/src/lib/db/**'
+      - 'frontend/src/lib/services/**'
+      - 'frontend/src/lib/testMode.ts'
+      - 'frontend/src/lib/testHook.ts'
+      - 'frontend/tests/sync/**'
+      - 'backend/**'
+      - '.github/workflows/sync-tests.yml'
+  schedule:
+    - cron: '0 7 * * *' # nightly full run
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: backend/go.sum
+
+      - run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run sync harness (builds frontend + backend, runs suite)
+        run: npm run test:sync
+
+      - name: Upload report + results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-report
+          path: |
+            frontend/tests/sync/.results/report.html
+            frontend/tests/sync/.results/results.json
+          if-no-files-found: warn
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-traces
+          path: frontend/test-results/
+          if-no-files-found: ignore

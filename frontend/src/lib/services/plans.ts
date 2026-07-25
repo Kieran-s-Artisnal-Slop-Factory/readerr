@@ -6,6 +6,7 @@
  * looking at — nothing runs in the background.
  */
 import { all, put, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
+import { healsAllowed } from '../testMode';
 import type { Plan, PlanPeriod } from '../db/types';
 import { getUserSettings } from './settings';
 import { weekStartOf } from './weeks';
@@ -68,6 +69,8 @@ export async function reconcilePlans(): Promise<Plan[]> {
 
   const dupes = [...groups.values()].filter((g) => g.length > 1);
   if (dupes.length === 0) return rows;
+  // Test mode: reads stay reads (explicit heal via reconcilePlansNow).
+  if (!healsAllowed()) return rows;
 
   for (const group of dupes) {
     const survivor = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];

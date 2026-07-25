@@ -206,25 +206,63 @@ export async function importData(envelope: ExportEnvelope): Promise<ImportResult
   const known = new Set([...Object.keys(STORES), ...LOCAL_STORES]);
   const names = Object.keys(envelope.data).filter((n) => known.has(n));
 
+  // Validate every row BEFORE mutating anything. A row missing id/updated_at
+  // (an old-schema export, a hand-edited or truncated file) would otherwise be
+  // written and then poison every future /sync/push — the server 400s the
+  // whole batch on a row with no id/updated_at, and the client retries the
+  // same payload forever, killing sync entirely. Fail cleanly instead, with no
+  // partial write (we haven't opened the transaction yet).
+  for (const name of names) {
+    for (const row of (envelope.data[name] ?? []) as Partial<SyncFields>[]) {
+      if (!row || typeof row.id !== 'string' || typeof row.updated_at !== 'string') {
+        throw new Error(
+          `Backup contains an invalid row in "${name}" (each row needs an id and updated_at) — nothing was imported.`
+        );
+      }
+    }
+  }
+
   const db = await getDB();
   const tx = db.transaction(names, 'readwrite');
   let rows = 0;
   for (const name of names) {
     const store = tx.objectStore(name);
-    if (replace) store.clear();
-    for (const row of envelope.data[name] ?? []) {
-      store.put(row);
-      rows++;
+    if (replace) {
+      // Full restore: a fresh baseline. Clear the store and drop each row's
+      // foreign server_seq (assigned by whatever server this backup last
+      // synced to) so the restored device re-pushes and re-pulls cleanly.
+      store.clear();
+      for (const row of envelope.data[name] ?? []) {
+        store.put({ ...(row as SyncFields), server_seq: null });
+        rows++;
+      }
+    } else {
+      // MERGE (curated/range/template): last-write-wins by updated_at, the same
+      // rule sync uses — never regress a newer local row and never resurrect a
+      // local tombstone that is newer than the imported row.
+      for (const row of envelope.data[name] ?? []) {
+        const incoming = row as SyncFields;
+        const existing = (await store.get(incoming.id)) as SyncFields | undefined;
+        if (existing && existing.updated_at >= incoming.updated_at) continue;
+        store.put(incoming);
+        rows++;
+      }
     }
   }
   await tx.done;
 
   // Imported rows keep their historical updated_at, which the dirty-tracked
-  // push (sync.ts) would skip — drop the push cursor so the next sync
-  // re-scans everything once. Idempotent and cheap: the server LWW-ignores
-  // whatever it already holds.
+  // push (sync.ts) would skip — drop the push cursor so the next sync re-scans
+  // everything once. A full restore is additionally a new baseline against the
+  // server, so also drop the pull cursor and the remembered server epoch:
+  // otherwise a restored device sits ABOVE the server's seqs and never pulls
+  // the rows below its stale cursor — a silent, permanent fork.
   if (db.objectStoreNames.contains('sync_meta')) {
     await db.delete('sync_meta', 'lastPushAt');
+    if (replace) {
+      await db.delete('sync_meta', 'lastPullSeq');
+      await db.delete('sync_meta', 'serverEpoch');
+    }
   }
 
   return { rows, mode: replace ? 'replaced' : 'merged' };

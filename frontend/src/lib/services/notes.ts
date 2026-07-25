@@ -9,6 +9,7 @@
  * converge), keeps the freshest body, and tombstones the strays.
  */
 import { byIndex, put, softDeleteMany } from '../db/repo';
+import { healsAllowed } from '../testMode';
 import type { Note } from '../db/types';
 
 /**
@@ -33,6 +34,9 @@ export async function getNote(linkId: string): Promise<Note | null> {
 
   const survivor = [...rows].sort((a, b) => a.id.localeCompare(b.id))[0];
   const best = freshest(rows);
+  // Test mode: return the folded view without persisting it (explicit heal
+  // via window.__readerr.healNoteNow).
+  if (!healsAllowed()) return { ...survivor, body_md: best.body_md };
   // Rewritten even when the survivor already held the freshest body: touching
   // it re-pushes the row under a fresh server_seq, so a device whose pull
   // cursor passed its original seq still receives the note the strays folded

@@ -4,6 +4,7 @@
  * focus_tag_id (tag to prefer when suggesting links, null = none).
  */
 import { all, put, softDeleteMany, withSyncFields } from '../db/repo';
+import { healsAllowed } from '../testMode';
 import type { UserSettings } from '../db/types';
 
 /**
@@ -35,6 +36,9 @@ export async function getUserSettings(): Promise<UserSettings | null> {
   if (rows.length === 1 && rows[0].id === USER_SETTINGS_ID) return rows[0];
 
   const best = pickBest(rows);
+  // Test mode: reading settings must not restamp them (the heal is invoked
+  // explicitly via window.__readerr.healSettingsNow instead).
+  if (!healsAllowed()) return best;
   await put('user_settings', { ...best, id: USER_SETTINGS_ID });
   const strays = rows.filter((r) => r.id !== USER_SETTINGS_ID).map((r) => r.id);
   if (strays.length) await softDeleteMany('user_settings', strays);

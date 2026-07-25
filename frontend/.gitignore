@@ -22,3 +22,9 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# sync test harness artifacts
+tests/sync/.bin/
+tests/sync/.results/
+test-results/
+playwright-report/

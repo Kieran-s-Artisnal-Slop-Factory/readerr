@@ -17,6 +17,7 @@ import { getDB } from './db/db';
 import { STORES } from './db/types';
 import type { SyncFields } from './db/types';
 import { recordSyncEvent } from './services/syncLog';
+import { isTestMode } from './testMode';
 
 const SYNC_URL_KEY = 'readerr-sync-url';
 const AUTO_SYNC_AT_KEY = 'readerr-last-auto-sync';
@@ -357,11 +358,63 @@ export async function syncNow(): Promise<SyncResult> {
 }
 
 /**
+ * Push local changes to the server shortly after a mutation, so an edit on one
+ * device reaches the others in seconds instead of waiting for the next
+ * navigation-gated, 15-minute-throttled auto-sync. Calls are debounced (a
+ * burst of writes coalesces into one sync) and self-mutexed (never overlaps an
+ * in-flight sync — a second request while one runs re-arms once it settles).
+ *
+ * Fire-and-forget from the repo write helpers; offline / offline-mode / a
+ * failed sync are all handled inside syncNow, so this never throws at the call
+ * site. In the sync test harness it stays dormant unless a device explicitly
+ * opts in (localStorage 'readerr-test-bg-sync'), so snapshots stay
+ * deterministic while the trigger itself remains testable.
+ */
+const REQUEST_SYNC_DEBOUNCE_MS = 800;
+let requestSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let requestSyncInFlight = false;
+let requestSyncPending = false;
+
+export function requestSync(): void {
+  if (typeof window === 'undefined') return;
+  if (getSyncMode() === 'offline') return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  if (isTestMode() && localStorage.getItem('readerr-test-bg-sync') !== '1') return;
+
+  if (requestSyncInFlight) {
+    requestSyncPending = true; // coalesce: run once more after the current sync
+    return;
+  }
+  if (requestSyncTimer) clearTimeout(requestSyncTimer);
+  requestSyncTimer = setTimeout(() => {
+    requestSyncTimer = null;
+    void runRequestedSync();
+  }, REQUEST_SYNC_DEBOUNCE_MS);
+}
+
+async function runRequestedSync(): Promise<void> {
+  requestSyncInFlight = true;
+  requestSyncPending = false;
+  try {
+    await syncNow();
+  } catch {
+    // syncNow already records lastError; nothing to do at the trigger.
+  } finally {
+    requestSyncInFlight = false;
+    // A write that arrived mid-sync re-arms the debounce so it isn't lost.
+    if (requestSyncPending) requestSync();
+  }
+}
+
+/**
  * Background sync, safe to call on every page load: always runs once when
  * the app is opened (per browser session), then at most every 15 minutes as
  * the user navigates.
  */
 export function maybeAutoSync(): void {
+  // The harness drives every sync explicitly (via window.__readerr.syncNow);
+  // an uncontrolled background sync would make snapshots nondeterministic.
+  if (isTestMode()) return;
   if (typeof navigator === 'undefined' || !navigator.onLine) return;
   if (getSyncMode() === 'offline') return;
   const syncedThisSession = sessionStorage.getItem(SESSION_SYNC_KEY) === '1';

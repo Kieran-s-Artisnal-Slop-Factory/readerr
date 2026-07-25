@@ -11,6 +11,7 @@
 import { getDB } from '../db/db';
 import { all, put } from '../db/repo';
 import { getUserSettings } from './settings';
+import { isTestMode } from '../testMode';
 import type { Link } from '../db/types';
 
 const ARCHIVE_STORE = 'archived_links';
@@ -82,6 +83,7 @@ export async function listArchived(): Promise<Link[]> {
  * disabled, throttled, or nothing was due).
  */
 export async function maybeAutoArchive(): Promise<number> {
+  if (isTestMode()) return 0; // harness: no background writes on page load
   const settings = await getUserSettings();
   if (!settings?.archive_enabled) return 0;
   const last = Number(localStorage.getItem(LAST_RUN_KEY) ?? 0);

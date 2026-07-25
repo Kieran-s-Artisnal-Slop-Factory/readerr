@@ -25,6 +25,7 @@ import {
 import { getUserSettings } from './settings';
 import { currentWeekStart, reviewLink, setLinkWeek, weekHistoryForLink, weekStartPlus } from './weeks';
 import { getSyncMode, getSyncUrl } from '../sync';
+import { isTestMode } from '../testMode';
 
 /** Query params that only exist to track you — safe to drop from any URL. */
 const TRACKING_PARAMS = [
@@ -386,6 +387,9 @@ async function fetchTitle(link: Link, base: string): Promise<void> {
  * and only clutters the console with failures.
  */
 export async function fetchTitles(links: Link[]): Promise<void> {
+  // Harness: a title landing seconds after a capture would re-stamp links
+  // mid-test; tests that want titles call the backend explicitly.
+  if (isTestMode()) return;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   if (getSyncMode() === 'offline') return;
   const base = getSyncUrl();

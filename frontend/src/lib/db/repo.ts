@@ -4,6 +4,8 @@
  * deleted — softDelete sets deleted_at so deletions can sync in Phase 3.
  */
 import { getDB } from './db';
+import { healsAllowed } from '../testMode';
+import { requestSync } from '../sync';
 import type { StoreName, SyncFields } from './types';
 
 export const newId = (): string => crypto.randomUUID();
@@ -71,6 +73,7 @@ function toPlain<T>(row: T): T {
 export async function put<T extends SyncFields>(store: StoreName, row: T): Promise<T> {
   const stamped = toPlain({ ...row, updated_at: nowIso() });
   await (await getDB()).put(store, stamped);
+  requestSync(); // debounced: propagate this change without waiting for auto-sync
   return stamped;
 }
 
@@ -80,6 +83,7 @@ export async function bulkPut<T extends SyncFields>(store: StoreName, rows: T[])
   const stamped = rows.map((r) => toPlain({ ...r, updated_at: nowIso() }));
   for (const row of stamped) tx.store.put(row);
   await tx.done;
+  if (stamped.length) requestSync();
   return stamped;
 }
 
@@ -88,19 +92,23 @@ export async function softDelete(store: StoreName, id: string): Promise<void> {
   const row = (await db.get(store, id)) as SyncFields | undefined;
   if (!row || row.deleted_at) return;
   await db.put(store, { ...row, deleted_at: nowIso(), updated_at: nowIso() });
+  requestSync();
 }
 
 export async function softDeleteMany(store: StoreName, ids: string[]): Promise<void> {
   const db = await getDB();
   const tx = db.transaction(store, 'readwrite');
   const now = nowIso();
+  let deleted = 0;
   for (const id of ids) {
     const row = (await tx.store.get(id)) as SyncFields | undefined;
     if (row && !row.deleted_at) {
       tx.store.put({ ...row, deleted_at: now, updated_at: now });
+      deleted++;
     }
   }
   await tx.done;
+  if (deleted) requestSync();
 }
 
 /**
@@ -153,12 +161,17 @@ export async function dedupePairs<T extends SyncFields>(
     const [survivor, ...duplicates] = [...group].sort((a, b) =>
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     );
+    const merged = mergeSurvivor ? mergeSurvivor(survivor, duplicates) : null;
+    if (!healsAllowed()) {
+      // Test mode: reads stay reads. Same survivor choice, nothing persisted.
+      survivors.push(merged ?? survivor);
+      continue;
+    }
     // The survivor is re-put even when the merge changed nothing: touching it
     // bumps updated_at so the next push re-stamps its server_seq, and a device
     // whose pull cursor already passed the original seq still receives the row
     // the duplicates folded into (same delivery hazard as reconcileOpenWeeks).
     // Only fires on a fold — converged pairs skip this branch entirely.
-    const merged = mergeSurvivor ? mergeSurvivor(survivor, duplicates) : null;
     const kept = await put(store, merged ?? survivor);
     survivors.push(kept);
     for (const dup of duplicates) strays.push(dup.id);
