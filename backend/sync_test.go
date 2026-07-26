@@ -487,15 +487,95 @@ func TestPullIsConsistentSnapshotUnderConcurrentCommit(t *testing.T) {
 	}
 }
 
-func TestPushRejectsRowMissingRequiredFields(t *testing.T) {
+// A row that can't be identified/ordered (no id/updated_at) is skipped, not a
+// 400 that halts the whole batch — one corrupt row must never poison sync.
+func TestPushSkipsRowMissingRequiredFieldsWithoutHaltingBatch(t *testing.T) {
 	s := newTestServer(t)
-	body, _ := json.Marshal(pushRequest{Rows: map[string][]map[string]any{
-		"links": {{"url": "https://e/x"}}, // no id / updated_at
-	}})
-	req := httptest.NewRequest("POST", "/sync/push", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	s.handlePush(w, req)
-	if w.Code != 400 {
-		t.Fatalf("status = %d, want 400 for missing id/updated_at", w.Code)
+	resp := doPush(t, s, map[string][]map[string]any{
+		"links": {
+			{"url": "https://e/x"}, // no id / updated_at — unstorable
+			linkRow("good", "2026-07-10T10:00:00Z", nil),
+		},
+	})
+	if len(resp.Accepted) != 1 || resp.Accepted[0].ID != "good" {
+		t.Fatalf("accepted = %+v, want just the good row", resp.Accepted)
+	}
+	if len(resp.Rejected) != 1 {
+		t.Fatalf("rejected = %+v, want 1", resp.Rejected)
+	}
+	if got := len(doPull(t, s, 0, 0).Rows["links"]); got != 1 {
+		t.Fatalf("stored %d links, want 1 (the good row)", got)
+	}
+}
+
+// A legacy row from before a NOT NULL ... DEFAULT column existed omits that key
+// on the wire. The server must fill the default rather than bind NULL (which
+// violated the constraint and 500'd the whole batch — the reported poison).
+func TestLegacyRowMissingDefaultColumnFillsDefault(t *testing.T) {
+	s := newTestServer(t)
+	resp := doPush(t, s, map[string][]map[string]any{
+		"week_links": {{ // pre-`kind`, pre-`position` shape
+			"id": "wl-legacy", "week_id": "w1", "link_id": "l1",
+			"updated_at": "2026-07-10T10:00:00Z", "deleted_at": nil, "server_seq": nil,
+		}},
+	})
+	if len(resp.Accepted) != 1 {
+		t.Fatalf("accepted = %d, want 1 (legacy row should fill defaults, not 500)", len(resp.Accepted))
+	}
+	if len(resp.Rejected) != 0 {
+		t.Fatalf("rejected = %+v, want 0", resp.Rejected)
+	}
+	row := doPull(t, s, 0, 0).Rows["week_links"][0]
+	if row["kind"] != "reading" {
+		t.Errorf("kind = %v, want 'reading' (default filled)", row["kind"])
+	}
+	if row["position"] != float64(0) {
+		t.Errorf("position = %v, want 0 (default filled)", row["position"])
+	}
+}
+
+// Also cover a legacy user_settings row missing its later NOT NULL DEFAULT
+// columns (focus_tag_ids, auto_title, capture_tag_sort, …).
+func TestLegacySettingsRowFillsDefaults(t *testing.T) {
+	s := newTestServer(t)
+	resp := doPush(t, s, map[string][]map[string]any{
+		"user_settings": {{
+			"id": "us1", "name": "old",
+			"updated_at": "2026-07-10T10:00:00Z", "deleted_at": nil, "server_seq": nil,
+		}},
+	})
+	if len(resp.Accepted) != 1 || len(resp.Rejected) != 0 {
+		t.Fatalf("accepted=%d rejected=%d, want 1/0 (defaults fill legacy settings)", len(resp.Accepted), len(resp.Rejected))
+	}
+	row := doPull(t, s, 0, 0).Rows["user_settings"][0]
+	if fti, ok := row["focus_tag_ids"].([]any); !ok || len(fti) != 0 {
+		t.Errorf("focus_tag_ids = %#v, want [] (default)", row["focus_tag_ids"])
+	}
+	if row["auto_title"] != true {
+		t.Errorf("auto_title = %v, want true (default 1)", row["auto_title"])
+	}
+	if row["capture_tag_sort"] != "recent" {
+		t.Errorf("capture_tag_sort = %v, want 'recent' (default)", row["capture_tag_sort"])
+	}
+}
+
+// A row that violates a real constraint the defaults can't satisfy (content_md
+// is NOT NULL with no default) is skipped, and the good rows in the same batch
+// still commit — the failed statement must not abort the transaction.
+func TestUnstorableRowIsSkippedNotFatal(t *testing.T) {
+	s := newTestServer(t)
+	resp := doPush(t, s, map[string][]map[string]any{
+		"links": {linkRow("good", "2026-07-10T10:00:00Z", nil)},
+		"excerpts": {{ // content_md omitted — NOT NULL, no default
+			"id": "ex-bad", "link_id": "good", "position": 0,
+			"updated_at": "2026-07-10T10:00:00Z", "deleted_at": nil, "server_seq": nil,
+		}},
+	})
+	if len(resp.Rejected) != 1 || resp.Rejected[0].ID != "ex-bad" {
+		t.Fatalf("rejected = %+v, want [ex-bad]", resp.Rejected)
+	}
+	links := doPull(t, s, 0, 0).Rows["links"]
+	if len(links) != 1 || links[0]["id"] != "good" {
+		t.Fatalf("good row not committed after a sibling row was skipped: %+v", links)
 	}
 }

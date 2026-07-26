@@ -38,12 +38,13 @@ is trustworthy — one that fails loudly when sync is broken instead of printing
   regression diff against the previous run.
 - **Current run: 97 harness cases + full Go backend suite + 158 unit tests
   green, self-verification 12/12, 13/13 stores covered, 0 unexpected failures,
-  0 red tripwires.** Eleven confirmed bugs are fixed with regression guards —
+  0 red tripwires.** Twelve confirmed bugs are fixed with regression guards —
   the reconcile-on-read stale clobber, the whole week-fold orphaning family, the
-  clock-skew / tie LWW divergence, the non-transactional server pull, and the
-  archive hard-delete resurrection included. The main remaining audit item is
-  the legacy-row poison push (server side); the server-side chunk-boundary fold
-  is mitigated client-side.
+  clock-skew / tie LWW divergence, the non-transactional server pull, the archive
+  hard-delete resurrection, and the push batch-abort poison included. Every
+  remaining audit item is a lower-severity or already-mitigated one; the fixed
+  set covers all of the reproducible data-loss channels the harness could
+  demonstrate.
 
 ---
 
@@ -181,11 +182,20 @@ symptom-relevant and data-loss subset:
   [`TestPullIsConsistentSnapshotUnderConcurrentCommit`](backend/sync_test.go),
   which injects a commit between the pull's table queries via a test seam
   (red before the fix, green after).
-- **Poison push**: a single row missing a `NOT NULL` column (legacy `ref_number`,
-  `kind`, `focus_tag_ids`) 500s the whole batch and the client retries it
-  forever. The **import** side of this is ✅ **FIXED** (rows are validated before
-  any write; a malformed backup is rejected cleanly). The legacy-row-on-server
-  side remains **open**.
+- **Poison push**: a single unstorable row (a `CHECK`/`NOT NULL` violation, or a
+  row missing `id`/`updated_at`) `500`s the whole `/sync/push` batch, and the
+  client retries the same payload forever — all sync halts. ✅ **FIXED** on both
+  sides: the **import** side validates rows before any write (a malformed backup
+  is rejected cleanly), and the **server** now **skips** an unstorable row
+  (reporting it in `pushResponse.Rejected`) instead of aborting the transaction —
+  SQLite keeps the txn usable after a constraint error, so the good rows still
+  land. Guarded by [`TestUnstorableRowIsSkippedNotFatal`](backend/sync_test.go).
+  *Correction to the audit:* the "legacy row missing a `NOT NULL` column with a
+  `DEFAULT` (`kind`/`ref_number`/`focus_tag_ids`) 500s the batch" claim was a
+  **false positive** — `INSERT OR REPLACE` already substitutes a column's
+  `DEFAULT` for an explicit `NULL`. The server now also fills those defaults
+  explicitly (belt-and-braces; [`TestLegacyRowMissingDefaultColumnFillsDefault`](backend/sync_test.go),
+  [`TestLegacySettingsRowFillsDefaults`](backend/sync_test.go)).
 
 ### 2.3 The reported #1 symptom: "changes don't transfer"
 
@@ -361,7 +371,7 @@ cd frontend && npm run test:sync
 | Clock-skew / tie rejected-row divergence | data-loss | ✅ fixed (push conflict-return) |
 | Non-transactional server pull skips rows | data-loss | ✅ fixed (single-snapshot pull txn) |
 | Archive hard-delete resurrection | major | ✅ fixed (pull routing + reset move-back + read-only UI) |
-| Legacy-row poison push (server side) | critical | ⏳ open |
+| Batch-abort on one unstorable row (push poison) | critical | ✅ fixed (server skips + reports, txn survives) |
 
 Each open item is grounded in [`docs/dev/sync-audit.md`](docs/dev/sync-audit.md)
 and most have a red tripwire or an obvious place for one. **The gate to calling
@@ -382,10 +392,10 @@ any fix "done": its case flips red→green AND the full suite — isolation diff
 1. Self-verification is **12/12** on every run. ✅ (met every run)
 2. Coverage matrix has **no uncovered store**. ✅ (13/13)
 3. Every confirmed bug has a case that **was red before the fix and is green
-   after**. ✅ (eleven fixed with red-before/green-after guards; **0 red
-   tripwires remain**. The residual audit items — the legacy-row poison push and
-   the server-side chunk-boundary fold — are documented and mitigated, not yet
-   tripwired.)
+   after**. ✅ (twelve fixed with red-before/green-after guards; **0 red
+   tripwires remain**. Residual audit items are lower-severity or already
+   mitigated — the server-side chunk-boundary fold, drag-reorder clobber, and
+   position-ordering divergence — documented, not yet tripwired.)
 4. The regression diff has run across at least two runs and caught a seeded
    regression. ✅ (diff wired; identical runs produce empty deltas)
 5. The suite runs green **three times in a row** with no flakes. ✅ (repeated

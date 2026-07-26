@@ -20,6 +20,16 @@ type tableMeta struct {
 	columns  []string
 	jsonCols map[string]bool // stored as JSON text, wire format = array/object
 	boolCols map[string]bool // stored as INTEGER 0/1, wire format = bool
+	// defaults are the DB-form values for NOT NULL columns that carry a schema
+	// DEFAULT. A row that predates such a column (an old IndexedDB row or an old
+	// backup) omits its key on the wire, so insertArgs fills the default here
+	// rather than binding SQL NULL. INSERT OR REPLACE would already substitute a
+	// NOT NULL column's DEFAULT on an explicit NULL, so this is belt-and-braces
+	// today — but it makes the intent explicit, documents the defaults in one
+	// place, and keeps legacy rows storable if the conflict clause ever changes.
+	// Keep in lockstep with the NOT NULL ... DEFAULT columns in
+	// backend/sql/schema.sql.
+	defaults map[string]any
 }
 
 func set(names ...string) map[string]bool {
@@ -62,45 +72,60 @@ var tables = map[string]tableMeta{
 			"capture_tag_sort"),
 		jsonCols: set("strip_whitelist", "focus_tag_ids"),
 		boolCols: set("auto_title", "archive_enabled"),
+		defaults: map[string]any{
+			"focus_tag_ids": "[]", "strip_query_params": "off", "strip_whitelist": "[]",
+			"auto_title": 1, "default_week": "none", "default_week_offset": 0,
+			"archive_enabled": 0, "archive_after_months": 24, "capture_tag_sort": "recent",
+		},
 	},
 	"plans": {
 		columns:  cols("id", "period", "starts_on", "articles_per_week", "focus_tag_ids", "note"),
 		jsonCols: set("focus_tag_ids"),
+		defaults: map[string]any{"focus_tag_ids": "[]", "note": ""},
 	},
 	"links": {
 		columns: cols("id", "url", "title", "title_fetched", "added_at",
 			"read_at", "favourite", "is_resource", "slushed_at", "priority"),
 		boolCols: set("title_fetched", "favourite", "is_resource"),
+		defaults: map[string]any{"title_fetched": 0, "favourite": 0, "is_resource": 0},
 	},
 	"tags": {
-		columns: cols("id", "name", "notes_md"),
+		columns:  cols("id", "name", "notes_md"),
+		defaults: map[string]any{"notes_md": ""},
 	},
 	"link_tags": {
 		columns: cols("id", "link_id", "tag_id"),
 	},
 	"topics": {
-		columns: cols("id", "name", "body_md"),
+		columns:  cols("id", "name", "body_md"),
+		defaults: map[string]any{"body_md": ""},
 	},
 	"link_topics": {
-		columns: cols("id", "link_id", "topic_id", "ref_number"),
+		columns:  cols("id", "link_id", "topic_id", "ref_number"),
+		defaults: map[string]any{"ref_number": 0},
 	},
 	"notes": {
-		columns: cols("id", "link_id", "body_md"),
+		columns:  cols("id", "link_id", "body_md"),
+		defaults: map[string]any{"body_md": ""},
 	},
 	"excerpts": {
-		columns: cols("id", "link_id", "content_md", "position"),
+		columns:  cols("id", "link_id", "content_md", "position"),
+		defaults: map[string]any{"position": 0},
 	},
 	"resource_lists": {
-		columns: cols("id", "name", "description_md"),
+		columns:  cols("id", "name", "description_md"),
+		defaults: map[string]any{"description_md": ""},
 	},
 	"resource_list_links": {
-		columns: cols("id", "list_id", "link_id", "position"),
+		columns:  cols("id", "list_id", "link_id", "position"),
+		defaults: map[string]any{"position": 0},
 	},
 	"weeks": {
 		columns: cols("id", "week_start", "closed_at"),
 	},
 	"week_links": {
-		columns: cols("id", "week_id", "link_id", "position", "kind", "done_at", "outcome"),
+		columns:  cols("id", "week_id", "link_id", "position", "kind", "done_at", "outcome"),
+		defaults: map[string]any{"position": 0, "kind": "reading"},
 	},
 }
 
@@ -133,8 +158,13 @@ type pushResponse struct {
 	// diverge permanently (the client applies ties on >=, the server skips on
 	// <=, so a millisecond tie would otherwise resolve in opposite directions).
 	Conflicts map[string][]map[string]any `json:"conflicts"`
-	LatestSeq int64                       `json:"latestSeq"`
-	Epoch     string                      `json:"epoch"`
+	// Rejected are rows the server could not store (missing a required column,
+	// or a CHECK/constraint violation the defaults couldn't satisfy). They are
+	// skipped rather than 500ing the whole batch — one unstorable row must not
+	// halt sync for every other row. Reported for visibility.
+	Rejected  []acceptedRow `json:"rejected"`
+	LatestSeq int64         `json:"latestSeq"`
+	Epoch     string        `json:"epoch"`
 }
 
 // epoch identifies one lifetime of the seq counter: it changes whenever the
@@ -178,6 +208,31 @@ func toDBValue(meta tableMeta, col string, row map[string]any) (any, error) {
 	}
 }
 
+// insertArgs builds the INSERT bind values for a row in column order, binding
+// seq for server_seq and filling the NOT NULL default for any column the wire
+// row omits (see tableMeta.defaults). Returns ok=false if a value can't be
+// converted, so the caller can skip just that row.
+func (meta tableMeta) insertArgs(row map[string]any, seq int64) ([]any, bool) {
+	args := make([]any, 0, len(meta.columns))
+	for _, col := range meta.columns {
+		if col == "server_seq" {
+			args = append(args, seq)
+			continue
+		}
+		v, err := toDBValue(meta, col, row)
+		if err != nil {
+			return nil, false
+		}
+		if v == nil {
+			if def, ok := meta.defaults[col]; ok {
+				v = def
+			}
+		}
+		args = append(args, v)
+	}
+	return args, true
+}
+
 // POST /sync/push — accept client rows, last-write-wins on updated_at, stamp
 // each accepted row with the next value of the single global counter.
 func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
@@ -202,14 +257,22 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 
 	accepted := []acceptedRow{}
 	conflicts := map[string][]map[string]any{}
+	rejected := []acceptedRow{}
 	for _, table := range tableOrder {
 		meta := tables[table]
+		placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(meta.columns)), ", ")
+		query := "INSERT OR REPLACE INTO " + table + " (" + strings.Join(meta.columns, ", ") +
+			") VALUES (" + placeholders + ")"
 		for _, row := range req.Rows[table] {
 			id, _ := row["id"].(string)
 			updatedAt, _ := row["updated_at"].(string)
 			if id == "" || updatedAt == "" {
-				http.Error(w, fmt.Sprintf("table %s: row missing id/updated_at", table), http.StatusBadRequest)
-				return
+				// A row that can't be identified or LWW-ordered can't be stored.
+				// Skip it — never 400 the whole batch, which would let one
+				// corrupt row halt sync for every other row.
+				slog.Warn("sync push: skipping row missing id/updated_at", "table", table)
+				rejected = append(rejected, acceptedRow{Table: table, ID: id})
+				continue
 			}
 
 			var existing sql.NullString
@@ -235,28 +298,25 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			lastSeq++
-			args := make([]any, 0, len(meta.columns))
-			placeholders := make([]string, 0, len(meta.columns))
-			for _, col := range meta.columns {
-				if col == "server_seq" {
-					args = append(args, lastSeq)
-				} else {
-					v, err := toDBValue(meta, col, row)
-					if err != nil {
-						http.Error(w, fmt.Sprintf("table %s row %s: %v", table, id, err), http.StatusBadRequest)
-						return
-					}
-					args = append(args, v)
-				}
-				placeholders = append(placeholders, "?")
+			args, ok := meta.insertArgs(row, lastSeq+1)
+			if !ok {
+				// A value that can't be converted (wrong wire type). Skip the
+				// row rather than 400 the batch.
+				slog.Warn("sync push: skipping row with an unconvertible value", "table", table, "id", id)
+				rejected = append(rejected, acceptedRow{Table: table, ID: id})
+				continue
 			}
-			query := "INSERT OR REPLACE INTO " + table + " (" + strings.Join(meta.columns, ", ") +
-				") VALUES (" + strings.Join(placeholders, ", ") + ")"
 			if _, err := tx.Exec(query, args...); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				// A row the server can't store — a legacy row missing a required
+				// (no-default) column, or a CHECK/constraint violation. SQLite
+				// keeps the transaction usable after a constraint error, so skip
+				// this one row and let the rest of the batch land instead of
+				// 500ing everything and poisoning sync forever.
+				slog.Warn("sync push: skipping unacceptable row", "table", table, "id", id, "error", err)
+				rejected = append(rejected, acceptedRow{Table: table, ID: id})
+				continue
 			}
+			lastSeq++
 			accepted = append(accepted, acceptedRow{Table: table, ID: id, ServerSeq: lastSeq})
 		}
 	}
@@ -282,8 +342,12 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("sync push", "accepted", len(accepted), "conflicts", len(conflicts), "latestSeq", lastSeq)
-	writeJSON(w, pushResponse{Accepted: accepted, Conflicts: conflicts, LatestSeq: lastSeq, Epoch: s.epoch()})
+	slog.Info("sync push", "accepted", len(accepted), "conflicts", len(conflicts),
+		"rejected", len(rejected), "latestSeq", lastSeq)
+	writeJSON(w, pushResponse{
+		Accepted: accepted, Conflicts: conflicts, Rejected: rejected,
+		LatestSeq: lastSeq, Epoch: s.epoch(),
+	})
 }
 
 // nowISO formats the moment exactly the way clients write updated_at
