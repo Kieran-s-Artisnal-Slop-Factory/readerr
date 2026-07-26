@@ -36,13 +36,14 @@ is trustworthy — one that fails loudly when sync is broken instead of printing
   actually ship — service worker included), controls every sync explicitly, and
   produces a machine-readable + HTML report with a coverage matrix and a
   regression diff against the previous run.
-- **Current run: 95 cases, self-verification 12/12, 13/13 stores covered, 0
-  unexpected failures, 0 red tripwires.** Nine confirmed bugs are fixed with
-  regression guards — the reconcile-on-read stale clobber, the whole week-fold
-  orphaning family, and the clock-skew / tie LWW divergence included. The
-  remaining audit items (non-transactional server pull, archive resurrection,
-  server-side chunk-boundary fold) are documented; none currently has a red
-  tripwire.
+- **Current run: 97 harness cases + full Go backend suite + 158 unit tests
+  green, self-verification 12/12, 13/13 stores covered, 0 unexpected failures,
+  0 red tripwires.** Eleven confirmed bugs are fixed with regression guards —
+  the reconcile-on-read stale clobber, the whole week-fold orphaning family, the
+  clock-skew / tie LWW divergence, the non-transactional server pull, and the
+  archive hard-delete resurrection included. The main remaining audit item is
+  the legacy-row poison push (server side); the server-side chunk-boundary fold
+  is mitigated client-side.
 
 ---
 
@@ -136,10 +137,20 @@ symptom-relevant and data-loss subset:
   ✅ **FIXED** — full restore now also drops `lastPullSeq` + `serverEpoch` and
   nulls foreign `server_seq`.
 - **Archive hard-deletes live synced rows without tombstoning**
-  ([`archive.ts:59`](frontend/src/lib/services/archive.ts:59)): a pull or remote
-  edit resurrects the row into the hot store, duplicating it across `links` and
-  `archived_links`. **Open** (archive is local-only by design; needs a
-  don't-re-pull-archived guard).
+  ([`archive.ts`](frontend/src/lib/services/archive.ts)): the link stays on the
+  server, so a full re-pull or a remote edit resurrected it into the hot store,
+  duplicating it across `links` and `archived_links`; unarchiving a stale cold
+  copy then clobbered newer remote edits. ✅ **FIXED** — the pull now routes an
+  incoming `links` row to the cold copy when its id is archived
+  ([`sync.ts`](frontend/src/lib/sync.ts)), so it is never re-inserted into the
+  hot store and the cold copy stays current (a correct unarchive later). The
+  server-switch reset ([`resetLocalSyncState`](frontend/src/lib/sync.ts)) moves
+  archived links back into `links` so they re-push instead of stranding, and the
+  archive page renders links **read-only** ([`LinkRow`](frontend/src/components/LinkRow.svelte)
+  `readOnly`) so a flag toggle can't resurrect one. Guarded by
+  [`archive.spec.ts`](frontend/tests/sync/archive.spec.ts) (no resurrection on
+  re-pull; remote edit updates the cold copy) + three
+  [`archive.test.ts`](frontend/test/archive.test.ts) cases.
 
 ### 2.2 Cursor / protocol data-loss
 
@@ -158,9 +169,18 @@ symptom-relevant and data-loss subset:
 - **`lastPushAt` watermark poisoning / below-watermark strands**: pulled rows
   re-enter the dirty scan; an edit stamped at/below the exclusive lower bound is
   never pushed ([`sync.ts:296`](frontend/src/lib/sync.ts:247)). **Open.**
-- **Non-transactional pull on the server**: a push committing between per-table
-  queries advances `latestSeq` past rows the client never received
-  ([`sync.go:435`](backend/sync.go:435)). **Open.**
+- **Non-transactional pull on the server**: `handlePull` ran a separate
+  `s.db.Query` per table (a fresh snapshot per statement), so a push committing
+  between two tables' queries was seen by the later table but not the earlier
+  one — and `latestSeq` (the max returned seq) could then advance past the
+  earlier table's just-inserted, un-returned row, skipping it forever
+  ([`sync.go`](backend/sync.go)). ✅ **FIXED** — the whole pull now runs inside
+  one deferred read transaction (a single consistent snapshot in WAL mode that
+  never blocks writers), so a mid-pull commit is simply invisible to that pull
+  and the next page delivers it. Guarded by
+  [`TestPullIsConsistentSnapshotUnderConcurrentCommit`](backend/sync_test.go),
+  which injects a commit between the pull's table queries via a test seam
+  (red before the fix, green after).
 - **Poison push**: a single row missing a `NOT NULL` column (legacy `ref_number`,
   `kind`, `focus_tag_ids`) 500s the whole batch and the client retries it
   forever. The **import** side of this is ✅ **FIXED** (rows are validated before
@@ -339,8 +359,8 @@ cd frontend && npm run test:sync
 | Week fold drops `done_at`/`kind` on the twin | data-loss | ✅ fixed (entry-state merge) |
 | Cross-locale fold ping-pong (localeCompare survivor) | major | ✅ fixed (code-unit order, weeks/plans/notes) |
 | Clock-skew / tie rejected-row divergence | data-loss | ✅ fixed (push conflict-return) |
-| Non-transactional server pull skips rows | data-loss | ⏳ open |
-| Archive hard-delete resurrection | major | ⏳ open |
+| Non-transactional server pull skips rows | data-loss | ✅ fixed (single-snapshot pull txn) |
+| Archive hard-delete resurrection | major | ✅ fixed (pull routing + reset move-back + read-only UI) |
 | Legacy-row poison push (server side) | critical | ⏳ open |
 
 Each open item is grounded in [`docs/dev/sync-audit.md`](docs/dev/sync-audit.md)
@@ -362,10 +382,10 @@ any fix "done": its case flips red→green AND the full suite — isolation diff
 1. Self-verification is **12/12** on every run. ✅ (met every run)
 2. Coverage matrix has **no uncovered store**. ✅ (13/13)
 3. Every confirmed bug has a case that **was red before the fix and is green
-   after**. ✅ (nine fixed with red-before/green-after guards; **0 red tripwires
-   remain**. The residual audit items — non-transactional server pull, archive
-   resurrection, server-side chunk-boundary fold — are documented and mitigated,
-   not yet tripwired.)
+   after**. ✅ (eleven fixed with red-before/green-after guards; **0 red
+   tripwires remain**. The residual audit items — the legacy-row poison push and
+   the server-side chunk-boundary fold — are documented and mitigated, not yet
+   tripwired.)
 4. The regression diff has run across at least two runs and caught a seeded
    regression. ✅ (diff wired; identical runs produce empty deltas)
 5. The suite runs green **three times in a row** with no flakes. ✅ (repeated

@@ -59,7 +59,7 @@ export async function archiveNow(months: number): Promise<number> {
     tx.objectStore('links').delete(link.id); // hard delete: shrinks the hot store
   }
   await tx.done;
-  localStorage.setItem(LAST_RUN_KEY, String(Date.now()));
+  if (typeof localStorage !== 'undefined') localStorage.setItem(LAST_RUN_KEY, String(Date.now()));
   return toMove.length;
 }
 
@@ -70,11 +70,15 @@ export async function unarchive(link: Link): Promise<void> {
   await db.delete(ARCHIVE_STORE, link.id);
 }
 
-/** Archived links, newest-slushed first (the archive view reads this). */
+/** Archived links, newest-slushed first (the archive view reads this).
+ * Tombstones are hidden: a pulled delete for an archived link lands on the cold
+ * copy (see the archive-aware pull routing in sync.ts) and must not show here. */
 export async function listArchived(): Promise<Link[]> {
   const db = await getDB();
   const rows = (await db.getAll(ARCHIVE_STORE)) as Link[];
-  return rows.sort((a, b) => ((a.slushed_at ?? '') < (b.slushed_at ?? '') ? 1 : -1));
+  return rows
+    .filter((l) => !l.deleted_at)
+    .sort((a, b) => ((a.slushed_at ?? '') < (b.slushed_at ?? '') ? 1 : -1));
 }
 
 /**

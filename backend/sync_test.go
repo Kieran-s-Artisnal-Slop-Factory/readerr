@@ -436,6 +436,57 @@ func TestEpochStableAcrossSyncsAndRotatedByReset(t *testing.T) {
 	}
 }
 
+// A push that commits WHILE a pull is running (between the pull's per-table
+// queries) must not cause the pull to advance latestSeq past a row an earlier
+// table query missed. The pullTableHook injects exactly that interleaving: a
+// commit right after the `links` table is read, inserting a links row (already
+// queried) and a tags row (queried later). With a per-statement (non-
+// transactional) pull the client's cursor would jump past the links row and
+// skip it forever; a single-snapshot pull never sees the mid-pull commit at
+// all, so the next page delivers both rows.
+func TestPullIsConsistentSnapshotUnderConcurrentCommit(t *testing.T) {
+	s := newTestServer(t)
+	doPush(t, s, map[string][]map[string]any{
+		"links": {linkRow("l0", "2026-07-10T10:00:00Z", nil)},
+	})
+
+	injected := false
+	pullTableHook = func(table string) {
+		if table != "links" || injected {
+			return
+		}
+		injected = true
+		doPush(t, s, map[string][]map[string]any{
+			"links": {linkRow("l-late", "2026-07-10T10:05:00Z", nil)},
+			"tags":  {tagRow("t-late", "2026-07-10T10:06:00Z")},
+		})
+	}
+	t.Cleanup(func() { pullTableHook = nil })
+
+	// Drain via the cursor exactly as a client does.
+	seen := map[string]bool{}
+	since := 0
+	for i := 0; i < 20; i++ {
+		res := doPull(t, s, since, 0)
+		for _, rows := range res.Rows {
+			for _, row := range rows {
+				seen[row["id"].(string)] = true
+			}
+		}
+		if int(res.LatestSeq) <= since {
+			break
+		}
+		since = int(res.LatestSeq)
+	}
+
+	if !seen["l-late"] {
+		t.Fatalf("l-late was skipped — the pull advanced latestSeq past a row an earlier table query missed (non-transactional pull)")
+	}
+	if !seen["l0"] || !seen["t-late"] {
+		t.Fatalf("not all rows delivered; seen = %v", seen)
+	}
+}
+
 func TestPushRejectsRowMissingRequiredFields(t *testing.T) {
 	s := newTestServer(t)
 	body, _ := json.Marshal(pushRequest{Rows: map[string][]map[string]any{

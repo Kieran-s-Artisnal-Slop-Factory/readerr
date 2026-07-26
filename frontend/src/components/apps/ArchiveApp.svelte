@@ -67,7 +67,7 @@
       {#each visible as link (link.id)}
         <div class="arch-row">
           <div class="arch-link">
-            <LinkRow {link} tags={pageTags.get(link.id) ?? []} onChange={onRowChange} />
+            <LinkRow {link} tags={pageTags.get(link.id) ?? []} onChange={onRowChange} readOnly />
           </div>
           <button class="btn" title="Move back to the active set" onclick={() => onUnarchive(link)}>
             Unarchive

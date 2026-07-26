@@ -43,6 +43,10 @@ type HookWindow = Window & {
     deleteMeta(key: string): Promise<void>;
     syncNow(): Promise<SyncResult>;
     captureNow(text: string): Promise<{ added: unknown[] }>;
+    archiveNow(months: number): Promise<number>;
+    unarchiveNow(link: unknown): Promise<void>;
+    listArchivedNow(): Promise<SyncRow[]>;
+    resetLocalSyncStateNow(): Promise<void>;
     healSettingsNow(): Promise<SyncRow | null>;
     saveSettingsNow(changes: Record<string, unknown>): Promise<SyncRow>;
     reconcileOpenWeeksNow(): Promise<void>;
@@ -104,6 +108,14 @@ export function hook(target: Device | Page) {
     syncNow: () => page.evaluate(() => (window as unknown as HookWindow).__readerr.syncNow()),
     captureNow: (text: string) =>
       page.evaluate((t) => (window as unknown as HookWindow).__readerr.captureNow(t), text),
+    archiveNow: (months: number) =>
+      page.evaluate((m) => (window as unknown as HookWindow).__readerr.archiveNow(m), months),
+    unarchiveNow: (link: unknown) =>
+      page.evaluate((l) => (window as unknown as HookWindow).__readerr.unarchiveNow(l), link),
+    listArchivedNow: () =>
+      page.evaluate(() => (window as unknown as HookWindow).__readerr.listArchivedNow()),
+    resetLocalSyncStateNow: () =>
+      page.evaluate(() => (window as unknown as HookWindow).__readerr.resetLocalSyncStateNow()),
     healSettingsNow: () =>
       page.evaluate(() => (window as unknown as HookWindow).__readerr.healSettingsNow()),
     saveSettingsNow: (changes: Record<string, unknown>) =>

@@ -21,7 +21,9 @@ import { getNote } from './services/notes';
 import { reconcileTags, reconcileTopics } from './services/links';
 import { captureLinks } from './services/capture';
 import { importData, exportData, wipeLocalData } from './db/export';
-import type { Week } from './db/types';
+import { archiveNow, unarchive, listArchived } from './services/archive';
+import { resetLocalSyncState } from './sync';
+import type { Link, Week } from './db/types';
 
 async function rawDump(store: string): Promise<unknown[]> {
   return (await getDB()).getAll(store);
@@ -74,6 +76,11 @@ export function installTestHook(): void {
     syncNow,
     // --- real capture pipeline (Tier-1-adjacent service path) ---
     captureNow: (text: string) => withHeals(() => captureLinks(text)),
+    // --- yearly archival (local-only cold store) ---
+    archiveNow: (months: number) => archiveNow(months),
+    unarchiveNow: (link: Link) => unarchive(link),
+    listArchivedNow: () => listArchived(),
+    resetLocalSyncStateNow: () => resetLocalSyncState(),
     // --- reconcilers, run FOR REAL (heal writes enabled) on demand ---
     healSettingsNow: () => withHeals(() => getUserSettings()),
     saveSettingsNow: (changes: Parameters<typeof saveUserSettings>[0]) =>

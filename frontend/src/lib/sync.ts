@@ -154,6 +154,20 @@ export async function resetServer(url = getSyncUrl()): Promise<void> {
  */
 export async function resetLocalSyncState(): Promise<void> {
   const db = await getDB();
+  // Archived links live only in the local-only cold partition and are absent
+  // from `links`, so a from-scratch re-push (which scans `links`) would strand
+  // them on the new server. Move them back into the hot store first — their
+  // server_seq is nulled by the loop below and they re-push; the next archive
+  // run re-archives them locally.
+  const archived = (await db.getAll('archived_links')) as SyncFields[];
+  if (archived.length) {
+    const tx = db.transaction(['links', 'archived_links'], 'readwrite');
+    for (const link of archived) {
+      tx.objectStore('links').put(link);
+      tx.objectStore('archived_links').delete(link.id);
+    }
+    await tx.done;
+  }
   for (const store of Object.keys(STORES)) {
     const tx = db.transaction(store, 'readwrite');
     let cursor = await tx.store.openCursor();
@@ -381,11 +395,29 @@ export async function syncNow(): Promise<SyncResult> {
         latestSeq: number;
       };
 
+      // A link this device has archived lives in the local-only archived_links
+      // partition, not `links`. If any links are archived, incoming `links`
+      // edits for those ids must be routed to the cold copy — otherwise a full
+      // re-pull or a remote edit resurrects the row into the hot store as a
+      // duplicate, and a later unarchive of a stale cold copy clobbers the
+      // newer server row. Checking the count once keeps the common (no-archive)
+      // path free of a per-row lookup.
+      const hasArchive = (await db.count('archived_links')) > 0;
       let received = 0;
       for (const [store, incoming] of Object.entries(pullJson.rows ?? {})) {
         if (!(store in STORES)) continue;
         for (const row of incoming) {
           received++;
+          if (hasArchive && store === 'links') {
+            const archived = (await db.get('archived_links', row.id)) as SyncFields | undefined;
+            if (archived) {
+              if (row.updated_at >= archived.updated_at) {
+                await db.put('archived_links', row);
+                pulled++;
+              }
+              continue; // never re-insert an archived link into the hot store
+            }
+          }
           const local = (await db.get(store, row.id)) as SyncFields | undefined;
           // LWW: apply unless we hold something strictly newer (which the next
           // push will send).

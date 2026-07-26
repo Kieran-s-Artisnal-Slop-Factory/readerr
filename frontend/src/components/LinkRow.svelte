@@ -20,11 +20,17 @@
     onAssignmentsChange,
     showWeek = true,
     refNumber,
+    readOnly = false,
   }: {
     link: Link;
     tags?: Tag[];
     topics?: Topic[];
     onChange: (updated: Link) => void;
+    /** Hide every write control (flag toggles, title edit, label panel). The
+     *  archive view uses this: an archived link lives only in the cold store,
+     *  so any write here would resurrect it into the hot `links` store as a
+     *  duplicate. Unarchive it first to edit. */
+    readOnly?: boolean;
     /** The link's footnote number on a topic page — click the chip to copy
      *  the `[^n]` citation for pasting into the document. */
     refNumber?: number;
@@ -147,7 +153,9 @@
         <a class="title" href={link.url} target="_blank" rel="noopener noreferrer">
           {link.title}
         </a>
-        <button class="title-edit" title="Edit title" onclick={startTitleEdit}>✎</button>
+        {#if !readOnly}
+          <button class="title-edit" title="Edit title" onclick={startTitleEdit}>✎</button>
+        {/if}
       {/if}
     </span>
     <div class="meta">
@@ -169,6 +177,7 @@
     </div>
   </div>
   <div class="row-actions">
+    {#if !readOnly}
     <button
       class="icon-btn"
       class:active={!!link.read_at}
@@ -203,6 +212,7 @@
       >
         #
       </button>
+    {/if}
     {/if}
     <a class="icon-btn open" title="Notes & details" href={href(`/link/?id=${link.id}`)}>›</a>
   </div>

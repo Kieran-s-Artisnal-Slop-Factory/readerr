@@ -109,6 +109,11 @@ type server struct {
 	dbPath string
 }
 
+// pullTableHook is a test-only seam invoked after each table's rows are read in
+// handlePull, used to inject a concurrent commit between per-table queries and
+// prove the pull's snapshot isolation. Always nil in production.
+var pullTableHook func(table string)
+
 type pushRequest struct {
 	Rows map[string][]map[string]any `json:"rows"`
 }
@@ -433,6 +438,21 @@ func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 		limit = 0 // 0 = unlimited
 	}
 
+	// Read every table inside ONE transaction so all per-table queries see a
+	// single consistent snapshot. Without this, each s.db.Query ran in its own
+	// implicit transaction (a fresh snapshot per statement): a push committing
+	// between two tables' queries would be seen by the later table but not the
+	// earlier one, and latestSeq (the max returned seq) could then advance past
+	// the earlier table's just-inserted, un-returned row — skipping it forever.
+	// A deferred read transaction in WAL mode pins the snapshot at its first
+	// read and never blocks concurrent writers.
+	tx, err := s.db.Begin()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
 	type entry struct {
 		table string
 		seq   int64
@@ -451,7 +471,7 @@ func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 			query += " LIMIT ?"
 			args = append(args, limit)
 		}
-		rows, err := s.db.Query(query, args...)
+		rows, err := tx.Query(query, args...)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -478,6 +498,11 @@ func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Err(); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		// Test seam: deterministically reproduce a concurrent write landing
+		// between two tables' queries. nil (no-op) in production.
+		if pullTableHook != nil {
+			pullTableHook(table)
 		}
 	}
 
