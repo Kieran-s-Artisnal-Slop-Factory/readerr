@@ -20,6 +20,7 @@ import {
   findWeek,
   pendingWeeksForLink,
   reconcileOpenWeeks,
+  reorderEntries,
   reviewLink,
   scheduleLinkForWeek,
   setEntryDone,
@@ -350,6 +351,42 @@ describe('reconcileOpenWeeks', () => {
     );
     const rawOrphan = (await (await getDB()).get('week_links', 'wl-orphan')) as WeekLink;
     expect(rawOrphan.deleted_at).not.toBeNull();
+  });
+
+  it('reorder does not revert a concurrently-updated done_at (reads fresh, not the UI snapshot)', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-1', { week_start: ws });
+    const l1 = await makeLink();
+    const l2 = await makeLink();
+    const l3 = await makeLink();
+    const e1 = await seedWeekLink('e1', 'week-1', l1.id, { position: 0 });
+    const e2 = await seedWeekLink('e2', 'week-1', l2.id, { position: 1 });
+    const e3 = await seedWeekLink('e3', 'week-1', l3.id, { position: 2 });
+
+    // The UI holds a snapshot taken before a background pull (all done_at null).
+    const snapshot = [e1, e2, e3];
+
+    // A background pull then marks e1 done in the DB (another device completed it).
+    const db = await getDB();
+    await db.put('week_links', {
+      ...e1,
+      done_at: '2026-07-20T10:00:00.000Z',
+      updated_at: '2026-07-20T10:00:00.000Z',
+    });
+
+    // The user drags e3 to the front USING THE STALE SNAPSHOT — which shifts e1
+    // to a new position, so the reorder rewrites e1's row.
+    await reorderEntries(snapshot, 2, 0);
+
+    // e1's completion must survive: the reorder writes the FRESH row (done_at
+    // set), not the stale snapshot (done_at null).
+    const after = (await db.get('week_links', 'e1')) as WeekLink;
+    expect(after.done_at, 'reorder must not revert the pulled completion').toBe(
+      '2026-07-20T10:00:00.000Z'
+    );
+    // …and the reorder still took effect.
+    const entries = await weekEntries('week-1');
+    expect(entries.map((e) => e.link.id)).toEqual([l3.id, l1.id, l2.id]);
   });
 
   it('leaves a closed week sharing the Monday alone, folding only the open twins', async () => {

@@ -371,6 +371,15 @@ export async function scheduleLinkForWeek(link: Link, weekStart: string | null):
  * Move a section's entry from one index to another (drag & drop). The
  * section's existing positions are redistributed over the new order, so
  * other sections' global interleave is untouched.
+ *
+ * `section` is a UI snapshot; a background pull may have updated an entry's
+ * done_at / outcome / kind since it was taken. Each row that actually moves is
+ * therefore re-read FRESH from the database and only its `position` is changed —
+ * writing the snapshot back verbatim would silently revert a just-pulled
+ * completion (whole-row LWW then propagates the reverted row everywhere).
+ * (A genuinely concurrent reorder-vs-complete on two offline devices still
+ * resolves by whole-row LWW; that needs per-field merge and is noted in
+ * docs/dev/sync-audit.md.)
  */
 export async function reorderEntries(
   section: WeekLink[],
@@ -383,8 +392,12 @@ export async function reorderEntries(
   order.splice(to, 0, moved);
   const positions = section.map((e) => e.position).sort((a, b) => a - b);
   for (let i = 0; i < order.length; i++) {
-    if (order[i].position !== positions[i]) {
-      await put('week_links', { ...order[i], position: positions[i] });
+    if (order[i].position === positions[i]) continue;
+    const current = await get<WeekLink>('week_links', order[i].id);
+    // Re-check against the current row: skip if a pull already tombstoned it
+    // (get filters tombstones) or already set this position.
+    if (current && current.position !== positions[i]) {
+      await put('week_links', { ...current, position: positions[i] });
     }
   }
 }

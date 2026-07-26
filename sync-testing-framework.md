@@ -41,10 +41,10 @@ is trustworthy — one that fails loudly when sync is broken instead of printing
   0 red tripwires.** Twelve confirmed bugs are fixed with regression guards —
   the reconcile-on-read stale clobber, the whole week-fold orphaning family, the
   clock-skew / tie LWW divergence, the non-transactional server pull, the archive
-  hard-delete resurrection, and the push batch-abort poison included. Every
-  remaining audit item is a lower-severity or already-mitigated one; the fixed
-  set covers all of the reproducible data-loss channels the harness could
-  demonstrate.
+  hard-delete resurrection, the push batch-abort poison, and the drag-reorder
+  stale-snapshot clobber included. Every remaining audit item is lower-severity
+  or already-mitigated; the fixed set covers all of the reproducible data-loss
+  channels the harness could demonstrate.
 
 ---
 
@@ -372,6 +372,7 @@ cd frontend && npm run test:sync
 | Non-transactional server pull skips rows | data-loss | ✅ fixed (single-snapshot pull txn) |
 | Archive hard-delete resurrection | major | ✅ fixed (pull routing + reset move-back + read-only UI) |
 | Batch-abort on one unstorable row (push poison) | critical | ✅ fixed (server skips + reports, txn survives) |
+| Drag-reorder reverts a pulled `done_at` (stale snapshot) | major | ✅ fixed (reorder re-reads fresh, changes only position) |
 
 Each open item is grounded in [`docs/dev/sync-audit.md`](docs/dev/sync-audit.md)
 and most have a red tripwire or an obvious place for one. **The gate to calling
@@ -392,9 +393,10 @@ any fix "done": its case flips red→green AND the full suite — isolation diff
 1. Self-verification is **12/12** on every run. ✅ (met every run)
 2. Coverage matrix has **no uncovered store**. ✅ (13/13)
 3. Every confirmed bug has a case that **was red before the fix and is green
-   after**. ✅ (twelve fixed with red-before/green-after guards; **0 red
+   after**. ✅ (thirteen fixed with red-before/green-after guards; **0 red
    tripwires remain**. Residual audit items are lower-severity or already
-   mitigated — the server-side chunk-boundary fold, drag-reorder clobber, and
+   mitigated — the server-side chunk-boundary fold, the cross-device concurrent
+   reorder-vs-complete case (whole-row LWW; needs per-field merge), and
    position-ordering divergence — documented, not yet tripwired.)
 4. The regression diff has run across at least two runs and caught a seeded
    regression. ✅ (diff wired; identical runs produce empty deltas)
