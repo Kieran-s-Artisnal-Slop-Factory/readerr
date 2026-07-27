@@ -322,13 +322,17 @@ export async function syncNow(): Promise<SyncResult> {
       const batch = dirty.slice(offset, offset + PUSH_CHUNK);
       const rows: Record<string, SyncFields[]> = {};
       for (const { store, row } of batch) (rows[store] ??= []).push(row);
+      // The server folds duplicate open weeks only on the final chunk, when
+      // every row of this push is committed — so a week and its week_links can't
+      // be split across chunks and orphan the entries.
+      const final = offset + PUSH_CHUNK >= dirty.length;
 
       let pushRes: Response;
       try {
         pushRes = await fetch(`${base}/sync/push`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rows }),
+          body: JSON.stringify({ rows, final }),
         });
       } catch (err) {
         throw new Error(describeNetworkError('push', err));

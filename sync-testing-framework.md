@@ -41,10 +41,12 @@ is trustworthy — one that fails loudly when sync is broken instead of printing
   0 red tripwires.** Twelve confirmed bugs are fixed with regression guards —
   the reconcile-on-read stale clobber, the whole week-fold orphaning family, the
   clock-skew / tie LWW divergence, the non-transactional server pull, the archive
-  hard-delete resurrection, the push batch-abort poison, and the drag-reorder
-  stale-snapshot clobber included. Every remaining audit item is lower-severity
-  or already-mitigated; the fixed set covers all of the reproducible data-loss
-  channels the harness could demonstrate.
+  hard-delete resurrection, the push batch-abort poison, the drag-reorder
+  stale-snapshot clobber, and the week-fold chunk-boundary/position issues
+  included. The one substantive item left — a genuinely concurrent
+  reorder-vs-complete on the *same* entry across two offline devices — is
+  inherent to whole-row LWW and needs per-field merge; everything the harness
+  can demonstrate as reproducible data loss is fixed.
 
 ---
 
@@ -365,7 +367,7 @@ cd frontend && npm run test:sync
 | Full restore keeps `lastPullSeq` → device forks | data-loss | ✅ fixed |
 | Import poison (unvalidated row bricks all sync) | critical | ✅ fixed (import side) |
 | Reconcile-on-read stale-content restamp clobber | data-loss | ✅ fixed (`putReconciled` + pendingRepush) |
-| Week fold orphans entries (server chunk / client race) | data-loss | ✅ fixed (orphan self-heal + isSyncing guard) |
+| Week fold orphans entries (server chunk / client race) | data-loss | ✅ fixed (orphan self-heal + isSyncing guard + server fold deferred to final chunk) |
 | Week fold drops `done_at`/`kind` on the twin | data-loss | ✅ fixed (entry-state merge) |
 | Cross-locale fold ping-pong (localeCompare survivor) | major | ✅ fixed (code-unit order, weeks/plans/notes) |
 | Clock-skew / tie rejected-row divergence | data-loss | ✅ fixed (push conflict-return) |
@@ -373,6 +375,8 @@ cd frontend && npm run test:sync
 | Archive hard-delete resurrection | major | ✅ fixed (pull routing + reset move-back + read-only UI) |
 | Batch-abort on one unstorable row (push poison) | critical | ✅ fixed (server skips + reports, txn survives) |
 | Drag-reorder reverts a pulled `done_at` (stale snapshot) | major | ✅ fixed (reorder re-reads fresh, changes only position) |
+| Client/server week-fold position-order divergence | minor | ✅ fixed (client folds stray entries in position,id order) |
+| Cross-device concurrent reorder-vs-complete (same entry) | major | ⏳ open — inherent to whole-row LWW; needs per-field merge |
 
 Each open item is grounded in [`docs/dev/sync-audit.md`](docs/dev/sync-audit.md)
 and most have a red tripwire or an obvious place for one. **The gate to calling
@@ -393,11 +397,11 @@ any fix "done": its case flips red→green AND the full suite — isolation diff
 1. Self-verification is **12/12** on every run. ✅ (met every run)
 2. Coverage matrix has **no uncovered store**. ✅ (13/13)
 3. Every confirmed bug has a case that **was red before the fix and is green
-   after**. ✅ (thirteen fixed with red-before/green-after guards; **0 red
-   tripwires remain**. Residual audit items are lower-severity or already
-   mitigated — the server-side chunk-boundary fold, the cross-device concurrent
-   reorder-vs-complete case (whole-row LWW; needs per-field merge), and
-   position-ordering divergence — documented, not yet tripwired.)
+   after**. ✅ (fifteen fixed with red-before/green-after guards; **0 red
+   tripwires remain**. The one substantive residual — a genuinely concurrent
+   reorder-vs-complete on the same entry across two offline devices — is inherent
+   to whole-row LWW and needs per-field merge for `week_links`; documented, not
+   yet built.)
 4. The regression diff has run across at least two runs and caught a seeded
    regression. ✅ (diff wired; identical runs produce empty deltas)
 5. The suite runs green **three times in a row** with no flakes. ✅ (repeated

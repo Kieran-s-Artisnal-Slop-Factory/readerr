@@ -141,6 +141,13 @@ var pullTableHook func(table string)
 
 type pushRequest struct {
 	Rows map[string][]map[string]any `json:"rows"`
+	// Final is true on the LAST chunk of a push (the client splits large pushes
+	// at PUSH_CHUNK rows). The server folds duplicate open weeks only on the
+	// final chunk, by which point every row of the push is committed — otherwise
+	// a chunk boundary between a week and its week_links lets the fold tombstone
+	// the week before its entries arrive, orphaning them. Absent (old clients)
+	// = do not fold here; those clients reconcile duplicates client-side.
+	Final bool `json:"final"`
 }
 
 type acceptedRow struct {
@@ -321,16 +328,20 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Server-side fold of duplicate open weeks, inside the same transaction.
-	// The client pushes before it pulls, so the pull half of this very sync
-	// already delivers the folded result to the device that pushed the twin.
-	folded, err := reconcileWeeks(tx, &lastSeq)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if folded > 0 {
-		slog.Info("sync push: folded duplicate open weeks", "strays", folded)
+	// Server-side fold of duplicate open weeks, inside the same transaction —
+	// but only on the FINAL chunk, when every row of this push is committed.
+	// Folding on an earlier chunk could tombstone a week whose week_links land
+	// in a later chunk, orphaning them. The client pushes before it pulls, so
+	// the pull half of this very sync still delivers the folded result.
+	if req.Final {
+		folded, err := reconcileWeeks(tx, &lastSeq)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if folded > 0 {
+			slog.Info("sync push: folded duplicate open weeks", "strays", folded)
+		}
 	}
 
 	if _, err := tx.Exec("UPDATE sync_state SET last_seq = ? WHERE id = 1", lastSeq); err != nil {

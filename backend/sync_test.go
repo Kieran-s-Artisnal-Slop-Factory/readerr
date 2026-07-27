@@ -23,8 +23,14 @@ func newTestServer(t *testing.T) *server {
 }
 
 func doPush(t *testing.T, s *server, rows map[string][]map[string]any) pushResponse {
+	return doPushChunk(t, s, rows, true) // a normal push is a single, final chunk
+}
+
+// doPushChunk pushes one chunk, marking whether it is the final one (only the
+// final chunk triggers the server-side duplicate-open-week fold).
+func doPushChunk(t *testing.T, s *server, rows map[string][]map[string]any, final bool) pushResponse {
 	t.Helper()
-	body, _ := json.Marshal(pushRequest{Rows: rows})
+	body, _ := json.Marshal(pushRequest{Rows: rows, Final: final})
 	req := httptest.NewRequest("POST", "/sync/push", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	s.handlePush(w, req)
@@ -371,6 +377,59 @@ func TestPushFoldsDuplicateOpenWeeks(t *testing.T) {
 	doPush(t, s, map[string][]map[string]any{})
 	if after := doPull(t, s, 0, 0).LatestSeq; after != before {
 		t.Errorf("empty push after fold moved latestSeq %d → %d; reconcile is not idempotent", before, after)
+	}
+}
+
+// A large push is chunked, and a week can land in an earlier chunk than its
+// week_links. The fold must be deferred to the FINAL chunk so it never
+// tombstones a week before its entries arrive (orphaning them). A non-final
+// chunk must not fold; the final chunk folds with everything committed.
+func TestFoldDeferredToFinalChunkAvoidsOrphaning(t *testing.T) {
+	s := newTestServer(t)
+	// Device A's week, fully synced.
+	doPush(t, s, map[string][]map[string]any{
+		"weeks": {weekRow("week-a", "2026-07-20", "2026-07-20T10:00:00Z", nil)},
+	})
+
+	// Device B's initial sync, split across chunks: chunk 1 carries the twin
+	// week (no entries yet) and is NOT final — the fold must NOT run here.
+	doPushChunk(t, s, map[string][]map[string]any{
+		"weeks": {weekRow("week-b", "2026-07-20", "2026-07-20T11:00:00Z", nil)},
+	}, false)
+	weeksLive := 0
+	for _, wk := range doPull(t, s, 0, 0).Rows["weeks"] {
+		if wk["deleted_at"] == nil {
+			weeksLive++
+		}
+	}
+	if weeksLive != 2 {
+		t.Fatalf("after non-final chunk, live weeks = %d, want 2 (fold must be deferred)", weeksLive)
+	}
+
+	// Chunk 2 carries week-b's entries and IS final — the fold now runs with
+	// every row committed, so the entries are re-pointed, never orphaned.
+	doPushChunk(t, s, map[string][]map[string]any{
+		"week_links": {
+			weekLinkRow("wl-1", "week-b", "l1", 0, "2026-07-20T11:00:00Z"),
+			weekLinkRow("wl-2", "week-b", "l2", 1, "2026-07-20T11:00:00Z"),
+		},
+	}, true)
+
+	res := doPull(t, s, 0, 0)
+	liveWeeks := map[string]bool{}
+	for _, wk := range res.Rows["weeks"] {
+		if wk["deleted_at"] == nil && wk["closed_at"] == nil {
+			liveWeeks[wk["id"].(string)] = true
+		}
+	}
+	if len(liveWeeks) != 1 || !liveWeeks["week-a"] {
+		t.Fatalf("after final chunk, live open weeks = %v, want just week-a (survivor)", liveWeeks)
+	}
+	// No entry is orphaned: every live week_link points at the live survivor.
+	for _, e := range res.Rows["week_links"] {
+		if e["deleted_at"] == nil && !liveWeeks[e["week_id"].(string)] {
+			t.Fatalf("entry %v orphaned onto a tombstoned week %v", e["id"], e["week_id"])
+		}
 	}
 }
 

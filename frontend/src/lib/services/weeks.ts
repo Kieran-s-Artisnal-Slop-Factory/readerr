@@ -115,7 +115,15 @@ export async function reconcileOpenWeeks(): Promise<void> {
     let nextPosition = survivorEntries.reduce((max, e) => Math.max(max, e.position), -1) + 1;
 
     for (const stray of group.filter((w) => w.id !== survivor.id)) {
-      for (const entry of await byIndex<WeekLink>('week_links', 'week_id', stray.id)) {
+      // Iterate the stray's entries in (position, id) order — the SAME order the
+      // server fold uses (ORDER BY position, id) — so both sides append them to
+      // the survivor with identical positions and the merged week's order can't
+      // diverge or collide across devices. byIndex alone returns index-key then
+      // primary-key (i.e. id) order, ignoring position.
+      const strayEntries = (await byIndex<WeekLink>('week_links', 'week_id', stray.id)).sort(
+        (a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      );
+      for (const entry of strayEntries) {
         const existing = byLink.get(entry.link_id);
         if (existing) {
           // The link is already scheduled in the survivor week. Merge the
