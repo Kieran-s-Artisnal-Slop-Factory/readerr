@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // The sync engine is generic over table metadata rather than sqlc-generated
@@ -139,6 +143,46 @@ type server struct {
 // prove the pull's snapshot isolation. Always nil in production.
 var pullTableHook func(table string)
 
+// pushAfterReadHook is a test-only seam invoked in handlePush after sync_state
+// is read but before the first row is written — precisely the window where a
+// BEGIN DEFERRED transaction would have to upgrade to a write. Used to prove
+// a concurrent commit there can no longer make the push fail. Always nil in
+// production.
+var pushAfterReadHook func()
+
+// writeDBError maps a database failure onto an HTTP status the client can act
+// on. Lock contention (SQLITE_BUSY / SQLITE_LOCKED, i.e. busy_timeout expired
+// under heavier concurrency than we plan for) is TRANSIENT — the same request
+// will succeed on retry — so it answers 503, which the client already explains
+// as "temporarily unavailable, try again in a moment" and which the next
+// debounced sync retries. Reporting it as 500 sent users to "contact whoever
+// runs the server" over a lock that had already cleared. Everything else stays
+// a genuine 500.
+func writeDBError(w http.ResponseWriter, phase string, err error) {
+	if isBusyErr(err) {
+		slog.Warn("sync: database busy, asking client to retry", "phase", phase, "err", err)
+		http.Error(w, "database busy, retry shortly: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	slog.Error("sync: database error", "phase", phase, "err", err)
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+}
+
+// isBusyErr reports whether err is SQLite lock contention. The driver's error
+// type carries the primary result code in its low 8 bits (extended codes such
+// as SQLITE_BUSY_SNAPSHOT share the SQLITE_BUSY primary code).
+func isBusyErr(err error) bool {
+	var serr *sqlite.Error
+	if !errors.As(err, &serr) {
+		return false
+	}
+	switch serr.Code() & 0xff {
+	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
+		return true
+	}
+	return false
+}
+
 type pushRequest struct {
 	Rows map[string][]map[string]any `json:"rows"`
 	// Final is true on the LAST chunk of a push (the client splits large pushes
@@ -249,17 +293,25 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read-write: BEGIN IMMEDIATE via _txlock (openDB). The write lock is held
+	// from here, so a concurrent push waits on busy_timeout rather than failing
+	// this one's first INSERT with SQLITE_BUSY.
 	tx, err := s.db.Begin()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeDBError(w, "push: begin", err)
 		return
 	}
 	defer tx.Rollback()
 
 	var lastSeq int64
 	if err := tx.QueryRow("SELECT last_seq FROM sync_state WHERE id = 1").Scan(&lastSeq); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeDBError(w, "push: read seq", err)
 		return
+	}
+	// Test seam: land a concurrent commit in the read→write window. nil in
+	// production.
+	if pushAfterReadHook != nil {
+		pushAfterReadHook()
 	}
 
 	accepted := []acceptedRow{}
@@ -285,7 +337,7 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 			var existing sql.NullString
 			err := tx.QueryRow("SELECT updated_at FROM "+table+" WHERE id = ?", id).Scan(&existing)
 			if err != nil && err != sql.ErrNoRows {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				writeDBError(w, "push: read incumbent", err)
 				return
 			}
 			// LWW: only strictly newer rows replace existing ones (ISO 8601
@@ -296,7 +348,7 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 				// (its pull cursor may already be past this row's seq).
 				full, rerr := readRow(tx, table, meta, id)
 				if rerr != nil {
-					http.Error(w, rerr.Error(), http.StatusInternalServerError)
+					writeDBError(w, "push: read conflict row", rerr)
 					return
 				}
 				if full != nil {
@@ -314,11 +366,20 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if _, err := tx.Exec(query, args...); err != nil {
-				// A row the server can't store — a legacy row missing a required
-				// (no-default) column, or a CHECK/constraint violation. SQLite
-				// keeps the transaction usable after a constraint error, so skip
-				// this one row and let the rest of the batch land instead of
-				// 500ing everything and poisoning sync forever.
+				// Lock contention is TRANSIENT and must never be mistaken for an
+				// unstorable row: `rejected` tells the client the row is resolved,
+				// so it stops re-pushing it — skipping here would silently and
+				// permanently delete a perfectly good row. Abort instead and let
+				// the client retry the whole batch (idempotent under LWW).
+				if isBusyErr(err) {
+					writeDBError(w, "push: insert row", err)
+					return
+				}
+				// Otherwise: a row the server genuinely can't store — a legacy row
+				// missing a required (no-default) column, or a CHECK/constraint
+				// violation. SQLite keeps the transaction usable after a constraint
+				// error, so skip this one row and let the rest of the batch land
+				// instead of 500ing everything and poisoning sync forever.
 				slog.Warn("sync push: skipping unacceptable row", "table", table, "id", id, "error", err)
 				rejected = append(rejected, acceptedRow{Table: table, ID: id})
 				continue
@@ -336,7 +397,7 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 	if req.Final {
 		folded, err := reconcileWeeks(tx, &lastSeq)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeDBError(w, "push: fold weeks", err)
 			return
 		}
 		if folded > 0 {
@@ -345,11 +406,11 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := tx.Exec("UPDATE sync_state SET last_seq = ? WHERE id = 1", lastSeq); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeDBError(w, "push: write seq", err)
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeDBError(w, "push: commit", err)
 		return
 	}
 
@@ -521,7 +582,13 @@ func (s *server) handlePull(w http.ResponseWriter, r *http.Request) {
 	// the earlier table's just-inserted, un-returned row — skipping it forever.
 	// A deferred read transaction in WAL mode pins the snapshot at its first
 	// read and never blocks concurrent writers.
-	tx, err := s.db.Begin()
+	//
+	// ReadOnly is what keeps it deferred: the connection is opened with
+	// _txlock=immediate so that WRITE transactions take the write lock upfront
+	// (see openDB), and the driver applies that mode only to transactions not
+	// marked ReadOnly. Dropping this flag would make every pull contend for the
+	// write lock and serialise reads behind pushes.
+	tx, err := s.db.BeginTx(r.Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

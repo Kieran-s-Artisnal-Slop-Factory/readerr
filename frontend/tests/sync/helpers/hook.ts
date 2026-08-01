@@ -57,6 +57,8 @@ type HookWindow = Window & {
     ensureOpenWeekNow(): Promise<SyncRow>;
     autoCloseStaleWeeksNow(): Promise<unknown>;
     closeWeekNow(weekId: string): Promise<unknown>;
+    setEntryDoneNow(entry: unknown, done: boolean): Promise<SyncRow>;
+    toggleFavouriteNow(link: unknown): Promise<SyncRow>;
   };
 };
 
@@ -139,6 +141,18 @@ export function hook(target: Device | Page) {
       page.evaluate(() => (window as unknown as HookWindow).__readerr.autoCloseStaleWeeksNow()),
     closeWeekNow: (weekId: string) =>
       page.evaluate((w) => (window as unknown as HookWindow).__readerr.closeWeekNow(w), weekId),
+    /** Real setEntryDone() — pass a stale snapshot to test §7.1 staleness. */
+    setEntryDoneNow: (entry: unknown, done: boolean) =>
+      page.evaluate(
+        ([e, d]) => (window as unknown as HookWindow).__readerr.setEntryDoneNow(e, d as boolean),
+        [entry, done] as const
+      ),
+    /** Real toggleFavourite() — pass a stale snapshot to test §7.1 staleness. */
+    toggleFavouriteNow: (link: unknown) =>
+      page.evaluate(
+        (l) => (window as unknown as HookWindow).__readerr.toggleFavouriteNow(l),
+        link
+      ),
   };
 }
 

@@ -10,7 +10,7 @@
  * false are retried by retryMissingTitles() on backlog mount — the whole
  * retry mechanism, no queue needed.
  */
-import { all, byIndex, bulkPut, get, put, withSyncFields } from '../db/repo';
+import { all, byIndex, bulkPut, get, patch, put, withSyncFields } from '../db/repo';
 import type { Link, StripMode } from '../db/types';
 import { parseLineOptions, splitLineOptions, type LineOptions } from './captureDsl';
 import {
@@ -355,13 +355,26 @@ async function fetchTitleViaBackend(url: string, base: string): Promise<string |
  * between attempts. On success the link row is updated; on failure the link
  * keeps its URL as the title (title_fetched stays false so a later pass can
  * try again).
+ *
+ * `link` is captured before the fetch and this is the app's LONGEST-lived stale
+ * row: three attempts plus network latency, fanned out across the whole
+ * untitled backlog. A sync pull will land remote edits inside that window, so
+ * the result is written onto the CURRENT row and touches only the title fields
+ * (audit §7.1/D10) — a whole-row write here reverted the other device's edits
+ * and won LWW globally. A link deleted mid-fetch is skipped, not resurrected.
+ *
+ * A row that already reads title_fetched is left alone: another device (or the
+ * user, via renameLink) has since settled an authoritative title, and that is
+ * exactly the flag that means "stop fetching over this".
  */
 async function fetchTitle(link: Link, base: string): Promise<void> {
   for (let attempt = 0; attempt < TITLE_ATTEMPTS; attempt++) {
     try {
       const title = await fetchTitleViaBackend(link.url, base);
       if (title) {
-        await put<Link>('links', { ...link, title, title_fetched: true });
+        await patch<Link>('links', link.id, (current) =>
+          current.title_fetched ? null : { title, title_fetched: true }
+        );
         return;
       }
     } catch {

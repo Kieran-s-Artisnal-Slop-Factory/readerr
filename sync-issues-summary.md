@@ -16,11 +16,12 @@ If your app has these properties, this applies to you:
   out a monotonic per-row cursor (`server_seq`, `version`, `rev`…);
 - clients **push** local changes and **pull** rows past a stored cursor.
 
-Sixteen distinct issues were found across conflict resolution, cursors, on-read
+Seventeen distinct issues were found across conflict resolution, cursors, on-read
 reconciliation, server consistency, backup/restore, a local cold-storage
-partition, and push resilience. **Most were silent data loss** — no error, no
-crash, the user just quietly loses an edit. The single most important lesson is
-last (§9): **a sync test harness that fakes "two devices" is worse than none.**
+partition, push resilience, and transaction concurrency. **Most were silent data
+loss** — no error, no crash, the user just quietly loses an edit. The single most
+important lesson is last (§9): **a sync test harness that fakes "two devices" is
+worse than none.**
 
 ---
 
@@ -220,6 +221,33 @@ enforces foreign keys on apply.
 **Fix:** emit in explicit parent→child order; make the client tolerant of
 out-of-order arrival (apply, reconcile later).
 
+### 4.4 A deferred write transaction fails to upgrade under concurrency
+**Mistake:** the write handler opens the default transaction — which in most
+SQL bindings is `BEGIN DEFERRED` — then **reads before it writes** (fetching a
+counter, checking the incumbent row for LWW). The read pins a snapshot, so the
+first write must **upgrade** the transaction to a write. If any other
+connection committed in between, SQLite fails that upgrade with `SQLITE_BUSY`
+**immediately**, and `busy_timeout` deliberately does NOT apply — waiting could
+deadlock two would-be upgraders. Two devices syncing at once is the normal
+case, so this fires in production, not just under synthetic load.
+**Why it loses data:** the push 500s. Worse if the handler also has a
+skip-the-bad-row path (§4.1): a transient lock gets misclassified as a
+permanently unstorable row, reported as "rejected", and the client — which
+treats rejected as *resolved* — stops re-pushing it. The row is deleted
+silently. We measured **8 concurrent pushes → 6 failures, 2 of 8 rows
+surviving**.
+**Grep/read for:** `db.Begin()` / `BEGIN` with no explicit mode in a handler
+that writes; any `SELECT` before the first `INSERT`/`UPDATE` inside it; and any
+catch-all `catch (err) { skipThisRow() }` around a write.
+**Fix:** open write transactions as `BEGIN IMMEDIATE` so the write lock is taken
+upfront — no upgrade, and a writer that finds the lock held now honours
+`busy_timeout` and waits instead of erroring. Keep READ transactions deferred
+(in Go: `_txlock=immediate` in the DSN plus `sql.TxOptions{ReadOnly: true}` on
+the read path), or every read serialises behind writes and you lose WAL's
+reader/writer concurrency. Separately, **classify errors**: lock contention is
+transient → fail the request with a retryable status (503) so the client resends
+the batch; only a genuine constraint violation may be skipped-and-reported.
+
 ---
 
 ## 5. Backup / restore / device-lifecycle pitfalls
@@ -291,14 +319,28 @@ correct partition.
 ## 7. UI-snapshot staleness
 
 ### 7.1 A write built from a stale UI snapshot reverts a just-pulled edit
-**Mistake:** an action (reorder, bulk edit) writes rows built from a **UI state
-snapshot** captured earlier. A background pull updated those rows in between; the
-action writes the stale snapshot back, reverting the pulled edit and propagating
-the reversion under LWW.
+**Mistake:** an action (reorder, bulk edit, a row-level toggle) writes rows built
+from a **UI state snapshot** captured earlier. A background pull updated those
+rows in between; the action writes the stale snapshot back, reverting the pulled
+edit and propagating the reversion under LWW.
 **Grep/read for:** writes that spread a component/state snapshot back into the
 store (`put({...snapshotRow, oneField})`), especially bulk/reorder operations.
 **Fix:** re-read each row **fresh from the store** immediately before writing, and
 change only the field you mean to change.
+**Beware the half-fix.** We hardened the reorder path and left its counterpart —
+the "tick this entry off" toggle — writing the snapshot back whole. The two
+actions touch the SAME rows, so the hole stayed fully open in one direction:
+device B drags an entry, A pulls it, the user on A ticks the entry off, and A's
+stale `position` wins under LWW and undoes the drag everywhere. **Audit the whole
+set of actions that write a given table, not the one that prompted the fix.**
+Two further traps once you re-read:
+- the **target value** of a toggle must still come from the snapshot (it is what
+  the user saw and clicked); only the *untouched* fields come from the fresh row.
+  Deriving `!current.favourite` instead flips against the user's intent whenever a
+  pull already changed it.
+- if the fresh read finds the row **gone or tombstoned**, write nothing and bail.
+  Re-putting resurrects a row another device deleted (§3.5) — our own guard test
+  caught exactly that, a starred link rising from the dead on every device.
 
 ### 7.2 Reorder/positioning rewrites siblings wholesale
 **Mistake:** reordering a list rewrites every sibling's position as a whole-row

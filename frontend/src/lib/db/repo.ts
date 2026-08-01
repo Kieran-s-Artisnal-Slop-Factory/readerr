@@ -78,6 +78,41 @@ export async function put<T extends SyncFields>(store: StoreName, row: T): Promi
 }
 
 /**
+ * Change named fields on a row WITHOUT carrying a stale snapshot of the rest.
+ *
+ * UI handlers hold a row captured when the view last rendered. A background
+ * pull can update that row in between, so `put(store, { ...uiRow, oneField })`
+ * writes every OTHER field back at its snapshot value under a fresh
+ * updated_at — silently reverting the pulled edit and, because whole-row LWW
+ * then treats the reversion as the newest version, propagating it to every
+ * device (audit §7.1). Re-reading here narrows the window to this call and
+ * keeps the blast radius to the fields the caller actually means to change.
+ *
+ * `changes` receives the CURRENT row, so a derived value (`read_at ?? now`) is
+ * computed from live data rather than the snapshot. Values the user's click
+ * targeted — a toggle's new state — should still come from the snapshot: it is
+ * what they saw and intended.
+ *
+ * Returns undefined and writes nothing when the row is gone or tombstoned:
+ * another device deleted it, and re-putting would resurrect it (audit §3.5).
+ *
+ * `changes` may return null to decline the write once it has seen the current
+ * row (as dedupePairs' mergeSurvivor does) — the row comes back untouched
+ * rather than being restamped, so a no-op never churns updated_at or re-pushes.
+ */
+export async function patch<T extends SyncFields>(
+  store: StoreName,
+  id: string,
+  changes: (current: T) => Partial<T> | null
+): Promise<T | undefined> {
+  const current = await get<T>(store, id);
+  if (!current) return undefined;
+  const delta = changes(current);
+  if (!delta) return current;
+  return put(store, { ...current, ...delta });
+}
+
+/**
  * Persist a reconcile-fold survivor WITHOUT restamping updated_at.
  *
  * repo.put() stamps updated_at = now, which is correct for a user edit but

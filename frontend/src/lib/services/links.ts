@@ -7,6 +7,7 @@ import {
   byIndex,
   dedupePairs,
   get,
+  patch,
   put,
   putReconciled,
   softDelete,
@@ -468,37 +469,63 @@ export async function markLinkDone(link: Link, slush = true): Promise<Link> {
     if (!entry.done_at) await put('week_links', { ...entry, done_at: now });
   }
   const topics = await topicsForLink(link.id);
-  const unremarked = slush && !link.favourite && topics.length === 0;
-  return put('links', {
-    ...link,
-    read_at: link.read_at ?? now,
-    slushed_at: unremarked ? (link.slushed_at ?? now) : link.slushed_at,
-  });
+  // `link` was captured when the view rendered and every await above widened
+  // the gap, so the completion is applied to the row as it stands now and only
+  // touches the fields it means to (audit §7.1 — writing the snapshot back
+  // whole would revert a title or priority a pull had just delivered, then
+  // propagate that reversion under whole-row LWW).
+  return (
+    (await patch<Link>('links', link.id, (current) => {
+      const unremarked = slush && !current.favourite && topics.length === 0;
+      return {
+        read_at: current.read_at ?? now,
+        ...(unremarked ? { slushed_at: current.slushed_at ?? now } : {}),
+      };
+    })) ?? link
+  );
 }
 
 export async function toggleRead(link: Link): Promise<Link> {
   if (!link.read_at) return markLinkDone(link);
   // Back to unread: leave the slush archive and un-complete any open week
-  // entries (stamped history on closed weeks stays untouched).
+  // entries (stamped history on closed weeks stays untouched). `entry` here is
+  // read fresh by pendingWeeksForLink, so only done_at is being changed.
   const pending = await pendingWeeksForLink(link.id);
   for (const { entry } of pending) {
     if (entry.done_at) await put('week_links', { ...entry, done_at: null });
   }
-  return put('links', { ...link, read_at: null, slushed_at: null });
+  return (
+    (await patch<Link>('links', link.id, () => ({ read_at: null, slushed_at: null }))) ?? link
+  );
 }
 
 export async function toggleFavourite(link: Link): Promise<Link> {
+  // The new state comes from the snapshot — it is what the user saw and
+  // clicked — but it is applied onto the current row, not written back with
+  // the snapshot's other fields in tow.
   const favourite = !link.favourite;
-  return put('links', {
-    ...link,
-    favourite,
-    // Favouriting rescues a link from the slush archive.
-    slushed_at: favourite ? null : link.slushed_at,
-  });
+  return (
+    (await patch<Link>('links', link.id, () => ({
+      favourite,
+      // Favouriting rescues a link from the slush archive.
+      ...(favourite ? { slushed_at: null } : {}),
+    }))) ?? link
+  );
 }
 
 export async function toggleResource(link: Link): Promise<Link> {
-  return put('links', { ...link, is_resource: !link.is_resource });
+  const is_resource = !link.is_resource;
+  return (await patch<Link>('links', link.id, () => ({ is_resource }))) ?? link;
+}
+
+/**
+ * Rename a link by hand. title_fetched goes true so the background title fetch
+ * stops retrying over a title the user chose. Applied onto the current row —
+ * the inline editor's `link` prop is a snapshot from the last render and a
+ * whole-row write would revert anything pulled while the field was open.
+ */
+export async function renameLink(link: Link, title: string): Promise<Link> {
+  return (await patch<Link>('links', link.id, () => ({ title, title_fetched: true }))) ?? link;
 }
 
 /** A link's priority: 1 (highest) to 3; links never given one are 3. */

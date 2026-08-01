@@ -10,7 +10,16 @@
  *   - unfinished → 'rolled', and the link just returns to the backlog
  * Entries keep their week_link rows forever, so past weeks are history.
  */
-import { all, byIndex, get, put, putReconciled, softDelete, withSyncFields } from '../db/repo';
+import {
+  all,
+  byIndex,
+  get,
+  patch,
+  put,
+  putReconciled,
+  softDelete,
+  withSyncFields,
+} from '../db/repo';
 import { getDB } from '../db/db';
 import { healsAllowed } from '../testMode';
 import { isSyncing } from '../sync';
@@ -269,9 +278,19 @@ export async function addLinkToWeek(
   );
 }
 
-/** Stamp or clear an entry's completion for its week. */
+/**
+ * Stamp or clear an entry's completion for its week.
+ *
+ * `entry` is a UI snapshot, so only `done_at` is written onto the row as it
+ * stands NOW — the mirror of the fresh re-read reorderEntries does. Writing
+ * the snapshot back verbatim would revert a `position` (or `kind`) that a
+ * background pull had just delivered, and whole-row LWW would then push that
+ * reversion out to every device: ticking an entry off silently undid the other
+ * device's drag-reorder.
+ */
 export async function setEntryDone(entry: WeekLink, done: boolean): Promise<WeekLink> {
-  return put('week_links', { ...entry, done_at: done ? new Date().toISOString() : null });
+  const done_at = done ? new Date().toISOString() : null;
+  return (await patch<WeekLink>('week_links', entry.id, () => ({ done_at }))) ?? entry;
 }
 
 /** The Monday options offered by week pickers: this week + the next `count`. */
@@ -292,8 +311,11 @@ export function upcomingWeekOptions(count = 12): { value: string; label: string 
 export async function reviewLink(link: Link, weekStart: string): Promise<Link> {
   const week = await ensureWeek(weekStart);
   await addLinkToWeek(week.id, link.id, 'review');
+  // `link` is a UI snapshot and the awaits above widen the window further, so
+  // the rescue clears slushed_at on the row as it stands now rather than
+  // writing the snapshot's other fields back over a pulled edit.
   if (link.slushed_at) {
-    return put('links', { ...link, slushed_at: null });
+    return (await patch<Link>('links', link.id, () => ({ slushed_at: null }))) ?? link;
   }
   return link;
 }
@@ -370,7 +392,7 @@ export async function setLinkWeek(linkId: string, weekStart: string | null): Pro
 export async function scheduleLinkForWeek(link: Link, weekStart: string | null): Promise<Link> {
   await setLinkWeek(link.id, weekStart);
   if (weekStart && link.slushed_at) {
-    return put('links', { ...link, slushed_at: null });
+    return (await patch<Link>('links', link.id, () => ({ slushed_at: null }))) ?? link;
   }
   return link;
 }

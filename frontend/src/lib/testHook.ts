@@ -15,15 +15,21 @@ import { put as repoPut, softDelete } from './db/repo';
 import { syncNow } from './sync';
 import { isTestMode, withHeals } from './testMode';
 import { getUserSettings, saveUserSettings } from './services/settings';
-import { reconcileOpenWeeks, ensureOpenWeek, autoCloseStaleWeeks, closeWeek } from './services/weeks';
+import {
+  reconcileOpenWeeks,
+  ensureOpenWeek,
+  autoCloseStaleWeeks,
+  closeWeek,
+  setEntryDone,
+} from './services/weeks';
 import { reconcilePlans } from './services/plans';
 import { getNote } from './services/notes';
-import { reconcileTags, reconcileTopics } from './services/links';
+import { reconcileTags, reconcileTopics, toggleFavourite } from './services/links';
 import { captureLinks } from './services/capture';
 import { importData, exportData, wipeLocalData } from './db/export';
 import { archiveNow, unarchive, listArchived } from './services/archive';
 import { resetLocalSyncState } from './sync';
-import type { Link, Week } from './db/types';
+import type { Link, Week, WeekLink } from './db/types';
 
 async function rawDump(store: string): Promise<unknown[]> {
   return (await getDB()).getAll(store);
@@ -93,6 +99,10 @@ export function installTestHook(): void {
     // --- week lifecycle, invoked deliberately by tests ---
     ensureOpenWeekNow: () => withHeals(() => ensureOpenWeek()),
     autoCloseStaleWeeksNow: () => withHeals(() => autoCloseStaleWeeks()),
+    // --- user actions that take a UI snapshot, so the harness can hand them a
+    // DELIBERATELY STALE row and prove the write lands on the current one ---
+    setEntryDoneNow: (entry: WeekLink, done: boolean) => withHeals(() => setEntryDone(entry, done)),
+    toggleFavouriteNow: (link: Link) => withHeals(() => toggleFavourite(link)),
     closeWeekNow: async (weekId: string) => {
       const week = (await (await getDB()).get('weeks', weekId)) as Week | undefined;
       if (!week) throw new Error(`closeWeekNow: no week ${weekId}`);

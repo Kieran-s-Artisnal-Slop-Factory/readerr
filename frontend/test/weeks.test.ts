@@ -389,6 +389,54 @@ describe('reconcileOpenWeeks', () => {
     expect(entries.map((e) => e.link.id)).toEqual([l3.id, l1.id, l2.id]);
   });
 
+  it('completing an entry does not revert a concurrently-pulled reorder (the inverse case)', async () => {
+    // The mirror of the test above: reorderEntries reads fresh, so completion
+    // must too. Otherwise ticking an entry off writes the UI snapshot's stale
+    // `position` back under a fresh updated_at, whole-row LWW treats that as
+    // the newest version, and the other device's drag is silently undone.
+    const ws = currentWeekStart();
+    await seedWeek('week-1', { week_start: ws });
+    const l1 = await makeLink();
+    const e1 = await seedWeekLink('e1', 'week-1', l1.id, { position: 0, kind: 'reading' });
+
+    // The UI holds a snapshot taken before a background pull.
+    const snapshot = { ...e1 };
+
+    // A pull then moves the entry (another device dragged it) and re-kinds it.
+    const db = await getDB();
+    await db.put('week_links', {
+      ...e1,
+      position: 5,
+      kind: 'review',
+      updated_at: '2026-07-20T10:00:00.000Z',
+    });
+
+    // The user ticks it off from the STALE snapshot.
+    await setEntryDone(snapshot, true);
+
+    const after = (await db.get('week_links', 'e1')) as WeekLink;
+    expect(after.done_at, 'the completion applied').toBeTruthy();
+    expect(after.position, 'completion must not revert the pulled position').toBe(5);
+    expect(after.kind, 'completion must not revert the pulled kind').toBe('review');
+  });
+
+  it('completing an entry another device deleted writes nothing (no resurrection)', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-1', { week_start: ws });
+    const l1 = await makeLink();
+    const e1 = await seedWeekLink('e1', 'week-1', l1.id, { position: 0 });
+    const snapshot = { ...e1 };
+
+    const db = await getDB();
+    await db.put('week_links', { ...e1, deleted_at: '2026-07-20T10:00:00.000Z' });
+
+    await setEntryDone(snapshot, true);
+
+    const after = (await db.get('week_links', 'e1')) as WeekLink;
+    expect(after.deleted_at, 'tombstone stands').toBe('2026-07-20T10:00:00.000Z');
+    expect(after.done_at, 'no write onto a deleted row').toBeFalsy();
+  });
+
   it('leaves a closed week sharing the Monday alone, folding only the open twins', async () => {
     const ws = currentWeekStart();
     await seedWeek('week-closed', { week_start: ws, closed_at: '2024-06-10T00:00:00.000Z' });

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 // --- helpers ---------------------------------------------------------------
@@ -636,5 +638,184 @@ func TestUnstorableRowIsSkippedNotFatal(t *testing.T) {
 	links := doPull(t, s, 0, 0).Rows["links"]
 	if len(links) != 1 || links[0]["id"] != "good" {
 		t.Fatalf("good row not committed after a sibling row was skipped: %+v", links)
+	}
+}
+
+// --- concurrency: a push must not fail because another connection wrote ------
+
+// Two devices syncing at once is the NORMAL case, and it broke the sync-tests
+// CI run: the client saw "push failed: 500 database is locked (5) (SQLITE_BUSY)".
+//
+// Cause: database/sql's Begin() is BEGIN DEFERRED, so handlePush pinned a WAL
+// read snapshot on its SELECT of sync_state and only then wrote — forcing an
+// upgrade to a write transaction. SQLite fails that upgrade with SQLITE_BUSY
+// the instant another connection has committed in between, and busy_timeout
+// does NOT apply (waiting could deadlock two would-be upgraders).
+//
+// pushAfterReadHook lands a commit in exactly that window. With BEGIN IMMEDIATE
+// (_txlock, openDB) the outer push already holds the write lock, so the
+// concurrent writer WAITS on busy_timeout instead of stealing the moment — the
+// hook's write is still blocked when the hook gives up waiting, and both
+// commits then succeed in turn. Under the old BEGIN DEFERRED the inner write
+// commits immediately and the outer push dies on its first INSERT.
+func TestConcurrentWriteDoesNotFailPush(t *testing.T) {
+	s := newTestServer(t)
+
+	done := make(chan error, 1)
+	fired := false
+	pushAfterReadHook = func() {
+		if fired {
+			return
+		}
+		fired = true
+		go func() {
+			_, err := s.db.Exec(
+				"INSERT INTO tags (id, name, notes_md, updated_at, deleted_at, server_seq) "+
+					"VALUES (?, ?, ?, ?, NULL, NULL)",
+				"t-concurrent", "concurrent", "", "2026-07-10T10:00:00Z",
+			)
+			done <- err
+		}()
+		// Give the concurrent writer a chance to commit inside the window. It
+		// only manages that if we are NOT holding the write lock — which is the
+		// bug. Bounded well under busy_timeout(5000) so the blocked writer still
+		// has budget left once we commit.
+		select {
+		case err := <-done:
+			done <- err // put it back for the assertion below
+		case <-time.After(time.Second):
+		}
+	}
+	t.Cleanup(func() { pushAfterReadHook = nil })
+
+	// doPush t.Fatals on any non-200, which is the regression: a 500 here.
+	doPush(t, s, map[string][]map[string]any{
+		"links": {linkRow("l-outer", "2026-07-10T10:00:00Z", nil)},
+	})
+
+	if err := <-done; err != nil {
+		t.Fatalf("concurrent write never succeeded: %v", err)
+	}
+	// Both writes must be durable: the pushed row through the pull, and the
+	// concurrent one straight from the table (it was inserted raw, so it has no
+	// server_seq and the pull's cursor would never return it).
+	got := doPull(t, s, 0, 0).Rows
+	if len(got["links"]) != 1 || got["links"][0]["id"] != "l-outer" {
+		t.Errorf("pushed row missing: %+v", got["links"])
+	}
+	var tags int
+	if err := s.db.QueryRow("SELECT count(*) FROM tags WHERE id = 't-concurrent'").Scan(&tags); err != nil {
+		t.Fatalf("count tags: %v", err)
+	}
+	if tags != 1 {
+		t.Errorf("concurrently-written row missing: count = %d", tags)
+	}
+}
+
+// The shipped topology: many pushes in flight at once (several devices, or one
+// device's chunked push racing another's). None may fail — a writer that finds
+// the lock held waits on busy_timeout instead of erroring.
+func TestParallelPushesAllSucceed(t *testing.T) {
+	s := newTestServer(t)
+
+	const devices = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, devices)
+	for i := 0; i < devices; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			id := fmt.Sprintf("l-%d", n)
+			body, _ := json.Marshal(pushRequest{
+				Rows:  map[string][]map[string]any{"links": {linkRow(id, "2026-07-10T10:00:00Z", nil)}},
+				Final: true,
+			})
+			req := httptest.NewRequest("POST", "/sync/push", bytes.NewReader(body))
+			w := httptest.NewRecorder()
+			s.handlePush(w, req)
+			if w.Code != 200 {
+				errs <- fmt.Errorf("device %d: push status %d: %s", n, w.Code, w.Body.String())
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+
+	links := doPull(t, s, 0, 0).Rows["links"]
+	if len(links) != devices {
+		t.Fatalf("got %d links, want %d — a concurrent push was lost", len(links), devices)
+	}
+	// Every row must carry a DISTINCT server_seq: the counter is read and
+	// written inside the same write transaction, so serialising the writers
+	// must also serialise the counter.
+	seqs := map[float64]bool{}
+	for _, row := range links {
+		seq, ok := row["server_seq"].(float64)
+		if !ok {
+			t.Fatalf("row %v has no server_seq", row["id"])
+		}
+		if seqs[seq] {
+			t.Errorf("duplicate server_seq %v — the counter raced", seq)
+		}
+		seqs[seq] = true
+	}
+}
+
+// Lock contention must be reported as RETRYABLE (503) and must never be
+// mistaken for an unstorable row. `rejected` means "the server has resolved
+// this row" and the client stops re-pushing it — classifying a transient lock
+// that way silently and permanently deletes a perfectly good row (observed:
+// "skipping unacceptable row ... database is locked"). A second connection
+// holds the write lock for longer than busy_timeout so the push cannot proceed.
+func TestBusyDatabaseIsRetryableAndDropsNoRows(t *testing.T) {
+	s := newTestServer(t)
+
+	// A separate connection squatting on the write lock.
+	blocker, err := openDB(s.dbPath)
+	if err != nil {
+		t.Fatalf("open blocker: %v", err)
+	}
+	defer blocker.Close()
+	btx, err := blocker.Begin() // BEGIN IMMEDIATE: takes the write lock now
+	if err != nil {
+		t.Fatalf("blocker begin: %v", err)
+	}
+	if _, err := btx.Exec(
+		"INSERT INTO tags (id, name, notes_md, updated_at, deleted_at, server_seq) "+
+			"VALUES ('t-blocker', 'blocker', '', '2026-07-10T10:00:00Z', NULL, NULL)"); err != nil {
+		t.Fatalf("blocker write: %v", err)
+	}
+
+	body, _ := json.Marshal(pushRequest{
+		Rows:  map[string][]map[string]any{"links": {linkRow("l-blocked", "2026-07-10T10:00:00Z", nil)}},
+		Final: true,
+	})
+	req := httptest.NewRequest("POST", "/sync/push", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handlePush(w, req)
+
+	if w.Code != 503 {
+		t.Fatalf("status = %d, want 503 (retryable); body: %s", w.Code, w.Body.String())
+	}
+	// Critically: no body claiming the row was rejected/accepted. A 503 carries
+	// no pushResponse, so the client keeps the row dirty and re-pushes it.
+	var resp pushResponse
+	if json.Unmarshal(w.Body.Bytes(), &resp) == nil && len(resp.Rejected) > 0 {
+		t.Fatalf("a locked-out row was reported as rejected — the client would drop it: %+v", resp.Rejected)
+	}
+
+	// Release the lock; the retry (what the client does) must now succeed.
+	if err := btx.Commit(); err != nil {
+		t.Fatalf("blocker commit: %v", err)
+	}
+	doPush(t, s, map[string][]map[string]any{
+		"links": {linkRow("l-blocked", "2026-07-10T10:00:00Z", nil)},
+	})
+	links := doPull(t, s, 0, 0).Rows["links"]
+	if len(links) != 1 || links[0]["id"] != "l-blocked" {
+		t.Fatalf("row lost across the busy failure + retry: %+v", links)
 	}
 }

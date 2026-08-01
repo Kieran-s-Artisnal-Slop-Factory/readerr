@@ -7,8 +7,13 @@
   import TagPicker from './TagPicker.svelte';
   import TopicPicker from './TopicPicker.svelte';
   import { href } from '../lib/paths';
-  import { put } from '../lib/db/repo';
-  import { domainOf, toggleFavourite, toggleRead, toggleResource } from '../lib/services/links';
+  import {
+    domainOf,
+    renameLink,
+    toggleFavourite,
+    toggleRead,
+    toggleResource,
+  } from '../lib/services/links';
   import { currentWeekStart, pendingWeeksForLink, setLinkWeek, upcomingWeekOptions } from '../lib/services/weeks';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
@@ -78,7 +83,7 @@
     const title = titleDraft.trim();
     if (!title || title === link.title) return;
     // A hand-edited title is authoritative — stop the fetch retrying over it.
-    onChange(await put<Link>('links', { ...link, title, title_fetched: true }));
+    onChange(await renameLink(link, title));
   }
 
   // Week assignment (inside the # panel). Loaded lazily when opened.

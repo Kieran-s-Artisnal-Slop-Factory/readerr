@@ -155,7 +155,27 @@ UPDATE sync_state SET epoch = lower(hex(randomblob(16)));
 }
 
 func openDB(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", path)
+	// _txlock=immediate makes every read-write transaction take the write lock
+	// at BEGIN instead of upgrading to it later.
+	//
+	// Without it, database/sql's Begin() is BEGIN DEFERRED: handlePush reads
+	// sync_state first (pinning a WAL read snapshot) and only then INSERTs, so
+	// it must UPGRADE the transaction. If any other connection committed in
+	// between, SQLite fails that upgrade with SQLITE_BUSY *immediately* — and
+	// busy_timeout deliberately does not apply, because waiting could deadlock
+	// two readers that both want to upgrade. The push then 500s. Two devices
+	// syncing at once is the normal case, so this was a live failure, not a
+	// theoretical one (it broke the sync-tests CI run on the slower runner).
+	//
+	// Taking the lock upfront removes the upgrade entirely, and a writer that
+	// finds the lock held now WAITS on busy_timeout instead of erroring.
+	// Readers are unaffected: the driver applies this only to transactions not
+	// marked ReadOnly, so handlePull's snapshot stays BEGIN DEFERRED (WAL
+	// readers never block writers and are never blocked by them).
+	dsn := fmt.Sprintf(
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate",
+		path,
+	)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
