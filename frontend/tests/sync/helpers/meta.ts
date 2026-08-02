@@ -25,6 +25,7 @@ export const TABLE_ORDER = [
   'plans',
   'links',
   'tags',
+  'tag_parents',
   'link_tags',
   'topics',
   'link_topics',
@@ -74,6 +75,7 @@ export const TABLES: Record<string, TableMeta> = {
     ['title_fetched', 'favourite', 'is_resource']
   ),
   tags: t(['id', 'name', 'notes_md']),
+  tag_parents: t(['id', 'child_id', 'parent_id']),
   link_tags: t(['id', 'link_id', 'tag_id']),
   topics: t(['id', 'name', 'body_md']),
   link_topics: t(['id', 'link_id', 'topic_id', 'ref_number']),
@@ -90,6 +92,10 @@ export const FOREIGN_KEYS: Record<string, [string, string][]> = {
   link_tags: [
     ['link_id', 'links'],
     ['tag_id', 'tags'],
+  ],
+  tag_parents: [
+    ['child_id', 'tags'],
+    ['parent_id', 'tags'],
   ],
   link_topics: [
     ['link_id', 'links'],

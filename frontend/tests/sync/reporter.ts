@@ -21,6 +21,7 @@ const ALL_STORES = [
   'plans',
   'links',
   'tags',
+  'tag_parents',
   'link_tags',
   'topics',
   'link_topics',

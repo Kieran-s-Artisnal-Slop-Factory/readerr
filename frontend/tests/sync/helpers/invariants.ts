@@ -77,6 +77,21 @@ export function checkInvariants(db: Db): InvariantViolation[] {
   // 7. One live week_link per (week, link).
   dupCheck(v, 'week_links-pair', live(db.week_links), (r) => `${r.week_id}|${r.link_id}`);
 
+  // 7b. Tag nesting: one live edge per (child, parent), no self-edges, and no
+  // cycles. Acyclicity can't be enforced at write time across devices (two
+  // devices can each add a legal edge that together form a cycle), so a
+  // converged database having one means reconcileTagParents failed to repair it.
+  const edges = live(db.tag_parents);
+  dupCheck(v, 'tag_parents-pair', edges, (r) => `${r.child_id}|${r.parent_id}`);
+  for (const e of edges) {
+    if (e.child_id === e.parent_id) {
+      v.push({ invariant: 'tag-parent-self-edge', detail: `tag ${e.child_id} is its own parent` });
+    }
+  }
+  for (const cycle of findTagCycles(edges)) {
+    v.push({ invariant: 'tag-parent-acyclic', detail: `cycle: ${cycle.join(' → ')}` });
+  }
+
   // 8. Per-topic footnote uniqueness (ignoring the sentinel 0 = unassigned).
   const byTopic = new Map<string, Map<number, string[]>>();
   for (const lt of live(db.link_topics)) {
@@ -99,6 +114,50 @@ export function checkInvariants(db: Db): InvariantViolation[] {
   }
 
   return v;
+}
+
+/**
+ * Every cycle in the child → parent graph, as id paths. Iterative DFS with an
+ * explicit stack: the whole point is that the data may be cyclic, so anything
+ * recursive here could blow up on the very input it exists to detect.
+ */
+function findTagCycles(edges: SyncRow[]): string[][] {
+  const out: string[][] = [];
+  const parents = new Map<string, string[]>();
+  for (const e of edges) {
+    const child = e.child_id as string;
+    parents.set(child, [...(parents.get(child) ?? []), e.parent_id as string]);
+  }
+  const done = new Set<string>();
+  const reported = new Set<string>();
+  for (const start of parents.keys()) {
+    if (done.has(start)) continue;
+    // path = the chain of ids from `start` to the node being expanded.
+    const stack: { node: string; path: string[] }[] = [{ node: start, path: [start] }];
+    while (stack.length > 0) {
+      const { node, path } = stack.pop()!;
+      for (const next of parents.get(node) ?? []) {
+        const at = path.indexOf(next);
+        if (at !== -1) {
+          // Canonical form (rotate to the smallest id) so one cycle is
+          // reported once however it was entered.
+          const loop = path.slice(at);
+          const min = [...loop].sort()[0];
+          const rotated = [...loop.slice(loop.indexOf(min)), ...loop.slice(0, loop.indexOf(min))];
+          const key = rotated.join('|');
+          if (!reported.has(key)) {
+            reported.add(key);
+            out.push([...rotated, min]);
+          }
+          continue;
+        }
+        if (path.length > 64) continue; // runaway guard
+        stack.push({ node: next, path: [...path, next] });
+      }
+      done.add(node);
+    }
+  }
+  return out;
 }
 
 function dupCheck(

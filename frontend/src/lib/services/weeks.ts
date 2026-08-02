@@ -23,6 +23,7 @@ import {
 import { getDB } from '../db/db';
 import { healsAllowed } from '../testMode';
 import { isSyncing } from '../sync';
+import { tagsWithDescendants } from './tagTree';
 import type { Link, LinkTag, LinkTopic, Week, WeekLink, WeekLinkKind } from '../db/types';
 
 /** Local Monday of the week containing `d`, as 'YYYY-MM-DD'. */
@@ -474,9 +475,14 @@ export async function suggestLinks(
     // Per-tag pools in the order the tags were chosen.
     const pools: Link[][] = [];
     for (const tagId of focusTagIds) {
-      const tagged = new Set(
-        (await byIndex<LinkTag>('link_tags', 'tag_id', tagId)).map((j) => j.link_id)
-      );
+      // A focus tag pulls in everything nested beneath it — focusing `webdev`
+      // must suggest the `astro` backlog, or nesting silently narrows triage.
+      const tagged = new Set<string>();
+      for (const id of await tagsWithDescendants([tagId])) {
+        for (const j of await byIndex<LinkTag>('link_tags', 'tag_id', id)) {
+          tagged.add(j.link_id);
+        }
+      }
       pools.push(candidates.filter((l) => tagged.has(l.id)));
     }
     // Split the quota: earlier tags get the remainder (3 over 2 → 2+1).

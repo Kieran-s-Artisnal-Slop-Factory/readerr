@@ -152,6 +152,22 @@ ALTER TABLE link_topics ADD COLUMN ref_number INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE sync_state ADD COLUMN epoch TEXT NOT NULL DEFAULT '';
 UPDATE sync_state SET epoch = lower(hex(randomblob(16)));
 `,
+	// v16 → v17: tag nesting. One row per (child, parent) edge — a junction
+	// table rather than a tags.parent_id column, because a tag may sit under
+	// several parents. Additive: with no rows the behaviour is unchanged.
+	`
+CREATE TABLE tag_parents (
+    id         TEXT PRIMARY KEY,
+    child_id   TEXT NOT NULL REFERENCES tags (id),
+    parent_id  TEXT NOT NULL REFERENCES tags (id),
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_tag_parents_child ON tag_parents (child_id);
+CREATE INDEX idx_tag_parents_parent ON tag_parents (parent_id);
+CREATE INDEX idx_tag_parents_seq ON tag_parents (server_seq);
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

@@ -107,6 +107,22 @@ export interface LinkTag extends SyncFields {
   tag_id: string;
 }
 
+/**
+ * One "child is nested under parent" edge. Tags form a DAG, not a tree — a tag
+ * may sit under several parents (`astro` under both `javascript` and `webdev`)
+ * — so parentage is its own table rather than a column, structurally identical
+ * to link_tags and healed by the same pair-dedupe.
+ *
+ * Acyclicity cannot be enforced at write time across devices: two devices can
+ * each add an individually-legal edge that together form a cycle. Every reader
+ * is therefore cycle-tolerant, and reconcileTagParents repairs the data
+ * deterministically. See docs/dev/experiments & plans/hierarchical-tags.md §3.
+ */
+export interface TagParent extends SyncFields {
+  child_id: string;
+  parent_id: string;
+}
+
 /** An in-depth document covering a topic, referencing many links. */
 export interface Topic extends SyncFields {
   name: string;
@@ -192,6 +208,9 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   links: { indexes: [{ name: 'url' }, { name: 'added_at' }] },
   tags: { indexes: [] },
   link_tags: { indexes: [{ name: 'link_id' }, { name: 'tag_id' }] },
+  // Both directions are indexed: 'parent_id' walks down (descendants, for
+  // filtering) and 'child_id' walks up (a tag's own parents, for the picker).
+  tag_parents: { indexes: [{ name: 'child_id' }, { name: 'parent_id' }] },
   topics: { indexes: [] },
   link_topics: { indexes: [{ name: 'link_id' }, { name: 'topic_id' }] },
   notes: { indexes: [{ name: 'link_id' }] },

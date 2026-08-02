@@ -819,3 +819,90 @@ func TestBusyDatabaseIsRetryableAndDropsNoRows(t *testing.T) {
 		t.Fatalf("row lost across the busy failure + retry: %+v", links)
 	}
 }
+
+// --- tag nesting -----------------------------------------------------------
+
+func tagParentRow(id, childID, parentID, updatedAt string) map[string]any {
+	return map[string]any{
+		"id": id, "child_id": childID, "parent_id": parentID,
+		"updated_at": updatedAt, "deleted_at": nil, "server_seq": nil,
+	}
+}
+
+// tag_parents must round-trip like any other junction table, and must be
+// ordered AFTER tags so both endpoints of an edge exist before the edge lands.
+func TestTagParentsRoundTrip(t *testing.T) {
+	s := newTestServer(t)
+	doPush(t, s, map[string][]map[string]any{
+		"tags": {
+			tagRow("t-js", "2026-07-10T10:00:00Z"),
+			tagRow("t-astro", "2026-07-10T10:00:01Z"),
+		},
+		"tag_parents": {tagParentRow("e1", "t-astro", "t-js", "2026-07-10T10:00:02Z")},
+	})
+
+	rows := doPull(t, s, 0, 0).Rows["tag_parents"]
+	if len(rows) != 1 {
+		t.Fatalf("pulled %d tag_parents, want 1", len(rows))
+	}
+	if rows[0]["child_id"] != "t-astro" || rows[0]["parent_id"] != "t-js" {
+		t.Errorf("edge round-tripped wrong: %+v", rows[0])
+	}
+	if rows[0]["server_seq"] == nil {
+		t.Errorf("server_seq not assigned")
+	}
+
+	// Ordering: tags must precede tag_parents in the response, so a restoring
+	// client never applies an edge before the tags it references.
+	iTags, iEdges := -1, -1
+	for i, name := range tableOrder {
+		if name == "tags" {
+			iTags = i
+		}
+		if name == "tag_parents" {
+			iEdges = i
+		}
+	}
+	if iTags < 0 || iEdges < 0 || iTags > iEdges {
+		t.Fatalf("tableOrder: tags at %d must come before tag_parents at %d", iTags, iEdges)
+	}
+}
+
+// Un-nesting is a tombstone, like every other delete, so it propagates.
+func TestTagParentTombstoneSyncs(t *testing.T) {
+	s := newTestServer(t)
+	doPush(t, s, map[string][]map[string]any{
+		"tags":        {tagRow("t-js", "2026-07-10T10:00:00Z"), tagRow("t-astro", "2026-07-10T10:00:01Z")},
+		"tag_parents": {tagParentRow("e1", "t-astro", "t-js", "2026-07-10T10:00:02Z")},
+	})
+	edge := tagParentRow("e1", "t-astro", "t-js", "2026-07-10T11:00:00Z")
+	edge["deleted_at"] = "2026-07-10T11:00:00Z"
+	doPush(t, s, map[string][]map[string]any{"tag_parents": {edge}})
+
+	rows := doPull(t, s, 0, 0).Rows["tag_parents"]
+	if len(rows) != 1 || rows[0]["deleted_at"] == nil {
+		t.Fatalf("tombstone lost: %+v", rows)
+	}
+}
+
+// The server stores what it is given: a cycle is not rejected at the wire,
+// because it cannot be — the two halves can arrive from different devices in
+// different pushes. Convergence is the client reconciler's job; the server must
+// simply not corrupt or drop the rows.
+func TestTagParentCycleIsStoredNotRejected(t *testing.T) {
+	s := newTestServer(t)
+	doPush(t, s, map[string][]map[string]any{
+		"tags": {tagRow("t-a", "2026-07-10T10:00:00Z"), tagRow("t-b", "2026-07-10T10:00:01Z")},
+	})
+	doPush(t, s, map[string][]map[string]any{
+		"tag_parents": {tagParentRow("e1", "t-a", "t-b", "2026-07-10T10:00:02Z")},
+	})
+	doPush(t, s, map[string][]map[string]any{
+		"tag_parents": {tagParentRow("e2", "t-b", "t-a", "2026-07-10T10:00:03Z")},
+	})
+
+	rows := doPull(t, s, 0, 0).Rows["tag_parents"]
+	if len(rows) != 2 {
+		t.Fatalf("both halves of the cycle must survive the wire, got %d", len(rows))
+	}
+}

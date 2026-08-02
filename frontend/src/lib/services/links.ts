@@ -16,6 +16,7 @@ import {
 } from '../db/repo';
 import { healsAllowed } from '../testMode';
 import { dedupeLinkTopics, nextRefNumber } from './topics';
+import { repointTagParents, tagsWithDescendants } from './tagTree';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
 import { remapFocusTags as remapSettingsFocusTags } from './settings';
 import { remapFocusTags as remapPlansFocusTags } from './plans';
@@ -129,6 +130,9 @@ export async function reconcileTags(): Promise<void> {
     // the joins now point at.
     await putReconciled('tags', { ...survivor, notes_md, updated_at: maxUpdatedAt(group) });
     await repointTagJoins(survivor.id, group.map((t) => t.id));
+    // The survivor also inherits the strays' place in the tag hierarchy —
+    // otherwise merging `Astro` into `astro` silently un-nests it.
+    await repointTagParents(survivor.id, group.map((t) => t.id));
     for (const s of strays) remap.set(s.id, survivor.id);
     await softDeleteMany('tags', strays.map((s) => s.id));
   }
@@ -275,10 +279,63 @@ export async function topicsForLink(linkId: string): Promise<Topic[]> {
   return topics.filter((t): t is Topic => !!t);
 }
 
-export async function linksForTag(tagId: string): Promise<Link[]> {
+/** Links carrying exactly this tag — no hierarchy, no descendants. */
+export async function linksTaggedDirectly(tagId: string): Promise<Link[]> {
   const joins = await dedupeLinkTags(await byIndex<LinkTag>('link_tags', 'tag_id', tagId));
   const links = await Promise.all(joins.map((j) => get<Link>('links', j.link_id)));
   return links.filter((l): l is Link => !!l);
+}
+
+/**
+ * Links for a tag INCLUDING everything nested beneath it: filtering for
+ * `javascript` returns the `astro` links too.
+ *
+ * De-duplicated by link id, which matters in two ways at once — a link tagged
+ * both `javascript` and `astro` is one link, and so is a link reachable down
+ * two different branches of a diamond.
+ */
+export async function linksForTag(tagId: string): Promise<Link[]> {
+  return linksForTags([tagId]);
+}
+
+/** The same union across several tags (a multi-tag filter). */
+export async function linksForTags(tagIds: string[]): Promise<Link[]> {
+  const ids = await tagsWithDescendants(tagIds);
+  const byId = new Map<string, Link>();
+  for (const id of ids) {
+    for (const link of await linksTaggedDirectly(id)) {
+      if (!byId.has(link.id)) byId.set(link.id, link);
+    }
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Links that reach this tag ONLY through a descendant — the tag page's "From
+ * child tags" section. Excluding the directly-tagged links is what stops a link
+ * carrying both `javascript` and `astro` appearing in both sections.
+ */
+export async function linksFromChildTags(
+  tagId: string
+): Promise<{ link: Link; via: Tag[] }[]> {
+  const direct = new Set((await linksTaggedDirectly(tagId)).map((l) => l.id));
+  const descendants = (await tagsWithDescendants([tagId])).filter((id) => id !== tagId);
+  const byLink = new Map<string, { link: Link; via: Tag[] }>();
+  for (const id of descendants) {
+    const tag = await get<Tag>('tags', id);
+    if (!tag) continue;
+    for (const link of await linksTaggedDirectly(id)) {
+      if (direct.has(link.id)) continue; // already shown under the tag itself
+      const entry = byLink.get(link.id);
+      // One row per link, listing every child tag it arrived through.
+      if (entry) entry.via.push(tag);
+      else byLink.set(link.id, { link, via: [tag] });
+    }
+  }
+  for (const entry of byLink.values()) {
+    entry.via.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return [...byLink.values()];
 }
 
 export async function linksForTopic(topicId: string): Promise<Link[]> {
@@ -354,10 +411,43 @@ export async function unassignTopic(linkId: string, topicId: string): Promise<vo
   }
 }
 
-/** Live-link count per tag id (for the tags index page). */
+/** Live-link count per tag id, direct assignments only (no hierarchy). */
 export async function tagLinkCounts(): Promise<Map<string, number>> {
   const joins = await dedupeLinkTags(await all<LinkTag>('link_tags'));
   return countBy(joins, (j) => j.tag_id);
+}
+
+/**
+ * Per-tag counts for the tags index: `direct` is what the tag itself carries,
+ * `total` also counts everything nested beneath it.
+ *
+ * `total` counts DISTINCT links, so a link tagged both parent and child — or
+ * reachable down two branches of a diamond — is counted once. That is why this
+ * cannot be a simple sum of the direct counts down the tree.
+ */
+export interface TagCount {
+  direct: number;
+  total: number;
+}
+
+export async function tagCounts(): Promise<Map<string, TagCount>> {
+  const joins = await dedupeLinkTags(await all<LinkTag>('link_tags'));
+  const linksByTag = new Map<string, Set<string>>();
+  for (const j of joins) {
+    const set = linksByTag.get(j.tag_id);
+    if (set) set.add(j.link_id);
+    else linksByTag.set(j.tag_id, new Set([j.link_id]));
+  }
+
+  const out = new Map<string, TagCount>();
+  for (const tag of await all<Tag>('tags')) {
+    const union = new Set<string>();
+    for (const id of await tagsWithDescendants([tag.id])) {
+      for (const linkId of linksByTag.get(id) ?? []) union.add(linkId);
+    }
+    out.set(tag.id, { direct: linksByTag.get(tag.id)?.size ?? 0, total: union.size });
+  }
+  return out;
 }
 
 /** Live-link count per topic id (for the topics index page). */

@@ -79,6 +79,18 @@ const MIGRATIONS: Migration[] = [
       }
     }
   },
+  // v8 — tag_parents: nest a tag under one or more parent tags. Guarded
+  // because fresh installs already get the store from the v1 STORES loop; the
+  // updated_at index is created here too, since the v7 loop above has already
+  // run for existing databases and will not revisit a store added later.
+  (db) => {
+    if (!db.objectStoreNames.contains('tag_parents')) {
+      const store = db.createObjectStore('tag_parents', { keyPath: 'id' });
+      store.createIndex('child_id', 'child_id', { multiEntry: false });
+      store.createIndex('parent_id', 'parent_id', { multiEntry: false });
+      store.createIndex('updated_at', 'updated_at', { multiEntry: false });
+    }
+  },
 ];
 
 /** Local-only stores that live in IndexedDB but never sync or appear in STORES. */

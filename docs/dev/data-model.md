@@ -43,6 +43,7 @@ erDiagram
     links ||--o{ excerpts : "many, ordered"
     links ||--o{ link_tags : ""
     tags  ||--o{ link_tags : ""
+    tags  ||--o{ tag_parents : "nested under (DAG)"
     links ||--o{ link_topics : ""
     topics ||--o{ link_topics : ""
     links ||--o{ resource_list_links : ""
@@ -120,7 +121,16 @@ Design decisions embedded here:
   entry's `outcome` rather than deleting it; a link's whole reading history
   is queryable (`weekHistoryForLink`).
 - **Joins are their own tables** (`link_tags`, `link_topics`,
-  `resource_list_links`) with soft-deleted rows, so label changes sync.
+  `resource_list_links`, `tag_parents`) with soft-deleted rows, so label
+  changes sync.
+- **Tags nest as a DAG, not a tree.** `tag_parents` holds one row per
+  (child, parent) edge, so a tag can sit under several parents; filtering a
+  parent returns its descendants' links, de-duplicated by link id. Acyclicity
+  cannot be enforced at write time across devices — two devices can each add a
+  legal edge that together form a cycle — so every traversal is cycle-tolerant
+  and `reconcileTagParents` repairs the graph by dropping the largest-id edge in
+  each cycle (device-independent, so devices converge). See
+  [experiments & plans/hierarchical-tags.md](experiments%20&%20plans/hierarchical-tags.md).
 - **Logical singletons keyed by UUID converge via reconcile.** Several rows
   are logically "one per natural key" — the settings row (a true singleton),
   a plan per `(period, starts_on)`, a note per link, a tag or topic per
@@ -228,6 +238,7 @@ and indexes append-only. Current version: **7**.
 | `tags`, `topics` | `updated_at` | one per `lower(name)`; `reconcileTags`/`reconcileTopics` collapse duplicates, re-point join rows + `focus_tag_ids` |
 | `resource_lists` | `updated_at` | |
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
+| `tag_parents` | `child_id`, `parent_id`, `updated_at` | one live row per (child, parent); `reconcileTagParents` drops self-edges, dead refs and cycles |
 | `notes`, `excerpts` | `link_id`, `updated_at` | note is one-per-link; `getNote` collapses duplicates on read |
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
 | `weeks` | `week_start`, `updated_at` | one *open* week per Monday; `reconcileOpenWeeks` collapses duplicates and re-points `week_links` |

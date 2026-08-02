@@ -54,6 +54,8 @@ type HookWindow = Window & {
     healNoteNow(linkId: string): Promise<SyncRow | null>;
     reconcileTagsNow(): Promise<void>;
     reconcileTopicsNow(): Promise<void>;
+    reconcileTagParentsNow(): Promise<void>;
+    setTagParentsNow(childId: string, parentIds: string[]): Promise<void>;
     ensureOpenWeekNow(): Promise<SyncRow>;
     autoCloseStaleWeeksNow(): Promise<unknown>;
     closeWeekNow(weekId: string): Promise<unknown>;
@@ -142,6 +144,14 @@ export function hook(target: Device | Page) {
       page.evaluate(() => (window as unknown as HookWindow).__readerr.reconcileTagsNow()),
     reconcileTopicsNow: () =>
       page.evaluate(() => (window as unknown as HookWindow).__readerr.reconcileTopicsNow()),
+    reconcileTagParentsNow: () =>
+      page.evaluate(() => (window as unknown as HookWindow).__readerr.reconcileTagParentsNow()),
+    setTagParentsNow: (childId: string, parentIds: string[]) =>
+      page.evaluate(
+        ([c, p]) =>
+          (window as unknown as HookWindow).__readerr.setTagParentsNow(c as string, p as string[]),
+        [childId, parentIds] as const
+      ),
     ensureOpenWeekNow: () =>
       page.evaluate(() => (window as unknown as HookWindow).__readerr.ensureOpenWeekNow()),
     autoCloseStaleWeeksNow: () =>

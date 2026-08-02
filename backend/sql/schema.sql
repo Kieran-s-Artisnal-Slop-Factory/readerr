@@ -96,6 +96,22 @@ CREATE TABLE link_tags (
 CREATE INDEX idx_link_tags_link ON link_tags (link_id);
 CREATE INDEX idx_link_tags_tag ON link_tags (tag_id);
 
+-- Tag nesting: one row per (child, parent) edge. Tags form a DAG, not a tree —
+-- a tag may sit under several parents — so this is a junction table, not a
+-- parent_id column. Acyclicity is NOT enforced here: two devices can each add
+-- an individually-legal edge that together form a cycle, so readers are
+-- cycle-tolerant and the client reconciles deterministically.
+CREATE TABLE tag_parents (
+    id         TEXT PRIMARY KEY,
+    child_id   TEXT NOT NULL REFERENCES tags (id),
+    parent_id  TEXT NOT NULL REFERENCES tags (id),
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_tag_parents_child ON tag_parents (child_id);
+CREATE INDEX idx_tag_parents_parent ON tag_parents (parent_id);
+
 -- An in-depth document covering a topic, referencing many links.
 CREATE TABLE topics (
     id         TEXT PRIMARY KEY,
@@ -202,6 +218,7 @@ CREATE INDEX idx_plans_seq ON plans (server_seq);
 CREATE INDEX idx_links_seq ON links (server_seq);
 CREATE INDEX idx_tags_seq ON tags (server_seq);
 CREATE INDEX idx_link_tags_seq ON link_tags (server_seq);
+CREATE INDEX idx_tag_parents_seq ON tag_parents (server_seq);
 CREATE INDEX idx_topics_seq ON topics (server_seq);
 CREATE INDEX idx_link_topics_seq ON link_topics (server_seq);
 CREATE INDEX idx_notes_seq ON notes (server_seq);

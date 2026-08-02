@@ -25,6 +25,7 @@ import {
 import { reconcilePlans } from './services/plans';
 import { getNote } from './services/notes';
 import { reconcileTags, reconcileTopics, toggleFavourite } from './services/links';
+import { reconcileTagParents, setTagParents } from './services/tagTree';
 import { captureLinks } from './services/capture';
 import { importData, exportData, wipeLocalData } from './db/export';
 import { archiveNow, unarchive, listArchived } from './services/archive';
@@ -99,6 +100,9 @@ export function installTestHook(): void {
     healNoteNow: (linkId: string) => withHeals(() => getNote(linkId)),
     reconcileTagsNow: () => withHeals(() => reconcileTags()),
     reconcileTopicsNow: () => withHeals(() => reconcileTopics()),
+    reconcileTagParentsNow: () => withHeals(() => reconcileTagParents()),
+    setTagParentsNow: (childId: string, parentIds: string[]) =>
+      withHeals(() => setTagParents(childId, parentIds)),
     // --- week lifecycle, invoked deliberately by tests ---
     ensureOpenWeekNow: () => withHeals(() => ensureOpenWeek()),
     autoCloseStaleWeeksNow: () => withHeals(() => autoCloseStaleWeeks()),

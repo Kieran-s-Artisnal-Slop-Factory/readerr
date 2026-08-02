@@ -277,3 +277,39 @@ the full suite stays green (12/12 sabotage).
 Steps 1–2 are independently shippable and reversible, which is the point: the
 risky part of this feature is not the UI, it is that a second synced graph table
 gives whole-row LWW a new way to disagree with itself.
+
+## 9. Build notes — what actually happened
+
+Phases 1–4 are **implemented**. The graph lives in
+[services/tagTree.ts](../../../frontend/src/lib/services/tagTree.ts); the read
+paths and counts are in
+[services/links.ts](../../../frontend/src/lib/services/links.ts); guards are
+`frontend/test/tagHierarchy.test.ts` (29 cases),
+`frontend/tests/sync/tag-hierarchy.spec.ts` (7 cross-device cases, including the
+two-device cycle) and three backend round-trip tests.
+
+Three things the plan did not anticipate:
+
+**`put`, not `putReconciled`, when re-pointing an edge.** The plan said to reuse
+the `reconcileTags` machinery, and the *fold* parts of it do preserve
+`updated_at` (§3.1 — stamping `now` on stale prose can clobber a newer edit).
+Re-pointing an edge onto a merge survivor is **not** that kind of write, and
+preserving `updated_at` broke it: the rewritten edge tied with its own older
+copy on the server, the server's `<=` rule kept the incumbent and returned it as
+a conflict, and the client adopted it straight back — silently undoing the
+re-point. `repointTagJoins` already used plain `put` for `link_tags` for exactly
+this reason. The rule: **preserve `updated_at` for content folds, stamp it for
+structural rewrites.** Only the cross-device test caught this; the unit test
+passed, because nothing round-tripped through a server.
+
+**Deleting a tag has to tombstone its edges in BOTH directions.** Deleting a
+parent otherwise leaves live edges pointing at a tombstoned tag on every device
+— the referential invariant, and a genuine dangling reference.
+
+**The coverage guards did their job.** Adding a store made
+`field-matrix.spec.ts`'s coverage guard fail until `tag_parents` had a real
+round-trip case, and the reporter's store list went 13 → 14. That is the harness
+working as designed: a new table cannot enter the sync set unnoticed.
+
+Still not built (deliberately): DSL support for nesting, and the local-only
+closure cache — no profiling has asked for it.

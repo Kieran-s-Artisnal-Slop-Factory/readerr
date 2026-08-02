@@ -57,6 +57,8 @@ var tableOrder = []string{
 	"plans",
 	"links",
 	"tags",
+	// After tags, so both endpoints of an edge land before the edge itself.
+	"tag_parents",
 	"link_tags",
 	"topics",
 	"link_topics",
@@ -99,6 +101,9 @@ var tables = map[string]tableMeta{
 	},
 	"link_tags": {
 		columns: cols("id", "link_id", "tag_id"),
+	},
+	"tag_parents": {
+		columns: cols("id", "child_id", "parent_id"),
 	},
 	"topics": {
 		columns:  cols("id", "name", "body_md"),

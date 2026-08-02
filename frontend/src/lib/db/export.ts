@@ -18,7 +18,7 @@
 import { getDB, DB_NAME, DB_VERSION, LOCAL_STORES } from './db';
 import { STORES } from './types';
 import { importKindOf } from '../importKind';
-import type { Excerpt, Link, LinkTag, LinkTopic, Note, SyncFields } from './types';
+import type { Excerpt, Link, LinkTag, LinkTopic, Note, SyncFields, TagParent } from './types';
 
 export type ExportScope = 'full' | 'curated' | 'range' | 'template';
 
@@ -52,6 +52,17 @@ async function live<T extends SyncFields>(store: string): Promise<T[]> {
   return ((await db.getAll(store)) as T[]).filter((r) => !r.deleted_at);
 }
 
+/**
+ * Nesting edges among a given set of tags. BOTH endpoints must be in the set:
+ * an edge pointing at a tag the export doesn't carry would import as a dangling
+ * reference, which the referential invariant (rightly) treats as corruption.
+ */
+async function tagEdgesWithin(tagIds: Set<string>): Promise<TagParent[]> {
+  return (await live<TagParent>('tag_parents')).filter(
+    (e) => tagIds.has(e.child_id) && tagIds.has(e.parent_id)
+  );
+}
+
 /** Everything attached to the given links, plus their tags/topics. */
 async function relatedData(links: Link[]): Promise<Record<string, unknown[]>> {
   const ids = new Set(links.map((l) => l.id));
@@ -66,6 +77,7 @@ async function relatedData(links: Link[]): Promise<Record<string, unknown[]>> {
     link_tags: linkTags,
     link_topics: linkTopics,
     tags: (await live<SyncFields & { id: string }>('tags')).filter((t) => tagIds.has(t.id)),
+    tag_parents: await tagEdgesWithin(tagIds),
     topics: (await live<SyncFields & { id: string }>('topics')).filter((t) => topicIds.has(t.id)),
   };
 }
@@ -81,7 +93,12 @@ export async function exportData(
   } else if (scope === 'template') {
     const opts = template ?? { tags: true, topics: true };
     data = {};
-    if (opts.tags) data.tags = await live('tags');
+    if (opts.tags) {
+      const tags = await live<SyncFields & { id: string }>('tags');
+      data.tags = tags;
+      // The nesting IS part of the vocabulary a tag template seeds.
+      data.tag_parents = await tagEdgesWithin(new Set(tags.map((t) => t.id)));
+    }
     if (opts.topics) data.topics = await live('topics');
   } else if (scope === 'curated') {
     const links = await live<Link>('links');

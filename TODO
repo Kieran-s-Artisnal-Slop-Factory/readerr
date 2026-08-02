@@ -1,10 +1,8 @@
-- [ ] Allow me to edit automation plans. Add this editing ability to both `plans > automation` and `plans > upcomming weeks`
-- [ ] When adding links as `done` from the reading list capturebox UI, they're coming into the reading week not being set as read. Make sure they're also marked as read on that week. Make sure this is the case when using the DSL or the ui button (the checkmark)
-- [ ] Create a plan for converting tags to a heirarchical system. It should allow me to nest a tag under a parent tag (or multiple parent tags)
-    - [ ] This should effect all filters as well
-        - [ ] and should show up in the tag overview
-        - [ ] Make sure for both to de-duplicate additions when they show up (e.g. a link is explicitly assigned a parent and child tag, it should show up once not twice for each clause)
-    - [ ] e.g. `astro` tag is put under `javascript` and `webdev`, so if a filter for `javascript` tags or `webdev` tags, should include the `astro` links, and they should show up in a second section called `from child tags` on the `webdev` and `javascript` tag overview pages
+1. Add improvements to stats page
+    1. Add a toggle to visually hide domains with only 1 link
+    2. Add a "variability" metric that is a weighted average of how many links come from outside your top 3 domains
+        1. For example if `youtube.com`, `medium.com`, and `twitter.com` are your top 3 domains, you have 1,200 links and those 3 domains account for 980 of them, then your variability score would be `((1200-900)/1200)*100`
+2. 
 
 Ensure for each change:
 

@@ -178,6 +178,53 @@ test('store:tags + store:link_tags — pair join round-trips with a live parent'
   assertInvariants((await hook(deviceB).rawDumpAll()) as Record<string, SyncRow[]>, 'tags');
 });
 
+test('store:tag_parents — a nesting edge round-trips with both tags live', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  const parentId = await seedParent(A, 'tags', {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    name: 'javascript',
+    notes_md: '',
+  });
+  const childId = await seedParent(A, 'tags', {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    name: 'astro',
+    notes_md: '',
+  });
+  const edge = {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    child_id: childId,
+    parent_id: parentId,
+  };
+  await A.repoPut('tag_parents', edge);
+  await propagate(deviceA, deviceB);
+  await expectFieldRoundTrip(backend, deviceB, {
+    store: 'tag_parents',
+    id: edge.id,
+    field: 'child_id',
+    value: childId,
+  });
+  await expectFieldRoundTrip(backend, deviceB, {
+    store: 'tag_parents',
+    id: edge.id,
+    field: 'parent_id',
+    value: parentId,
+  });
+  assertInvariants((await hook(deviceB).rawDumpAll()) as Record<string, SyncRow[]>, 'tag_parents');
+});
+
 test('store:topics + store:link_topics — body_md + footnote ref_number round-trip', async ({
   backend,
   deviceA,
@@ -329,12 +376,13 @@ test('tombstone delete hides the row on the other device', async ({ deviceA, dev
 });
 
 test('coverage guard: every synced store appears in the field matrix', async () => {
-  // A structural check that the matrix names all 13 stores (no silent hole).
+  // A structural check that the matrix names every store (no silent hole).
   const covered = new Set([
     'links',
     'user_settings',
     'plans',
     'tags',
+    'tag_parents',
     'link_tags',
     'topics',
     'link_topics',
