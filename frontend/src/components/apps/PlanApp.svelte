@@ -6,9 +6,19 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import ChipSelect from '../ChipSelect.svelte';
+  import PlanEditor from '../PlanEditor.svelte';
   import { all, put, withSyncFields } from '../../lib/db/repo';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
-  import { deletePlan, focusIdsOf, listPlans, periodEnd, periodStart, savePlan } from '../../lib/services/plans';
+  import {
+    deletePlan,
+    focusIdsOf,
+    listPlans,
+    periodEnd,
+    periodStart,
+    savePlan,
+    updatePlan,
+    type PlanFields,
+  } from '../../lib/services/plans';
   import { currentWeekStart } from '../../lib/services/weeks';
   import type { Plan, PlanPeriod, Tag } from '../../lib/db/types';
 
@@ -27,6 +37,10 @@
   let newQuota = $state('');
   let newFocusIds = $state<string[]>([]);
   let newNote = $state('');
+
+  // Which scheduled plan is open in the inline editor (null = none).
+  let editingId = $state<string | null>(null);
+  let saving = $state(false);
 
   async function createTag(name: string): Promise<string> {
     const tag = await put('tags', withSyncFields({ name, notes_md: '' }));
@@ -83,7 +97,40 @@
   async function removePlan(plan: Plan) {
     if (!confirm(`Delete the ${plan.period} plan starting ${plan.starts_on}?`)) return;
     await deletePlan(plan.id);
+    if (editingId === plan.id) editingId = null;
     await refresh();
+  }
+
+  /**
+   * Save an edited plan. Changing the period/date moves it, which replaces any
+   * plan already occupying the target period — savePlan's documented behaviour,
+   * but destructive enough to confirm first.
+   */
+  async function saveEdit(plan: Plan, fields: PlanFields, period: PlanPeriod, date: string) {
+    const startsOn = periodStart(period, date);
+    const moving = plan.period !== period || plan.starts_on !== startsOn;
+    if (moving) {
+      const occupant = plans.find(
+        (p) => p.id !== plan.id && p.period === period && p.starts_on === startsOn
+      );
+      if (
+        occupant &&
+        !confirm(
+          `A ${period} plan already exists for ${startsOn}. Moving this plan over it will replace its quota, focus tags and note. Continue?`
+        )
+      ) {
+        return;
+      }
+    }
+    saving = true;
+    try {
+      await updatePlan(plan, period, date, fields);
+      message = moving ? 'Plan moved.' : 'Plan updated.';
+      editingId = null;
+      await refresh();
+    } finally {
+      saving = false;
+    }
   }
 
   function planState(plan: Plan): 'past' | 'current' | 'upcoming' {
@@ -147,7 +194,7 @@
         compilers, 3 articles". A weekly plan beats a monthly plan beats the
         defaults, field by field. Saving over the same period replaces it.
       </p>
-      <form class="plan-form" onsubmit={addPlan}>
+      <form class="plan-form" aria-label="New plan" onsubmit={addPlan}>
         <div class="row2">
           <div>
             <label for="plan-period">Period</label>
@@ -193,27 +240,62 @@
       {:else}
         <ul class="plan-list">
           {#each plans as plan (plan.id)}
-            <li class:past={planState(plan) === 'past'}>
-              <div class="plan-main">
-                <span class="plan-period">
-                  {formatPeriod(plan)}
-                  {#if planState(plan) === 'current'}
-                    <span class="badge">active</span>
-                  {:else if planState(plan) === 'upcoming'}
-                    <span class="badge upcoming">upcoming</span>
-                  {/if}
-                </span>
-                <span class="plan-detail">
-                  {plan.articles_per_week != null ? `${plan.articles_per_week}/week` : 'quota inherited'}
-                  · focus: {focusIdsOf(plan).length > 0
-                    ? focusIdsOf(plan).map(tagName).join(' + ')
-                    : 'inherited'}
-                  {#if plan.note}
-                    · {plan.note}
-                  {/if}
-                </span>
+            <li class:past={planState(plan) === 'past'} class:editing={editingId === plan.id}>
+              <div class="plan-row">
+                <div class="plan-main">
+                  <span class="plan-period">
+                    {formatPeriod(plan)}
+                    {#if planState(plan) === 'current'}
+                      <span class="badge">active</span>
+                    {:else if planState(plan) === 'upcoming'}
+                      <span class="badge upcoming">upcoming</span>
+                    {/if}
+                  </span>
+                  <span class="plan-detail">
+                    {plan.articles_per_week != null ? `${plan.articles_per_week}/week` : 'quota inherited'}
+                    · focus: {focusIdsOf(plan).length > 0
+                      ? focusIdsOf(plan).map(tagName).join(' + ')
+                      : 'inherited'}
+                    {#if plan.note}
+                      · {plan.note}
+                    {/if}
+                  </span>
+                </div>
+                <div class="plan-actions">
+                  <button
+                    class="btn"
+                    aria-expanded={editingId === plan.id}
+                    onclick={() => (editingId = editingId === plan.id ? null : plan.id)}
+                  >
+                    {editingId === plan.id ? 'Close' : 'Edit'}
+                  </button>
+                  <button class="btn btn-danger" onclick={() => removePlan(plan)}>Delete</button>
+                </div>
               </div>
-              <button class="btn btn-danger" onclick={() => removePlan(plan)}>Delete</button>
+              {#if editingId === plan.id}
+                <!-- keyed on the id so switching rows re-seeds the draft -->
+                {#key plan.id}
+                  <div class="plan-edit">
+                    <PlanEditor
+                      {tags}
+                      initial={{
+                        articles_per_week: plan.articles_per_week ?? null,
+                        focus_tag_ids: focusIdsOf(plan),
+                        note: plan.note ?? '',
+                      }}
+                      initialPeriod={plan.period}
+                      initialDate={plan.starts_on}
+                      showPeriod={true}
+                      saveLabel="Save changes"
+                      ariaLabel="Edit plan"
+                      busy={saving}
+                      onSave={(fields, period, date) => saveEdit(plan, fields, period, date)}
+                      onCancel={() => (editingId = null)}
+                      onCreateTag={createTag}
+                    />
+                  </div>
+                {/key}
+              {/if}
             </li>
           {/each}
         </ul>
@@ -289,12 +371,32 @@
   }
 
   .plan-list li {
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .plan-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    padding: var(--space-2) 0;
-    border-bottom: 1px solid var(--border-color);
+  }
+
+  .plan-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-shrink: 0;
+  }
+
+  .plan-edit {
+    padding: var(--space-3) 0 var(--space-2);
+  }
+
+  .plan-list li.editing {
+    background: var(--color-primary-soft);
+    border-radius: var(--radius-md);
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
   }
 
   .plan-list li:last-child {

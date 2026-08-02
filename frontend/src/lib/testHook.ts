@@ -81,7 +81,10 @@ export function installTestHook(): void {
     // --- explicit sync (returns the SyncResult; never fire-and-forget) ---
     syncNow,
     // --- real capture pipeline (Tier-1-adjacent service path) ---
-    captureNow: (text: string) => withHeals(() => captureLinks(text)),
+    // assign mirrors the capture box's UI controls (✓ done, week picker, …) so
+    // the harness can drive that path as well as the per-line !done DSL.
+    captureNow: (text: string, assign?: Parameters<typeof captureLinks>[1]) =>
+      withHeals(() => captureLinks(text, assign)),
     // --- yearly archival (local-only cold store) ---
     archiveNow: (months: number) => archiveNow(months),
     unarchiveNow: (link: Link) => unarchive(link),

@@ -8,9 +8,19 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
-  import { get } from '../../lib/db/repo';
+  import PlanEditor from '../PlanEditor.svelte';
+  import { all, get, put, withSyncFields } from '../../lib/db/repo';
   import { tagsForLinks } from '../../lib/services/links';
-  import { effectiveTriage, governingPlan, type EffectiveTriage } from '../../lib/services/plans';
+  import {
+    deletePlan,
+    effectiveTriage,
+    focusIdsOf,
+    governingPlan,
+    savePlan,
+    weekPlan,
+    type EffectiveTriage,
+    type PlanFields,
+  } from '../../lib/services/plans';
   import {
     currentWeekStart,
     findWeek,
@@ -18,7 +28,7 @@
     weekStartPlus,
     type WeekEntry,
   } from '../../lib/services/weeks';
-  import type { Link, Tag } from '../../lib/db/types';
+  import type { Link, Plan, Tag } from '../../lib/db/types';
 
   const WEEKS_SHOWN = 8;
 
@@ -41,6 +51,16 @@
   let focusFocusTags = $state<string[]>([]);
   let entries = $state<WeekEntry[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
+
+  // Editing the focused week's plan. The panel is week-granular, so it always
+  // edits the WEEKLY plan for that week — never the monthly plan that may be
+  // governing it, which would silently retune every other week in the month.
+  // With no weekly plan yet, the form is seeded from the values currently in
+  // effect and saving creates an override for this week alone.
+  let allTags = $state<Tag[]>([]);
+  let ownPlan = $state<Plan | null>(null);
+  let editing = $state(false);
+  let saving = $state(false);
 
   const stripWeeks = $derived(
     Array.from({ length: WEEKS_SHOWN }, (_, i) => weekStartPlus(stripStart, i))
@@ -85,25 +105,56 @@
     const plan = await governingPlan(focusWeek);
     focusNote = plan?.note ?? '';
     focusFocusTags = await tagNames(focusTriage.focusTagIds);
+    ownPlan = await weekPlan(focusWeek);
     const week = await findWeek(focusWeek);
     const rows = week ? await weekEntries(week.id) : [];
     entries = rows;
     tagsByLink = await tagsForLinks(rows.map((e) => e.link));
   }
 
+  async function createTag(name: string): Promise<string> {
+    const tag = await put('tags', withSyncFields({ name, notes_md: '' }));
+    allTags = [...allTags, tag].sort((a, b) => a.name.localeCompare(b.name));
+    return tag.id;
+  }
+
+  async function saveWeekPlan(fields: PlanFields) {
+    saving = true;
+    try {
+      await savePlan('week', focusWeek, fields);
+      editing = false;
+      await Promise.all([loadFocus(), buildCards()]);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function clearWeekPlan() {
+    if (!ownPlan) return;
+    if (!confirm(`Remove this week's plan? It will fall back to the monthly plan or your defaults.`)) {
+      return;
+    }
+    await deletePlan(ownPlan.id);
+    editing = false;
+    await Promise.all([loadFocus(), buildCards()]);
+  }
+
   onMount(async () => {
     focusWeek = weekStartPlus(currentWeekStart(), 1); // default to next week
+    allTags = (await all<Tag>('tags')).sort((a, b) => a.name.localeCompare(b.name));
     await Promise.all([buildCards(), loadFocus()]);
     loading = false;
   });
 
   async function selectWeek(weekStart: string) {
     focusWeek = weekStart;
+    editing = false; // a different week means a different plan
     await loadFocus();
   }
 
   async function shiftFocus(dir: -1 | 1) {
     focusWeek = weekStartPlus(focusWeek, dir);
+    editing = false; // a different week means a different plan
     // Keep the focused week inside the visible strip.
     if (focusWeek < stripStart) {
       stripStart = focusWeek;
@@ -186,6 +237,50 @@
       {#if focusNote}
         <p class="focus-note">{focusNote}</p>
       {/if}
+
+      <div class="plan-bar">
+        <span class="muted plan-origin">
+          {#if ownPlan}
+            This week has its own plan.
+          {:else if focusTriage && (focusTriage.quotaSource === 'month' || focusTriage.focusSource === 'month')}
+            Following the monthly plan — saving here overrides this week only.
+          {:else}
+            Following your defaults — saving here overrides this week only.
+          {/if}
+        </span>
+        <div class="plan-actions">
+          {#if ownPlan}
+            <button class="btn btn-danger" onclick={clearWeekPlan}>Clear week plan</button>
+          {/if}
+          <button class="btn" aria-expanded={editing} onclick={() => (editing = !editing)}>
+            {editing ? 'Close' : ownPlan ? 'Edit plan' : 'Plan this week'}
+          </button>
+        </div>
+      </div>
+      {#if editing}
+        <!-- keyed on the week so switching weeks re-seeds the draft -->
+        {#key focusWeek}
+          <div class="plan-edit">
+            <PlanEditor
+              tags={allTags}
+              initial={{
+                articles_per_week: ownPlan
+                  ? (ownPlan.articles_per_week ?? null)
+                  : (focusTriage?.quota ?? null),
+                focus_tag_ids: ownPlan ? focusIdsOf(ownPlan) : (focusTriage?.focusTagIds ?? []),
+                note: ownPlan?.note ?? '',
+              }}
+              saveLabel={ownPlan ? 'Save changes' : 'Create week plan'}
+              ariaLabel="Week plan"
+              busy={saving}
+              onSave={(fields) => saveWeekPlan(fields)}
+              onCancel={() => (editing = false)}
+              onCreateTag={createTag}
+            />
+          </div>
+        {/key}
+      {/if}
+
       <h3 class="section-h">Scheduled reading ({entries.length})</h3>
       <LinkList
         links={entries.map((e) => e.link)}
@@ -302,6 +397,32 @@
     padding: var(--space-2) var(--space-3);
     margin: 0 0 var(--space-3);
     white-space: pre-wrap;
+  }
+
+  .plan-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
+    margin-top: var(--space-3);
+  }
+
+  .plan-origin {
+    font-size: var(--font-size-sm);
+    min-width: 0;
+  }
+
+  .plan-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-shrink: 0;
+  }
+
+  .plan-edit {
+    padding: var(--space-3) 0;
   }
 
   .section-h {

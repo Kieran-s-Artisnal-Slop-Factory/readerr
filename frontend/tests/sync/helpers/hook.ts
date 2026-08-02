@@ -42,7 +42,7 @@ type HookWindow = Window & {
     setMeta(key: string, value: unknown): Promise<void>;
     deleteMeta(key: string): Promise<void>;
     syncNow(): Promise<SyncResult>;
-    captureNow(text: string): Promise<{ added: unknown[] }>;
+    captureNow(text: string, assign?: Record<string, unknown>): Promise<{ added: SyncRow[] }>;
     archiveNow(months: number): Promise<number>;
     unarchiveNow(link: unknown): Promise<void>;
     listArchivedNow(): Promise<SyncRow[]>;
@@ -108,8 +108,15 @@ export function hook(target: Device | Page) {
     deleteMeta: (key: string) =>
       page.evaluate((k) => (window as unknown as HookWindow).__readerr.deleteMeta(k), key),
     syncNow: () => page.evaluate(() => (window as unknown as HookWindow).__readerr.syncNow()),
-    captureNow: (text: string) =>
-      page.evaluate((t) => (window as unknown as HookWindow).__readerr.captureNow(t), text),
+    captureNow: (text: string, assign?: Record<string, unknown>) =>
+      page.evaluate(
+        ([t, a]) =>
+          (window as unknown as HookWindow).__readerr.captureNow(
+            t as string,
+            a as Record<string, unknown> | undefined
+          ),
+        [text, assign] as const
+      ),
     archiveNow: (months: number) =>
       page.evaluate((m) => (window as unknown as HookWindow).__readerr.archiveNow(m), months),
     unarchiveNow: (link: unknown) =>

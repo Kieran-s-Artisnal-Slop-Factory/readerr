@@ -5,7 +5,15 @@
  * A plan "kicks in" simply by existing for the period the week page is
  * looking at — nothing runs in the background.
  */
-import { all, put, putReconciled, softDelete, softDeleteMany, withSyncFields } from '../db/repo';
+import {
+  all,
+  patch,
+  put,
+  putReconciled,
+  softDelete,
+  softDeleteMany,
+  withSyncFields,
+} from '../db/repo';
 import { healsAllowed } from '../testMode';
 import type { Plan, PlanPeriod } from '../db/types';
 import { getUserSettings } from './settings';
@@ -110,10 +118,17 @@ export function focusIdsOf(row: { focus_tag_ids?: string[]; focus_tag_id?: strin
   return row.focus_tag_id ? [row.focus_tag_id] : [];
 }
 
+/** The editable fields of a plan (everything but its period/date identity). */
+export interface PlanFields {
+  articles_per_week: number | null;
+  focus_tag_ids: string[];
+  note: string;
+}
+
 export async function savePlan(
   period: PlanPeriod,
   date: string,
-  fields: { articles_per_week: number | null; focus_tag_ids: string[]; note: string }
+  fields: PlanFields
 ): Promise<Plan> {
   const starts_on = periodStart(period, date);
   const existing = (await listPlans()).find(
@@ -125,6 +140,41 @@ export async function savePlan(
 
 export async function deletePlan(id: string): Promise<void> {
   await softDelete('plans', id);
+}
+
+/** The plan for exactly this week — NOT the monthly plan that may govern it. */
+export async function weekPlan(weekStart: string): Promise<Plan | null> {
+  return (await listPlans()).find((p) => p.period === 'week' && p.starts_on === weekStart) ?? null;
+}
+
+/**
+ * Edit an existing plan.
+ *
+ * Changing the period or the date MOVES the plan, because a plan's identity is
+ * (period, starts_on) — see reconcilePlans. The values are written to the plan
+ * for the new period (replacing one already sitting there, exactly as savePlan
+ * does) and the old row is tombstoned, so a move never leaves two rows behind.
+ *
+ * An in-place edit goes through patch(), which re-reads the row: the caller's
+ * `plan` is a form snapshot and a pull may have landed a newer copy while the
+ * editor was open. If that pull was a DELETE from another device, the edit is
+ * honoured by creating the plan afresh for that period rather than resurrecting
+ * a tombstoned id.
+ */
+export async function updatePlan(
+  plan: Plan,
+  period: PlanPeriod,
+  date: string,
+  fields: PlanFields
+): Promise<Plan> {
+  const starts_on = periodStart(period, date);
+  if (plan.period === period && plan.starts_on === starts_on) {
+    const updated = await patch<Plan>('plans', plan.id, () => fields);
+    if (updated) return updated;
+  }
+  const saved = await savePlan(period, date, fields);
+  if (saved.id !== plan.id) await deletePlan(plan.id);
+  return saved;
 }
 
 /**

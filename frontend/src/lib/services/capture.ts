@@ -23,7 +23,14 @@ import {
   topicsForLink,
 } from './links';
 import { getUserSettings } from './settings';
-import { currentWeekStart, reviewLink, setLinkWeek, weekHistoryForLink, weekStartPlus } from './weeks';
+import {
+  currentWeekStart,
+  pendingWeeksForLink,
+  reviewLink,
+  setLinkWeek,
+  weekHistoryForLink,
+  weekStartPlus,
+} from './weeks';
 import { getSyncMode, getSyncUrl } from '../sync';
 import { isTestMode } from '../testMode';
 
@@ -41,6 +48,7 @@ const TRACKING_PARAMS = [
   /^si$/i,
   /^source$/i,
   /^cmpid$/i,
+  /^via$/i,
 ];
 
 /** Does the URL's host match a whitelist entry (exact or subdomain)? */
@@ -218,6 +226,28 @@ async function mergeIntoExisting(link: Link, assign?: CaptureAssign): Promise<Li
     }
   }
 
+  // Marking done comes LAST, mirroring the fresh-capture path: markLinkDone's
+  // slush check must see the labels assigned above, and its week handling must
+  // see the week assigned above.
+  //
+  // Re-capturing an already-saved URL with ✓ (or !done) used to ignore the flag
+  // entirely — the link joined the chosen week and sat there unread, which is
+  // the "comes into the reading week not marked read" bug.
+  //
+  // Only act when there is something to do: an unread link, or one sitting
+  // un-ticked in an open week (the case above). A link already read with
+  // nothing pending is left alone rather than being re-filed into the current
+  // week — that would rewrite reading history and churn the row for a sync push.
+  if (assign.markDone) {
+    const pending = await pendingWeeksForLink(link.id);
+    if (!link.read_at || pending.some(({ entry }) => !entry.done_at)) {
+      // slush=false: done from capture never slushes immediately (week-close
+      // still can), same as the fresh path.
+      link = await markLinkDone(link, false);
+      changed = true;
+    }
+  }
+
   return changed ? link : null;
 }
 
@@ -332,11 +362,18 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
     // Done from capture doesn't slush immediately (week-close still can).
     if (eff.markDone) await markLinkDone(link, false);
   }
+  // The loop above rewrote these rows (markLinkDone sets read_at, a topic
+  // assignment can clear slushed_at), so the bulkPut snapshots are stale.
+  // Callers RENDER these rows — the capture box lists them under "Just Added" —
+  // so returning the snapshots showed a link captured with ✓ as still unread.
+  const stored = await Promise.all(
+    added.map(async (l) => (await get<Link>('links', l.id)) ?? l)
+  );
   // Only chase titles when auto-title is on (default true); otherwise bare
   // links keep their URL as the title.
   const autoTitle = assign?.autoTitle ?? settings?.auto_title ?? true;
-  if (autoTitle) void fetchTitles(added.filter((l) => !l.title_fetched));
-  return { added, duplicates, merged, invalid, badOptions };
+  if (autoTitle) void fetchTitles(stored.filter((l) => !l.title_fetched));
+  return { added: stored, duplicates, merged, invalid, badOptions };
 }
 
 const TITLE_ATTEMPTS = 3;
