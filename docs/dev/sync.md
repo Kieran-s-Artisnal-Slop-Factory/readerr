@@ -244,6 +244,36 @@ Client-side, in the local-only `sync_meta` store:
 | `lastPushAt` | max `updated_at` ever successfully pushed; the dirty-scan floor |
 | `lastPullSeq` | `server_seq` high-water mark pulled so far |
 | `lastSyncAt` / `lastError` | status for the Settings page |
+| `pendingRepush` | `store:id` refs whose preserved `updated_at` sits below the watermark (fold survivors) — re-sent explicitly |
+| `pendingArchivedPush` | ids of archived links the server has never seen (see below) |
+| `archivedPushBackfillDone` | the one-time sweep for links stranded before that queue existed has run |
+
+### Archived links and the push
+
+Archival **hard-deletes** a link out of `links` into the local-only
+`archived_links` store, and the dirty scan only walks the synced stores. So a
+link archived *before its first successful push* had no route to the server at
+all: it lived on one device until `resetLocalSyncState()` happened to move it
+back. Reachable by a device offline past the archive window, and trivially by
+seeding a library with archival enabled.
+
+`archiveNow` therefore queues the ids it moves that carry no `server_seq`, and
+the push drains that queue from the cold store, sending them as ordinary
+`links` rows inside that store's group (so the parents-before-children chunk
+ordering still holds). Three consequences worth knowing:
+
+- the accepted `server_seq` is written back to the **archived** copy — without
+  that the row still reads as never-pushed and re-sends forever;
+- a cold row rejected under LWW is adopted into the **archived** copy, never
+  re-inserted into the hot store — the same rule the pull already applied, and
+  only reachable now that cold links are pushed at all;
+- a queue is used rather than scanning `archived_links` for `server_seq == null`
+  each sync, because the cold store is precisely where a large library goes to
+  stop being read. The one-time `archivedPushBackfillDone` sweep covers rows
+  stranded by older builds.
+
+Guards: three cases in `tests/sync/archive.spec.ts`, plus the queue unit tests
+in `test/archive.test.ts`.
 
 Server-side, one row: `sync_state.last_seq`, the global counter. Rows also
 carry their assigned `server_seq`, which is *server-specific* — hence the

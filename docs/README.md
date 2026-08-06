@@ -12,6 +12,7 @@ and **how to run your own sync server**.
 - [Getting started](user/getting-started.md)
 - [Capturing links](user/capturing-links.md)
 - [Organizing & reading](user/organizing-and-reading.md)
+- [Tagging](user/tagging.md) — tags, and nesting them under parent tags
 - [Sync & backups](user/sync-and-backups.md) — includes deploying a backend
 - [Common gotchas](user/gotchas.md)
 
@@ -22,8 +23,11 @@ protocol, the capture DSL internals, offline support, and deployment/CI.
 
 - [Architecture](dev/architecture.md) — start here; has a "where to look when…" table
 - [Data model](dev/data-model.md)
+- [Tagging](dev/tagging.md) — tag storage, the nesting DAG, and its reconcilers
 - [Sync protocol](dev/sync.md)
 - [Link DSL](dev/link-dsl.md)
 - [Offline support](dev/offline-support.md)
+- [Seeding](dev/seeding.md) — demo/stress datasets and what the controls guarantee
+- [Performance at scale](dev/performance.md) — measured page costs on a 77k-link library
 - [Deployment & CI](dev/deployment.md)
 - Design notes & task lists: [`dev/experiments & plans/`](dev/experiments%20%26%20plans/)

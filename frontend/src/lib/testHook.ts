@@ -28,6 +28,7 @@ import { reconcileTags, reconcileTopics, toggleFavourite } from './services/link
 import { reconcileTagParents, setTagParents } from './services/tagTree';
 import { captureLinks } from './services/capture';
 import { importData, exportData, wipeLocalData } from './db/export';
+import { seedDataset, type SeedOptions } from './db/seed';
 import { archiveNow, unarchive, listArchived } from './services/archive';
 import { resetLocalSyncState } from './sync';
 import type { Link, Week, WeekLink } from './db/types';
@@ -86,6 +87,10 @@ export function installTestHook(): void {
     // the harness can drive that path as well as the per-line !done DSL.
     captureNow: (text: string, assign?: Parameters<typeof captureLinks>[1]) =>
       withHeals(() => captureLinks(text, assign)),
+    // --- the stress-test seeder, so a spec can prove a generated dataset
+    // survives a real round-trip (heals enabled: it writes settings when the
+    // archival option is on) ---
+    seedNow: (options: SeedOptions) => withHeals(() => seedDataset(options)),
     // --- yearly archival (local-only cold store) ---
     archiveNow: (months: number) => archiveNow(months),
     unarchiveNow: (link: Link) => unarchive(link),

@@ -82,3 +82,60 @@ describe('archive', () => {
     expect(await db.get('sync_meta', 'lastPullSeq')).toBeUndefined();
   });
 });
+
+/**
+ * A link archived before its first successful push leaves `links` — the only
+ * store the push scans — so without a record of it, it lives on this device
+ * alone forever. archiveNow queues those ids; the push drains the queue from
+ * the cold store.
+ */
+describe('never-pushed archived links', () => {
+  const queued = async (): Promise<string[]> =>
+    (((await (await getDB()).get('sync_meta', 'pendingArchivedPush')) as
+      | { value: string[] }
+      | undefined)?.value ?? []);
+
+  it('queues a link the server has never seen', async () => {
+    const db = await getDB();
+    await db.put('links', link('never-pushed', { server_seq: null }));
+    expect(await archiveNow(1)).toBe(1);
+    expect(await queued()).toEqual(['never-pushed']);
+  });
+
+  it('does not queue a link the server already has', async () => {
+    const db = await getDB();
+    await db.put('links', link('already-there', { server_seq: 12 }));
+    expect(await archiveNow(1)).toBe(1);
+    expect(await queued()).toEqual([]);
+  });
+
+  it('queues only the stranded ids from a mixed batch, without duplicating', async () => {
+    const db = await getDB();
+    await db.put('links', link('cold-known', { server_seq: 3 }));
+    await db.put('links', link('cold-new', { server_seq: null }));
+    await archiveNow(1);
+    // A second run over the same data must not re-add the id.
+    await db.put('links', link('cold-new-2', { server_seq: null }));
+    await archiveNow(1);
+    expect((await queued()).sort()).toEqual(['cold-new', 'cold-new-2']);
+  });
+
+  it('leaves the queue alone when nothing is archivable', async () => {
+    const db = await getDB();
+    await db.put('links', link('recent', { slushed_at: new Date().toISOString() }));
+    expect(await archiveNow(1)).toBe(0);
+    expect(await queued()).toEqual([]);
+  });
+
+  it('resetLocalSyncState drops the queue — the rows are hot again', async () => {
+    const db = await getDB();
+    await db.put('links', link('cold-new', { server_seq: null }));
+    await archiveNow(1);
+    expect(await queued()).toHaveLength(1);
+
+    await resetLocalSyncState();
+
+    expect(await db.get('links', 'cold-new'), 'moved back into the hot store').toBeTruthy();
+    expect(await queued(), 'queue cleared — the normal scan covers it now').toEqual([]);
+  });
+});

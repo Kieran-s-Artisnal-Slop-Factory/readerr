@@ -183,6 +183,62 @@ export async function resetLocalSyncState(): Promise<void> {
   }
   await db.delete('sync_meta', 'lastPushAt');
   await db.delete('sync_meta', 'lastPullSeq');
+  // Every cold row is back in `links` and will re-push with the rest, so the
+  // never-pushed-archived queue below has nothing left to point at.
+  await db.delete('sync_meta', PENDING_ARCHIVED_KEY);
+}
+
+// ---------------------------------------------------------------------------
+// Never-pushed archived links
+// ---------------------------------------------------------------------------
+
+/**
+ * Archiving HARD-deletes a link out of `links` into the local-only
+ * `archived_links` store, and the push scan below only walks the synced
+ * stores — so a link archived before its first successful push has no route
+ * to the server at all, and stays on one device until resetLocalSyncState
+ * happens to move it back. Reachable whenever a device is offline past the
+ * archive window, and trivially reachable by seeding a library with archival
+ * enabled.
+ *
+ * The fix is this queue: archiveNow records the ids it moves that the server
+ * has never seen, and the push sends them from the cold store. Keeping a list
+ * (rather than scanning `archived_links` each sync for server_seq === null)
+ * is the whole point — the cold store is where a huge library goes to stop
+ * being read, and re-reading it every sync would undo that.
+ */
+const PENDING_ARCHIVED_KEY = 'pendingArchivedPush';
+const ARCHIVED_BACKFILL_KEY = 'archivedPushBackfillDone';
+
+/** Queue archived links that have never reached the server. */
+export async function notePendingArchivedPush(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const queued = new Set((await getMeta<string[]>(PENDING_ARCHIVED_KEY)) ?? []);
+  for (const id of ids) queued.add(id);
+  await setMeta(PENDING_ARCHIVED_KEY, [...queued]);
+}
+
+/**
+ * The queue, after a ONE-TIME sweep for links stranded before this existed —
+ * a device that archived while offline already has cold rows nobody recorded.
+ * The flag makes it a single scan in the lifetime of the database.
+ */
+async function archivedAwaitingPush(): Promise<string[]> {
+  const db = await getDB();
+  if (!(await getMeta<boolean>(ARCHIVED_BACKFILL_KEY))) {
+    const stranded: string[] = [];
+    if ((await db.count('archived_links')) > 0) {
+      let cursor = await db.transaction('archived_links').store.openCursor();
+      while (cursor) {
+        const row = cursor.value as SyncFields;
+        if (row.server_seq == null) stranded.push(row.id);
+        cursor = await cursor.continue();
+      }
+    }
+    await notePendingArchivedPush(stranded);
+    await setMeta(ARCHIVED_BACKFILL_KEY, true);
+  }
+  return (await getMeta<string[]>(PENDING_ARCHIVED_KEY)) ?? [];
 }
 
 /** Any real local content? (The settings row alone doesn't count.) */
@@ -289,6 +345,16 @@ export async function syncNow(): Promise<SyncResult> {
       );
     }
 
+    // Links archived before they ever reached the server: absent from `links`,
+    // so nothing below would find them. Sent as `links` rows from the cold
+    // store — see archivedAwaitingPush.
+    const archivedPending = await archivedAwaitingPush();
+    // Whether this device has a cold store at all. Checked once per sync and
+    // reused by the push write-back, the conflict adoption, and the pull
+    // routing below, so the common no-archive path pays one count() and never
+    // a per-row lookup.
+    const hasArchive = (await db.count('archived_links')) > 0;
+
     const dirty: { store: string; row: SyncFields }[] = [];
     let maxPushedUpdatedAt = lastPushAt;
     // STORES order puts parents before children, and chunk boundaries keep
@@ -309,6 +375,22 @@ export async function syncNow(): Promise<SyncResult> {
           if (seen.has(id)) continue;
           const row = (await db.get(store, id)) as SyncFields | undefined;
           if (row) dirty.push({ store, row });
+        }
+      }
+      // Queued cold links join their own store's group, so they keep the
+      // parents-before-children ordering the chunking relies on. Like the
+      // fold-reset rows they must not advance the watermark — an archived
+      // link's updated_at is old by definition, and a failed push has to be
+      // able to find them again. An id whose row is gone (unarchived since)
+      // is simply skipped; the queue is cleared either way.
+      if (store === 'links') {
+        for (const id of archivedPending) {
+          if (seen.has(id)) continue;
+          const row = (await db.get('archived_links', id)) as SyncFields | undefined;
+          if (row) {
+            dirty.push({ store, row });
+            seen.add(id);
+          }
         }
       }
     }
@@ -349,6 +431,14 @@ export async function syncNow(): Promise<SyncResult> {
         if (row) {
           row.server_seq = acc.server_seq;
           await db.put(acc.table, row);
+        } else if (hasArchive && acc.table === 'links') {
+          // A cold link we just pushed: stamp the seq on the archived copy, or
+          // it stays "never pushed" and the queue re-sends it forever.
+          const cold = (await db.get('archived_links', acc.id)) as SyncFields | undefined;
+          if (cold) {
+            cold.server_seq = acc.server_seq;
+            await db.put('archived_links', cold);
+          }
         }
       }
       accepted += pushJson.accepted.length;
@@ -363,6 +453,17 @@ export async function syncNow(): Promise<SyncResult> {
       for (const [store, rows2] of Object.entries(pushJson.conflicts ?? {})) {
         if (!(store in STORES)) continue;
         for (const row of rows2) {
+          // Same rule the pull uses: a link this device has archived must be
+          // adopted into the cold copy, never re-inserted into the hot store.
+          // Only reachable now that cold links are pushed at all — before, the
+          // server could not hand one back as a conflict.
+          if (hasArchive && store === 'links') {
+            const cold = (await db.get('archived_links', row.id)) as SyncFields | undefined;
+            if (cold) {
+              if (row.updated_at >= cold.updated_at) await db.put('archived_links', row);
+              continue;
+            }
+          }
           const local = (await db.get(store, row.id)) as SyncFields | undefined;
           if (!local || row.updated_at >= local.updated_at) {
             await db.put(store, row);
@@ -380,6 +481,15 @@ export async function syncNow(): Promise<SyncResult> {
       const current = (await getMeta<string[]>('pendingRepush')) ?? [];
       const handled = new Set(pendingRefs);
       await setMeta('pendingRepush', current.filter((r) => !handled.has(r)));
+    }
+    // Same for the cold links: every queued id was either accepted (seq
+    // stamped on the archived copy above), LWW-rejected because the server
+    // already holds it, or gone from the cold store entirely. All three mean
+    // resolved. Ids queued by a concurrent archive run survive.
+    if (archivedPending.length) {
+      const current = (await getMeta<string[]>(PENDING_ARCHIVED_KEY)) ?? [];
+      const handled = new Set(archivedPending);
+      await setMeta(PENDING_ARCHIVED_KEY, current.filter((id) => !handled.has(id)));
     }
 
     // ---- pull, one bounded page at a time; the cursor advances per page so
@@ -404,9 +514,8 @@ export async function syncNow(): Promise<SyncResult> {
       // edits for those ids must be routed to the cold copy — otherwise a full
       // re-pull or a remote edit resurrects the row into the hot store as a
       // duplicate, and a later unarchive of a stale cold copy clobbers the
-      // newer server row. Checking the count once keeps the common (no-archive)
-      // path free of a per-row lookup.
-      const hasArchive = (await db.count('archived_links')) > 0;
+      // newer server row. (hasArchive is the once-per-sync check above; a push
+      // never creates cold rows, so it cannot have gone stale.)
       let received = 0;
       for (const [store, incoming] of Object.entries(pullJson.rows ?? {})) {
         if (!(store in STORES)) continue;

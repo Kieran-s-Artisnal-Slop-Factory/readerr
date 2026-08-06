@@ -7,7 +7,8 @@ titles cross-origin). You can delete the server and lose nothing but sync.
 
 This document is the map: how the pieces fit, and where to find everything.
 Companion docs: [data-model.md](data-model.md), [sync.md](sync.md),
-[link-dsl.md](link-dsl.md), [offline-support.md](offline-support.md).
+[link-dsl.md](link-dsl.md), [tagging.md](tagging.md),
+[offline-support.md](offline-support.md).
 
 ## The big picture
 
@@ -246,7 +247,8 @@ SSRF comments in the source):
 - **Build:** `npm run build` produces a static site the Go server (or any
   static host) serves; `docker compose up` builds the single image.
 - **Demo data:** Settings → Danger zone can seed a configurable multi-year
-  dataset ([seed.ts](../../frontend/src/lib/db/seed.ts)) for scale testing.
+  dataset ([seed.ts](../../frontend/src/lib/db/seed.ts)) for scale testing —
+  see [seeding.md](seeding.md) for the control set and the guarantees it makes.
 
 ## Where to look when…
 
@@ -255,8 +257,11 @@ SSRF comments in the source):
 | add a field to an entity | `sql/schema.sql` → `db.go` migration → `types.ts` → `sync.go` tables map |
 | change paste/capture behavior | `services/capture.ts` (+ `captureDsl.ts` for the DSL) |
 | change the weekly flow | `services/weeks.ts`, `apps/WeekApp.svelte` |
+| touch tags or tag nesting | `services/tagTree.ts`, the tag reads in `services/links.ts` + [tagging.md](tagging.md) |
 | touch sync | `lib/sync.ts` + `backend/sync.go` + [sync.md](sync.md) |
 | add a settings knob | `types.ts` UserSettings → `services/settings.ts` pick → `SettingsApp.svelte` → schema/migration/sync map |
 | adjust theming | `lib/theme.ts` + `styles/theme.css` |
+| build a dataset to stress a page | `db/seed.ts` + the Advanced panel in `SettingsApp.svelte` + [seeding.md](seeding.md) |
+| work out why a page is slow at scale | [performance.md](performance.md) — measured costs and the whole-table-read rule |
 | ship or deploy an image | [deployment.md](deployment.md), `Dockerfile`, `.github/workflows/docker.yaml` |
 | understand sync scaling | the transport-bounds section of [sync.md](sync.md) |

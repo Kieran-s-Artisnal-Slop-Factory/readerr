@@ -49,6 +49,56 @@ export async function originStats(): Promise<OriginStats[]> {
   return [...byOrigin.values()].sort((a, b) => b.links - a.links || a.origin.localeCompare(b.origin));
 }
 
+/** Default for the variability metric's window — "outside your top 3 domains". */
+export const DEFAULT_VARIABILITY_TOP_N = 3;
+
+export interface Variability {
+  /** Percentage of links coming from outside the top N origins, 0–100. */
+  score: number;
+  /** The window this score was computed over. */
+  topN: number;
+  /** The origins that made up the window (fewer than topN if you have fewer). */
+  topOrigins: string[];
+  /** Links attributed to the window, and to everything else. */
+  topLinks: number;
+  otherLinks: number;
+  totalLinks: number;
+}
+
+/**
+ * How spread out your reading is: the share of links that come from anywhere
+ * other than your N biggest domains. 1,200 links with 980 of them from the top
+ * three scores ((1200-980)/1200)*100 = 18.3% — low, meaning most of what you
+ * capture comes from a handful of places.
+ *
+ * Takes the rows `originStats` already produced (they arrive sorted by link
+ * count) rather than re-reading the DB, so the page can recompute instantly
+ * when you change N. Ties at the boundary are broken the same way the table
+ * orders them — by count, then origin name — so the score matches what the
+ * "top N" rows visibly are.
+ */
+export function variability(
+  rows: OriginStats[],
+  topN: number = DEFAULT_VARIABILITY_TOP_N
+): Variability {
+  const window = Math.max(1, Math.round(topN));
+  const ranked = [...rows].sort((a, b) => b.links - a.links || a.origin.localeCompare(b.origin));
+  const totalLinks = ranked.reduce((sum, r) => sum + r.links, 0);
+  const top = ranked.slice(0, window);
+  const topLinks = top.reduce((sum, r) => sum + r.links, 0);
+  const otherLinks = totalLinks - topLinks;
+  return {
+    // No links at all is 0%, not NaN. Fewer origins than the window means the
+    // window is everything, which is 0% — correctly, there is no variety.
+    score: totalLinks === 0 ? 0 : (otherLinks / totalLinks) * 100,
+    topN: window,
+    topOrigins: top.map((r) => r.origin),
+    topLinks,
+    otherLinks,
+    totalLinks,
+  };
+}
+
 /** Totals for the metrics the averages table tracks. */
 export interface HistoryTotals {
   read: number;

@@ -179,8 +179,19 @@ export async function reconcileOpenWeeks(): Promise<void> {
 async function healOrphanedEntries(): Promise<void> {
   const db = await getDB();
   const allWeeks = (await db.getAll('weeks')) as Week[];
-  const weekById = new Map(allWeeks.map((w) => [w.id, w]));
-  const liveWeekIds = new Set(allWeeks.filter((w) => !w.deleted_at).map((w) => w.id));
+
+  // The search space is exactly the TOMBSTONED weeks. An entry pointing at a
+  // week this device has never received can't be re-homed either way (its
+  // Monday is unknowable), so the only rescuable orphans hang off a week we
+  // have and have deleted — and the week_id index reaches those directly.
+  //
+  // This used to getAll('week_links') and filter, which is the whole table on
+  // every reconcile: ~430ms at 75k entries, three times per week-page load,
+  // to do nothing at all in a healthy database. Nothing tombstones weeks in
+  // normal use, so the early return below is the overwhelmingly common path.
+  const dead = allWeeks.filter((w) => w.deleted_at).sort(byId);
+  if (dead.length === 0) return;
+
   const liveOpenByStart = new Map<string, Week>();
   for (const w of allWeeks) {
     if (w.deleted_at || w.closed_at) continue;
@@ -188,24 +199,33 @@ async function healOrphanedEntries(): Promise<void> {
     if (!cur || byId(w, cur) < 0) liveOpenByStart.set(w.week_start, w);
   }
 
-  const allEntries = (await db.getAll('week_links')) as WeekLink[];
-  const orphans = allEntries.filter((e) => !e.deleted_at && !liveWeekIds.has(e.week_id));
-  if (orphans.length === 0) return;
-
-  for (const orphan of orphans) {
-    const deadWeek = weekById.get(orphan.week_id);
-    if (!deadWeek) continue; // week never seen locally — can't determine its Monday
+  for (const deadWeek of dead) {
     const target = liveOpenByStart.get(deadWeek.week_start);
     if (!target) continue; // no live open week for that Monday — leave it be
+    const orphans = await byIndex<WeekLink>('week_links', 'week_id', deadWeek.id);
+    if (orphans.length === 0) continue;
+
+    // Read the target's entries once and track them as we go, rather than
+    // re-reading per orphan. Same (position, id) ordering the fold above uses,
+    // so two devices healing the same damage land on the same result.
     const targetEntries = await byIndex<WeekLink>('week_links', 'week_id', target.id);
-    const existing = targetEntries.find((e) => e.link_id === orphan.link_id);
-    if (existing) {
-      const merged = mergeEntryState(existing, orphan);
-      if (merged) await put('week_links', merged);
-      await softDelete('week_links', orphan.id);
-    } else {
-      const nextPos = targetEntries.reduce((max, e) => Math.max(max, e.position), -1) + 1;
-      await put('week_links', { ...orphan, week_id: target.id, position: nextPos });
+    const byLink = new Map(targetEntries.map((e) => [e.link_id, e]));
+    let nextPos = targetEntries.reduce((max, e) => Math.max(max, e.position), -1) + 1;
+
+    for (const orphan of orphans.sort(
+      (a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    )) {
+      const existing = byLink.get(orphan.link_id);
+      if (existing) {
+        const merged = mergeEntryState(existing, orphan);
+        if (merged) byLink.set(orphan.link_id, await put('week_links', merged));
+        await softDelete('week_links', orphan.id);
+      } else {
+        byLink.set(
+          orphan.link_id,
+          await put('week_links', { ...orphan, week_id: target.id, position: nextPos++ })
+        );
+      }
     }
   }
 }
@@ -448,10 +468,12 @@ export async function reorderEntries(
 export async function suggestLinks(
   excludeLinkIds: Set<string>,
   focusTagIds: string[],
-  count: number
+  count: number,
+  /** Already-loaded links, to avoid a second full scan (the week page holds them). */
+  pool?: Link[]
 ): Promise<Link[]> {
   if (count <= 0) return [];
-  const links = await all<Link>('links');
+  const links = pool ?? (await all<Link>('links'));
   // links.ts owns effectivePriority but imports this module — inline the
   // null-means-3 rule rather than creating an import cycle.
   const priority = (l: Link) => l.priority ?? 3;

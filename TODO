@@ -1,12 +1,49 @@
-1. Add improvements to stats page
-    1. Add a toggle to visually hide domains with only 1 link
-    2. Add a "variability" metric that is a weighted average of how many links come from outside your top 3 domains
-        1. For example if `youtube.com`, `medium.com`, and `twitter.com` are your top 3 domains, you have 1,200 links and those 3 domains account for 980 of them, then your variability score would be `((1200-900)/1200)*100`
-2. 
+DONE (2026-08-04):
+
+1. [x] Archived-before-push links never reach the server.
+       archiveNow now queues the ids it moves that carry no server_seq, and the
+       push drains that queue from the cold store (inside the `links` group, so
+       chunk ordering holds). The assigned server_seq is written back to the
+       ARCHIVED copy, and a cold link the server rejects under LWW is adopted
+       into the archived copy rather than resurrected into the hot store. A
+       one-time sweep rescues links stranded by older builds; a queue is used
+       rather than scanning archived_links every sync, since the cold store is
+       exactly where a big library goes to stop being read.
+       Docs: docs/dev/sync.md "Archived links and the push".
+       Tests: 3 cases in tests/sync/archive.spec.ts (all verified red without
+       the fix) + 5 in test/archive.test.ts.
+
+2. [x] Reading list slow under a massive seed — reviewed the trace, reproduced
+       it, fixed it. Measured on 77,328 links / 75,042 week_links / 61,854
+       link_tags: the page load path went ~2,860ms -> ~930ms.
+       The trace's ~3s of idb request-handler self time was four whole-table
+       reads per load, three of which did nothing:
+         - healOrphanedEntries read the ENTIRE week_links table on every
+           reconcileOpenWeeks (3x per page load) to find orphans. Only a
+           tombstoned week can strand a rescuable entry, and the week_id index
+           reaches those directly — now an early return in the normal case.
+           ~1.3s of the 2.9s, spent finding nothing.
+         - suggestLinks re-read every link moments after the page already had
+           them; it now accepts the caller's array.
+         - allLinks is $state.raw, not $state — it is replaced wholesale, so
+           deep-proxying 77k rows for a search box was pure overhead.
+       Docs: docs/dev/performance.md (with the ~900ms that remains, and why).
+       Tests: 2 new cases in test/weeks.test.ts, incl. one that fails if the
+       full-table scan comes back. Existing orphan guards verified to catch a
+       sabotaged rewrite.
+
+OPEN (found while measuring, NOT fixed — both need a schema change):
+
+- suggestLinks reads the whole links table (~474ms at 77k) because the backlog
+  filter (unread / un-slushed / non-resource, priority-ordered) has nothing
+  indexable. A compound [priority, added_at] index would let it stop early.
+- tagsByRecentUse reads all 61k link_tags (~399ms) to order ~120 tags by most
+  recent use. A last_used_at column on the tag row makes it a 120-row read, but
+  that is a data-model change: migration + sync.go + sync tests.
 
 Ensure for each change:
 
-- There are no sync issues/regressions with the changes
-- There are adequete tests for the system to ensure no synchronization issues, and that the system works both from the UI and has unit tests
-- Features that touch frontend and backend have testing and validation for both peices
-
+- if data model is updated
+    - There are no sync issues/regressions with the changes
+    - There are adequete tests for the system to ensure no synchronization issues, and that the system works both from the UI and has unit tests
+    - Features that touch frontend and backend have testing and validation for both peices

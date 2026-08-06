@@ -4,10 +4,12 @@
   import Card from '../Card.svelte';
   import SearchInput from '../SearchInput.svelte';
   import {
+    DEFAULT_VARIABILITY_TOP_N,
     formatBytes,
     historyStats,
     originStats,
     storageStats,
+    variability,
     type HistoryStats,
     type OriginStats,
     type StorageStats,
@@ -18,6 +20,12 @@
   let loading = $state(true);
   let history = $state<HistoryStats | null>(null);
   let storage = $state<StorageStats | null>(null);
+  /**
+   * One-off domains are the bulk of the table for most libraries and say
+   * nothing about where your reading comes from, so they start hidden.
+   */
+  let hideSingles = $state(true);
+  let topN = $state(DEFAULT_VARIABILITY_TOP_N);
 
   /** Rows of the averages table: label + a key into HistoryTotals. */
   const AVG_METRICS = [
@@ -29,12 +37,20 @@
 
   const fmtAvg = (n: number) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(1));
 
-  const visible = $derived(
+  /** Search-matching rows — what the totals cover, hidden singles included. */
+  const matching = $derived(
     rows.filter((r) => r.origin.toLowerCase().includes(search.trim().toLowerCase()))
   );
 
+  const visible = $derived(hideSingles ? matching.filter((r) => r.links > 1) : matching);
+
+  const hiddenCount = $derived(matching.length - visible.length);
+
+  /** Library-wide, so it deliberately ignores the search box and the toggle. */
+  const spread = $derived(variability(rows, topN));
+
   const totals = $derived(
-    visible.reduce(
+    matching.reduce(
       (acc, r) => ({
         links: acc.links + r.links,
         resources: acc.resources + r.resources,
@@ -149,7 +165,47 @@
   {/if}
 </Card>
 
-<Card title={`Origins (${visible.length})`}>
+<Card title="Variability">
+  {#if loading}
+    <p class="empty">Loading…</p>
+  {:else}
+    <p class="hint">
+      How spread out your reading is — the share of links captured from
+      anywhere other than your biggest domains. A low score means most of what
+      you read comes from a handful of places.
+    </p>
+    <div class="variability">
+      <span class="score">{spread.totalLinks === 0 ? '—' : `${spread.score.toFixed(1)}%`}</span>
+      <label class="top-n">
+        outside my top
+        <select bind:value={topN} aria-label="How many top domains to exclude">
+          {#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as n (n)}
+            <option value={n}>{n}</option>
+          {/each}
+        </select>
+        domain{topN === 1 ? '' : 's'}
+      </label>
+    </div>
+    {#if spread.totalLinks === 0}
+      <p class="hint" style="margin: 0;">No links yet.</p>
+    {:else}
+      <p class="hint" style="margin: 0;">
+        {spread.otherLinks.toLocaleString()} of {spread.totalLinks.toLocaleString()} links come
+        from outside {spread.topOrigins.join(', ')}.
+        {#if spread.topOrigins.length < spread.topN}
+          That's every domain you have, so there is nothing left outside it.
+        {:else if spread.topOrigins.length === 1}
+          That one accounts for the other {spread.topLinks.toLocaleString()}.
+        {:else}
+          Those {spread.topOrigins.length} account for {spread.topLinks.toLocaleString()} between
+          them.
+        {/if}
+      </p>
+    {/if}
+  {/if}
+</Card>
+
+<Card title={`Origins (${visible.length.toLocaleString()})`}>
   <p class="hint">
     Every domain you've captured from, with how many links it produced and
     where they ended up. Tags aren't counted.
@@ -157,10 +213,23 @@
   <div class="search-row">
     <SearchInput bind:value={search} placeholder="Filter origins…" />
   </div>
+  <label class="toggle">
+    <input type="checkbox" bind:checked={hideSingles} />
+    Hide domains with only one link
+    {#if hideSingles && hiddenCount > 0}
+      <span class="muted-inline">({hiddenCount.toLocaleString()} hidden)</span>
+    {/if}
+  </label>
   {#if loading}
     <p class="empty">Loading…</p>
   {:else if visible.length === 0}
-    <p class="empty">{search ? 'No origins match.' : 'No links yet.'}</p>
+    <p class="empty">
+      {#if matching.length > 0}
+        Every matching domain has just one link.
+      {:else}
+        {search ? 'No origins match.' : 'No links yet.'}
+      {/if}
+    </p>
   {:else}
     <div class="table-wrap">
       <table>
@@ -198,6 +267,12 @@
         </tfoot>
       </table>
     </div>
+    {#if hideSingles && hiddenCount > 0}
+      <p class="hint" style="margin: var(--space-2) 0 0;">
+        The total still counts the {hiddenCount.toLocaleString()} hidden single-link
+        domain{hiddenCount === 1 ? '' : 's'} — they're only hidden from the table.
+      </p>
+    {/if}
   {/if}
 </Card>
 </div>
@@ -248,6 +323,48 @@
 
   .search-row {
     margin-bottom: var(--space-3);
+  }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+  }
+
+  .toggle input {
+    width: auto;
+    margin: 0;
+  }
+
+  .variability {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+
+  .score {
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--color-primary);
+  }
+
+  .top-n {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .top-n select {
+    width: auto;
+    margin: 0;
   }
 
   .empty {

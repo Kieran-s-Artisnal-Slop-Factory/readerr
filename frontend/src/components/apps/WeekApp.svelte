@@ -60,7 +60,11 @@
   let focusStart = $state(currentWeekStart());
   let entries = $state<WeekEntry[]>([]);
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
-  let allLinks = $state<Link[]>([]);
+  // $state.raw, not $state: this is the whole library (tens of thousands of
+  // rows at scale) and it is only ever replaced wholesale, never mutated in
+  // place. Deep-proxying every row so the search box can filter them costs far
+  // more than the read itself.
+  let allLinks = $state.raw<Link[]>([]);
   let query = $state('');
   let adding = $state(false);
   let closing = $state(false);
@@ -299,10 +303,13 @@
       suggestions = [];
       return;
     }
+    // Reuse the links refresh() just loaded — suggestLinks would otherwise
+    // scan the whole table a second time, moments after the first.
     suggestions = await suggestLinks(
       new Set(entries.map((e) => e.link.id)),
       triage?.focusTagIds ?? [],
-      underQuota
+      underQuota,
+      allLinks.length > 0 ? allLinks : undefined
     );
   }
 

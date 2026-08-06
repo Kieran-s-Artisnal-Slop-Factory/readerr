@@ -210,6 +210,17 @@ and **history**: when you set up, your longest daily capture streak, biggest
 bulk paste, and weekly/monthly/yearly/lifetime averages for links read,
 favourites, resources, and topics.
 
+**Variability** is the one-number version of the origins table: the share of
+your links captured from anywhere *other* than your biggest domains. If you
+have 1,200 links and your top three domains account for 980 of them, that's
+18.3% — most of your reading comes from a handful of places. Widen the window
+(top 1 through top 10) to see how quickly the concentration falls off.
+
+The origins table hides domains you've only saved one link from — usually most
+of the list, and never the interesting part. Untick **Hide domains with only
+one link** to see them. Hidden or not, they're still counted in the Total row
+and in the variability score.
+
 ## Themes
 
 **Settings → Appearance** has three built-in themes (Forest, Gruvbox,

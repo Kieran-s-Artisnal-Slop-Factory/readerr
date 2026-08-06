@@ -353,6 +353,57 @@ describe('reconcileOpenWeeks', () => {
     expect(rawOrphan.deleted_at).not.toBeNull();
   });
 
+  it('rescues several orphans from one dead week, in position order', async () => {
+    const ws = currentWeekStart();
+    await seedWeek('week-live', { week_start: ws });
+    await seedWeek('week-dead', { week_start: ws, deleted_at: '2026-07-19T00:00:00.000Z' });
+    const [a, b, c] = [await makeLink(), await makeLink(), await makeLink()];
+    // Seeded out of order: the heal must re-home them by position, not by id.
+    await seedWeekLink('wl-3', 'week-dead', c.id, { position: 9 });
+    await seedWeekLink('wl-1', 'week-dead', a.id, { position: 2 });
+    await seedWeekLink('wl-2', 'week-dead', b.id, { position: 5 });
+
+    await reconcileOpenWeeks();
+
+    const entries = await weekEntries('week-live');
+    expect(entries.map((e) => e.link.id), 'all three rescued, position-ordered').toEqual([
+      a.id,
+      b.id,
+      c.id,
+    ]);
+    expect(entries.map((e) => e.entry.position), 'renumbered contiguously').toEqual([0, 1, 2]);
+  });
+
+  it('does not read week_links at all when no week is tombstoned', async () => {
+    // The heal used to getAll('week_links') on EVERY reconcile — the whole
+    // table, three times per week-page load, to find nothing. Orphans can only
+    // hang off a tombstoned week, so with none there is nothing to look for.
+    const ws = currentWeekStart();
+    await seedWeek('week-live', { week_start: ws });
+    const l = await makeLink();
+    await seedWeekLink('wl-live', 'week-live', l.id, {});
+
+    const db = await getDB();
+    const realGetAll = db.getAll.bind(db);
+    const scanned: string[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db as any).getAll = (store: string, ...rest: unknown[]) => {
+      scanned.push(store);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return realGetAll(store as any, ...(rest as []));
+    };
+    try {
+      await reconcileOpenWeeks();
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (db as any).getAll = realGetAll;
+    }
+
+    expect(scanned, 'no full scan of the entries table').not.toContain('week_links');
+    // The entry is untouched.
+    expect((await weekEntries('week-live')).map((e) => e.entry.id)).toEqual(['wl-live']);
+  });
+
   it('reorder does not revert a concurrently-updated done_at (reads fresh, not the UI snapshot)', async () => {
     const ws = currentWeekStart();
     await seedWeek('week-1', { week_start: ws });

@@ -11,6 +11,7 @@
 import { getDB } from '../db/db';
 import { all, put } from '../db/repo';
 import { getUserSettings } from './settings';
+import { notePendingArchivedPush } from '../sync';
 import { isTestMode } from '../testMode';
 import type { Link } from '../db/types';
 
@@ -59,6 +60,11 @@ export async function archiveNow(months: number): Promise<number> {
     tx.objectStore('links').delete(link.id); // hard delete: shrinks the hot store
   }
   await tx.done;
+  // A link the server has never seen is about to leave the only store the push
+  // scans. Queue it, or it lives on this device alone forever — see
+  // notePendingArchivedPush. Recorded AFTER the move so a failed transaction
+  // can't leave a queue entry for a link that is still hot.
+  await notePendingArchivedPush(toMove.filter((l) => l.server_seq == null).map((l) => l.id));
   if (typeof localStorage !== 'undefined') localStorage.setItem(LAST_RUN_KEY, String(Date.now()));
   return toMove.length;
 }

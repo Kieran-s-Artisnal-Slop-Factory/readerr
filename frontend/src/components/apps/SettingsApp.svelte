@@ -3,7 +3,12 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData, wipeLocalData } from '../../lib/db/export';
   import { downloadMarkdownExport } from '../../lib/db/export-markdown';
-  import { seedDataset } from '../../lib/db/seed';
+  import {
+    DEFAULT_SEED_OPTIONS,
+    resolveSeedOptions,
+    seedDataset,
+    type SeedOptions,
+  } from '../../lib/db/seed';
   import { archivableCount, archivedCount, archiveNow } from '../../lib/services/archive';
   import {
     syncNow,
@@ -393,7 +398,28 @@
   let seedLinksPerWeek = $state(20);
   let seedWeeks = $state(13);
 
+  /**
+   * Everything past the two volume sliders. Cloned from the defaults so the
+   * simple path (open Settings, hit the button) still produces the same
+   * friendly demo library it always did; the panel below only matters when
+   * you want to stress a specific page.
+   */
+  let adv = $state(structuredClone(DEFAULT_SEED_OPTIONS));
+
+  const seedOptions = $derived<SeedOptions>({
+    linksPerWeek: seedLinksPerWeek,
+    weeks: seedWeeks,
+    ...adv,
+  });
+
+  /** What a run will actually use — clamped, with the derived topic count. */
+  const seedResolved = $derived(resolveSeedOptions(seedOptions));
+
   const seedEstimate = $derived(seedLinksPerWeek * seedWeeks);
+
+  function resetSeedOptions() {
+    adv = structuredClone(DEFAULT_SEED_OPTIONS);
+  }
 
   /** 104 → "2 years", 105 → "2 years +", 156 → "3 years". */
   const seedYearsLabel = $derived.by(() => {
@@ -415,11 +441,17 @@
     }
     seeding = true;
     try {
-      const s = await seedDataset(
-        { linksPerWeek: seedLinksPerWeek, weeks: seedWeeks },
-        (m) => (message = m)
-      );
-      message = `Demo data loaded: ${s.links.toLocaleString()} links across ${s.weeks} weeks, ${s.tags} tags, ${s.topics.toLocaleString()} topics, ${s.notes.toLocaleString()} notes, ${s.favourites} favourites, ${s.resources} resources.`;
+      const s = await seedDataset(seedOptions, (m) => (message = m));
+      message =
+        `Demo data loaded: ${s.links.toLocaleString()} links across ${s.weeks} weeks from ` +
+        `${s.origins.toLocaleString()} domains · ${s.tags.toLocaleString()} tags ` +
+        `(${s.tagAssignments.toLocaleString()} assignments, ${s.tagEdges.toLocaleString()} nested) · ` +
+        `${s.topics.toLocaleString()} topics (${s.references.toLocaleString()} references) · ` +
+        `${s.notes.toLocaleString()} notes · ${s.excerpts.toLocaleString()} excerpts · ` +
+        `${s.favourites.toLocaleString()} favourites · ${s.resources.toLocaleString()} resources · ` +
+        `${s.slushed.toLocaleString()} slushed · ${s.reviews.toLocaleString()} reviews` +
+        (s.archived > 0 ? ` · ${s.archived.toLocaleString()} archived` : '') +
+        '.';
     } finally {
       seeding = false;
     }
@@ -842,6 +874,273 @@
         This will take some time to seed, and the app may become slow/unresponsive on some pages afterward
       </p>
       {/if}
+
+      <details class="seed-advanced">
+        <summary>Advanced — shape the dataset</summary>
+        <p class="muted seed-note">
+          Everything here defaults to the friendly demo library. Change it to
+          stress a specific page: a few hundred tags, a lopsided tag
+          distribution, deep nesting, heavy prose. Percentages are exact —
+          "12% favourites" means exactly 12% of generated links, not a coin
+          flip per link. Where two settings can't both hold (slush needs a
+          read link) the physical limit wins and the summary reports what was
+          really written.
+        </p>
+
+        <fieldset>
+          <legend>Origins</legend>
+          <div class="field-grid">
+            <label>
+              Domains to draw from
+              <input type="number" min="1" max="5000" bind:value={adv.origins} />
+            </label>
+          </div>
+          <p class="hint">
+            Links are spread across the pool Zipf-style, so the first few
+            domains dominate the way they do in a real library — which is what
+            the stats page's variability metric measures.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Lifecycle</legend>
+          <div class="field-grid">
+            <label>
+              Favourites (% of links)
+              <input type="number" min="0" max="100" step="0.5" bind:value={adv.favouritePct} />
+            </label>
+            <label>
+              Resources (% of links)
+              <input type="number" min="0" max="100" step="0.5" bind:value={adv.resourcePct} />
+            </label>
+            <label>
+              Slushed (% of links)
+              <input type="number" min="0" max="100" step="1" bind:value={adv.slushPct} />
+            </label>
+            <label>
+              Reviewed at least once (% of links)
+              <input type="number" min="0" max="100" step="1" bind:value={adv.links.reviewedPct} />
+            </label>
+          </div>
+          <label class="check">
+            <input type="checkbox" bind:checked={adv.archive.enabled} />
+            Archive old slushed links after seeding
+          </label>
+          {#if adv.archive.enabled}
+            <div class="field-grid">
+              <label>
+                Archive slushed links older than (months)
+                <input type="number" min="1" max="600" bind:value={adv.archive.afterMonths} />
+              </label>
+            </div>
+            <p class="hint">
+              This also switches archival on in your settings. Archived links
+              move to a local-only store, so anything archived here stays on
+              this device until a sync reset moves it back.
+            </p>
+          {/if}
+          <p class="hint">
+            Only a link you read can be slushed, and never a favourite, so a
+            slush request above roughly 75% is capped by what's eligible.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Tags</legend>
+          <div class="field-grid">
+            <label>
+              How many tags
+              <input type="number" min="0" max="10000" bind:value={adv.tags.count} />
+            </label>
+            <label>
+              Average tags per link
+              <input type="number" min="0" max="20" step="0.1" bind:value={adv.tags.tagsPerLink} />
+            </label>
+            <label>
+              Top tags to pin (0–5)
+              <input type="number" min="0" max="5" bind:value={adv.tags.topCount} />
+            </label>
+            <label>
+              …accounting for (% of links)
+              <input type="number" min="0" max="100" bind:value={adv.tags.topSharePct} />
+            </label>
+            <label>
+              Ceiling for every other tag (% of links)
+              <input type="number" min="0" max="100" bind:value={adv.tags.tailMaxSharePct} />
+            </label>
+            <label>
+              With an about section (% of tags)
+              <input type="number" min="0" max="100" bind:value={adv.tags.describedPct} />
+            </label>
+            <label>
+              About section: min sentences
+              <input
+                type="number"
+                min="1"
+                max="500"
+                bind:value={adv.tags.descriptionLength.minSentences}
+              />
+            </label>
+            <label>
+              About section: max paragraphs
+              <input
+                type="number"
+                min="1"
+                max="100"
+                bind:value={adv.tags.descriptionLength.maxParagraphs}
+              />
+            </label>
+          </div>
+          <p class="hint">
+            "3 tags accounting for 40%" splits that share evenly between the
+            top three; the rest share what's left, each capped by the ceiling.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Tag nesting</legend>
+          <div class="field-grid">
+            <label>
+              Nesting depth (1 = flat)
+              <input type="number" min="1" max="6" bind:value={adv.tags.maxDepth} />
+            </label>
+            <label>
+              Nested under a parent (% of tags)
+              <input type="number" min="0" max="100" bind:value={adv.tags.nestedPct} />
+            </label>
+            <label>
+              Average parents per nested tag
+              <input type="number" min="1" max="5" step="0.1" bind:value={adv.tags.parentsPerTag} />
+            </label>
+          </div>
+          <p class="hint">
+            A tag is only ever nested under an earlier one, so the generated
+            graph is acyclic by construction. Above one parent per tag it's a
+            DAG rather than a tree — the shape the hierarchy code is built for.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Topics</legend>
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={adv.topics.count === null}
+              onchange={(e) =>
+                (adv.topics.count = e.currentTarget.checked ? null : seedResolved.topics.count)}
+            />
+            Scale topic count with usage ({seedResolved.topics.count.toLocaleString()} for these
+            sliders)
+          </label>
+          <div class="field-grid">
+            {#if adv.topics.count !== null}
+              <label>
+                How many topics
+                <input type="number" min="0" max="100000" bind:value={adv.topics.count} />
+              </label>
+            {/if}
+            <label>
+              Total references (% of links)
+              <input type="number" min="0" max="500" step="0.5" bind:value={adv.topics.referencesPct} />
+            </label>
+            <label>
+              Top topics to pin (0–5)
+              <input type="number" min="0" max="5" bind:value={adv.topics.topCount} />
+            </label>
+            <label>
+              …accounting for (% of references)
+              <input type="number" min="0" max="100" bind:value={adv.topics.topSharePct} />
+            </label>
+            <label>
+              Fewest references per topic
+              <input type="number" min="0" max="100000" bind:value={adv.topics.minRefs} />
+            </label>
+            <label>
+              Most references per topic
+              <input type="number" min="0" max="100000" bind:value={adv.topics.maxRefs} />
+            </label>
+            <label>
+              With a body document (% of topics)
+              <input type="number" min="0" max="100" bind:value={adv.topics.describedPct} />
+            </label>
+            <label>
+              Body: min sentences
+              <input
+                type="number"
+                min="1"
+                max="500"
+                bind:value={adv.topics.descriptionLength.minSentences}
+              />
+            </label>
+            <label>
+              Body: max paragraphs
+              <input
+                type="number"
+                min="1"
+                max="100"
+                bind:value={adv.topics.descriptionLength.maxParagraphs}
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Notes &amp; excerpts</legend>
+          <div class="field-grid">
+            <label>
+              Links with a note (%)
+              <input type="number" min="0" max="100" bind:value={adv.links.notesPct} />
+            </label>
+            <label>
+              Note: min sentences
+              <input
+                type="number"
+                min="1"
+                max="500"
+                bind:value={adv.links.notesLength.minSentences}
+              />
+            </label>
+            <label>
+              Note: max paragraphs
+              <input
+                type="number"
+                min="1"
+                max="100"
+                bind:value={adv.links.notesLength.maxParagraphs}
+              />
+            </label>
+            <label>
+              Links with an excerpt (%)
+              <input type="number" min="0" max="100" bind:value={adv.links.excerptsPct} />
+            </label>
+            <label>
+              Excerpt: min sentences
+              <input
+                type="number"
+                min="1"
+                max="500"
+                bind:value={adv.links.excerptLength.minSentences}
+              />
+            </label>
+            <label>
+              Excerpt: max paragraphs
+              <input
+                type="number"
+                min="1"
+                max="100"
+                bind:value={adv.links.excerptLength.maxParagraphs}
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="actions">
+          <button class="btn" onclick={resetSeedOptions} disabled={seeding}>
+            Reset advanced options
+          </button>
+        </div>
+      </details>
+
       <div class="actions">
         <button class="btn" onclick={loadDemoData} disabled={seeding}>
           {seeding ? 'Loading…' : 'Load demo data'}
@@ -1087,5 +1386,68 @@
   .seed-slider input[type='range'] {
     width: 100%;
     accent-color: var(--color-primary);
+  }
+
+  .seed-advanced {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+
+  .seed-advanced summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+  }
+
+  .seed-advanced[open] summary {
+    margin-bottom: var(--space-3);
+  }
+
+  .seed-note {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-3);
+  }
+
+  .seed-advanced fieldset {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3) var(--space-3);
+    margin: 0 0 var(--space-3);
+  }
+
+  .seed-advanced legend {
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    padding: 0 var(--space-2);
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .field-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 0.25rem);
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+
+  .field-grid input {
+    margin: 0;
+  }
+
+  .seed-advanced .hint {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: var(--space-2) 0 0;
+  }
+
+  .seed-advanced .check {
+    margin-bottom: var(--space-2);
   }
 </style>

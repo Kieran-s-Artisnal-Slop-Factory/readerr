@@ -235,8 +235,12 @@ test('store:tags the tag page nests a tag through the UI and it converges', asyn
   await editor.getByRole('button', { name: 'javascript' }).click();
   await editor.getByRole('button', { name: 'Save parents' }).click();
 
-  // The page now shows the nesting.
-  await expect(page.getByText('Nested under')).toBeVisible();
+  // Wait for the SAVE, not just for the card: "Nested under" is always on the
+  // page (it reads "nothing — this is a top-level tag" when empty), so
+  // asserting on it would pass instantly and race the write. The editor closing
+  // and the parent chip appearing both happen only after setTagParents resolves.
+  await expect(editor).toBeHidden();
+  await expect(page.getByRole('link', { name: 'javascript' })).toBeVisible();
 
   const edges = (await A.rawDump('tag_parents')).filter((e) => !e.deleted_at);
   expect(edges, 'one edge written').toHaveLength(1);
