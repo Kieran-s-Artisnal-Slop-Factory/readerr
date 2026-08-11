@@ -168,6 +168,11 @@ CREATE INDEX idx_tag_parents_child ON tag_parents (child_id);
 CREATE INDEX idx_tag_parents_parent ON tag_parents (parent_id);
 CREATE INDEX idx_tag_parents_seq ON tag_parents (server_seq);
 `,
+	// v17 → v18: user-defined query params to strip on top of the built-in
+	// tracking list (JSON array of names; a trailing * matches a prefix).
+	`
+ALTER TABLE user_settings ADD COLUMN strip_extra_params TEXT NOT NULL DEFAULT '[]';
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

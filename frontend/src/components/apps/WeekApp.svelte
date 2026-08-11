@@ -16,7 +16,7 @@
   import ListToolbar from '../ListToolbar.svelte';
   import Pagination from '../Pagination.svelte';
   import { FLAG_FILTERS } from '../../lib/services/links';
-  import { all, byIndex, get } from '../../lib/db/repo';
+  import { all, byIndex, count, get } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import {
     domainOf,
@@ -365,18 +365,40 @@
     await loadWeek();
   }
 
+  /**
+   * The whole-library corpus behind the adder's search box. At scale this is
+   * the page's single biggest read (~half a second at 77k links,
+   * performance.md), and most visits never type in the box — so it loads on
+   * first focus of the adder, not on mount. Suggestions read the backlog
+   * through indexes instead (suggestLinks), reusing the corpus only once it
+   * happens to be loaded.
+   */
+  let corpusLoaded = false;
+  let hasAnyLinks = $state(true);
+
+  async function ensureCorpus() {
+    if (corpusLoaded) return;
+    corpusLoaded = true;
+    allLinks = await all<Link>('links');
+  }
+
+  async function refreshCorpus() {
+    hasAnyLinks = (await count('links')) > 0;
+    if (corpusLoaded) allLinks = await all<Link>('links');
+  }
+
   async function refresh() {
     if (!week) {
       entries = [];
       tagsByLink = new Map();
       stats = { linksWithNotes: 0, excerpts: 0 };
       suggestions = [];
-      allLinks = await all<Link>('links');
+      await refreshCorpus();
       return;
     }
-    const [rows, everything] = await Promise.all([weekEntries(week.id), all<Link>('links')]);
+    const rows = await weekEntries(week.id);
     entries = rows;
-    allLinks = everything;
+    await refreshCorpus();
     const byLink = new Map<string, Tag[]>();
     let linksWithNotes = 0;
     let excerptCount = 0;
@@ -398,13 +420,14 @@
       suggestions = [];
       return;
     }
-    // Reuse the links refresh() just loaded — suggestLinks would otherwise
-    // scan the whole table a second time, moments after the first.
+    // Reuse the search corpus when it happens to be loaded; otherwise
+    // suggestLinks reads the backlog through indexes with early termination
+    // instead of scanning the whole table.
     suggestions = await suggestLinks(
       new Set(entries.map((e) => e.link.id)),
       triage?.focusTagIds ?? [],
       underQuota,
-      allLinks.length > 0 ? allLinks : undefined
+      corpusLoaded && allLinks.length > 0 ? allLinks : undefined
     );
   }
 
@@ -428,7 +451,9 @@
     try {
       const url = new URL(query.trim()).toString();
       const { added } = await captureLinks(url);
-      const link = added[0] ?? allLinks.find((l) => l.url === url);
+      // A duplicate paste reported no `added` row — find the existing link by
+      // its indexed URL (the lazy corpus may not be loaded).
+      const link = added[0] ?? (await byIndex<Link>('links', 'url', url))[0];
       if (link) await addLinkToWeek(week.id, link.id);
       query = '';
       await refresh();
@@ -621,7 +646,7 @@
       <p class="notice">{message}</p>
     {/if}
 
-    {#if allLinks.length === 0}
+    {#if !hasAnyLinks}
       <p class="notice onboard-hint">
         Not sure what to do, <a href={href('/onboarding/')}>try the onboarding process</a>
       </p>
@@ -665,6 +690,7 @@
             type="text"
             placeholder="Paste a URL to add, or search your links…"
             bind:value={query}
+            onfocus={() => void ensureCorpus()}
           />
           {#if queryIsUrl}
             <button type="submit" class="btn btn-primary" disabled={adding}>

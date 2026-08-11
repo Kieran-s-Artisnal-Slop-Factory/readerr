@@ -96,6 +96,7 @@ export async function saveUserSettings(
       | 'onboarding_completed_at'
       | 'strip_query_params'
       | 'strip_whitelist'
+      | 'strip_extra_params'
       | 'auto_title'
       | 'default_week'
       | 'default_week_offset'
@@ -117,6 +118,7 @@ export async function saveUserSettings(
       onboarding_completed_at: null,
       strip_query_params: 'off' as const,
       strip_whitelist: [] as string[],
+      strip_extra_params: [] as string[],
       auto_title: true,
       default_week: 'none' as const,
       default_week_offset: 0,

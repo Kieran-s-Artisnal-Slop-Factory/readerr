@@ -42,7 +42,6 @@
   let isResource = $state(false);
   // 3 = the default for unset links, so only 1/2 are passed on explicitly.
   let selectedPriority = $state(3);
-  let organizeOpen = $state(false);
   // Remembers the default so it can be restored after each capture resets.
   let defaultWeek = $state('');
   // Checkbox mirrors the Settings → Link handling default; the mode used
@@ -503,24 +502,6 @@
     background: var(--color-primary-soft);
     border-color: var(--color-primary);
     color: var(--color-primary-strong);
-  }
-
-  .organize-toggle {
-    align-self: flex-start;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    border: none;
-    background: none;
-    color: var(--text-muted-color);
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .organize-toggle:hover {
-    color: var(--text-color);
   }
 
   .badge {

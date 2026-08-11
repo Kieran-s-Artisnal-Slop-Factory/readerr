@@ -14,6 +14,7 @@ import {
   softDeleteMany,
   withSyncFields,
 } from '../db/repo';
+import { getDB } from '../db/db';
 import { healsAllowed } from '../testMode';
 import { dedupeLinkTopics, nextRefNumber } from './topics';
 import { repointTagParents, tagsWithDescendants } from './tagTree';
@@ -36,40 +37,91 @@ async function dedupeLinkTags(rows: LinkTag[]): Promise<LinkTag[]> {
   return dedupePairs('link_tags', rows, tagPairKey);
 }
 
+// ---------------------------------------------------------------------------
+// Label recency (capture-box chip ordering)
+// ---------------------------------------------------------------------------
+
 /**
- * Tags ordered by most-recent assignment to a link (the join row's
- * updated_at), newest first; never-assigned tags follow, newest-created
- * first. Used by the capture box so the tags you reach for most stay near
- * the top when the list is long enough to paginate.
+ * The `label_usage` store: one LOCAL-ONLY row per tag/topic id recording its
+ * most recent assignment. This replaces reading the whole link_tags /
+ * link_topics tables to find each label's newest join — ~61k rows read to
+ * order ~120 chips on every capture-box mount (performance.md). Derived
+ * data: never synced or backed up; wiped with the rest of local data and
+ * rebuilt by the one-time backfill below. Writes go straight to IDB (no sync
+ * fields, no requestSync) — the join row being assigned already syncs.
+ */
+const LABEL_USAGE_BACKFILL = 'labelUsageBackfilled';
+
+async function recordLabelUse(labelId: string): Promise<void> {
+  const db = await getDB();
+  await db.put('label_usage', { id: labelId, used_at: new Date().toISOString() });
+}
+
+/**
+ * Every label's recency, backfilling once per database from the joins it
+ * already holds — the same max(updated_at)-per-label the old whole-table
+ * read computed, so existing chip ordering carries over unchanged.
+ */
+async function labelUsageMap(): Promise<Map<string, string>> {
+  const db = await getDB();
+  const flag = (await db.get('sync_meta', LABEL_USAGE_BACKFILL)) as
+    | { value?: boolean }
+    | undefined;
+  if (!flag?.value) {
+    const backfill = async (store: 'link_tags' | 'link_topics', key: 'tag_id' | 'topic_id') => {
+      const rows = (await db.getAll(store)) as (SyncFields & Record<string, unknown>)[];
+      const latest = new Map<string, string>();
+      for (const r of rows) {
+        if (r.deleted_at) continue;
+        const id = r[key] as string;
+        const prev = latest.get(id);
+        if (!prev || r.updated_at > prev) latest.set(id, r.updated_at);
+      }
+      for (const [id, used_at] of latest) await db.put('label_usage', { id, used_at });
+    };
+    await backfill('link_tags', 'tag_id');
+    await backfill('link_topics', 'topic_id');
+    await db.put('sync_meta', { key: LABEL_USAGE_BACKFILL, value: true });
+  }
+  const rows = (await db.getAll('label_usage')) as { id: string; used_at: string }[];
+  return new Map(rows.map((r) => [r.id, r.used_at]));
+}
+
+/**
+ * Carry a merged-away label's recency onto its survivor (max wins), so a
+ * name-merge doesn't demote a frequently-used tag to "never used".
+ */
+async function remapLabelUsage(remap: Map<string, string>): Promise<void> {
+  if (remap.size === 0) return;
+  const db = await getDB();
+  for (const [strayId, survivorId] of remap) {
+    const stray = (await db.get('label_usage', strayId)) as { used_at: string } | undefined;
+    if (!stray) continue;
+    const cur = (await db.get('label_usage', survivorId)) as { used_at: string } | undefined;
+    if (!cur || stray.used_at > cur.used_at) {
+      await db.put('label_usage', { id: survivorId, used_at: stray.used_at });
+    }
+    await db.delete('label_usage', strayId);
+  }
+}
+
+/**
+ * Tags ordered by most-recent assignment to a link, newest first;
+ * never-assigned tags follow, newest-created first. Used by the capture box
+ * so the tags you reach for most stay near the top when the list is long
+ * enough to paginate. Recency comes from the label_usage cache — NOT a
+ * link_tags scan (see above).
  */
 export async function tagsByRecentUse(): Promise<Tag[]> {
-  // Name-merge before the pair-dedupe below reads link_tags: reconcile
-  // re-points stray joins onto the survivor, then dedupeLinkTags collapses
-  // any exact (link, tag) pair duplicates that remain.
+  // Name-merge before display so duplicate names surface as one chip.
   await reconcileTags();
-  const [tags, joins] = await Promise.all([
-    all<Tag>('tags'),
-    all<LinkTag>('link_tags').then(dedupeLinkTags),
-  ]);
-  const lastUse = new Map<string, string>();
-  for (const j of joins) {
-    const prev = lastUse.get(j.tag_id);
-    if (!prev || j.updated_at > prev) lastUse.set(j.tag_id, j.updated_at);
-  }
+  const [tags, lastUse] = await Promise.all([all<Tag>('tags'), labelUsageMap()]);
   return tags.sort((a, b) => rankRecent(a, b, lastUse));
 }
 
 export async function topicsByRecentUse(): Promise<Topic[]> {
-  await reconcileTopics(); // name-merge before dedupeLinkTopics reads the joins
-  const [topics, joins] = await Promise.all([
-    all<Topic>('topics'),
-    all<LinkTopic>('link_topics').then(dedupeLinkTopics),
-  ]);
-  const lastUse = new Map<string, string>();
-  for (const j of joins) {
-    const prev = lastUse.get(j.topic_id);
-    if (!prev || j.updated_at > prev) lastUse.set(j.topic_id, j.updated_at);
-  }
+  await reconcileTopics(); // name-merge before display
+  const [topics, lastUse] = await Promise.all([all<Topic>('topics'), labelUsageMap()]);
   return topics.sort((a, b) => rankRecent(a, b, lastUse));
 }
 
@@ -137,16 +189,19 @@ export async function reconcileTags(): Promise<void> {
     await softDeleteMany('tags', strays.map((s) => s.id));
   }
   // A merged tag may have been a focus tag for suggestions — point those at
-  // the survivor too (settings singleton + every plan). No-ops when nothing merged.
+  // the survivor too (settings singleton + every plan), and carry the stray's
+  // chip recency onto the survivor. No-ops when nothing merged.
   if (remap.size > 0) {
     await remapSettingsFocusTags(remap);
     await remapPlansFocusTags(remap);
+    await remapLabelUsage(remap);
   }
 }
 
 export async function reconcileTopics(): Promise<void> {
   // Test mode: name-merges are writes — explicit only (reconcileTopicsNow).
   if (!healsAllowed()) return;
+  const remap = new Map<string, string>();
   for (const group of groupByLowerName(await all<Topic>('topics'))) {
     if (group.length < 2) continue;
     const survivor = smallestId(group);
@@ -156,8 +211,11 @@ export async function reconcileTopics(): Promise<void> {
     // can't clobber a newer topic document under LWW.
     await putReconciled('topics', { ...survivor, body_md, updated_at: maxUpdatedAt(group) });
     await repointTopicJoins(survivor.id, group.map((t) => t.id));
+    for (const s of strays) remap.set(s.id, survivor.id);
     await softDeleteMany('topics', strays.map((s) => s.id));
   }
+  // Carry a merged-away topic's chip recency onto its survivor.
+  await remapLabelUsage(remap);
 }
 
 /** Group rows by lower(name) — the case-insensitive identity we dedupe on. */
@@ -384,6 +442,7 @@ export async function assignTag(linkId: string, tagId: string): Promise<void> {
   const existing = await byIndex<LinkTag>('link_tags', 'link_id', linkId);
   if (existing.some((j) => j.tag_id === tagId)) return;
   await put('link_tags', withSyncFields({ link_id: linkId, tag_id: tagId }));
+  await recordLabelUse(tagId); // chip-recency cache (local-only)
 }
 
 export async function unassignTag(linkId: string, tagId: string): Promise<void> {
@@ -399,6 +458,7 @@ export async function assignTopic(linkId: string, topicId: string): Promise<void
   // A fresh footnote number, never one a removed reference already used.
   const ref_number = await nextRefNumber(topicId);
   await put('link_topics', withSyncFields({ link_id: linkId, topic_id: topicId, ref_number }));
+  await recordLabelUse(topicId); // chip-recency cache (local-only)
   // Referencing a link in a topic rescues it from the slush archive.
   const link = await get<Link>('links', linkId);
   if (link?.slushed_at) await put('links', { ...link, slushed_at: null });

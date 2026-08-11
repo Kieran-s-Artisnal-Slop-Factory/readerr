@@ -29,6 +29,7 @@ function settingsFixture(overrides: Record<string, unknown> = {}): Record<string
     onboarding_completed_at: null,
     strip_query_params: 'off',
     strip_whitelist: [],
+    strip_extra_params: [],
     auto_title: true,
     default_week: 'none',
     default_week_offset: 0,
@@ -96,6 +97,7 @@ test.describe('user_settings — booleans both ways, json arrays, opt fields', (
     { field: 'strip_query_params', value: 'all' },
     { field: 'strip_query_params', value: 'trackers' },
     { field: 'strip_whitelist', value: ['youtube.com', 'a.example.com'] },
+    { field: 'strip_extra_params', value: ['via', 'sess*'] },
     { field: 'auto_title', value: true },
     { field: 'auto_title', value: false }, // false must not vanish to default
     { field: 'default_week', value: 'current' },

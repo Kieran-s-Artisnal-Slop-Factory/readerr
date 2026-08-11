@@ -73,13 +73,15 @@ var tableOrder = []string{
 var tables = map[string]tableMeta{
 	"user_settings": {
 		columns: cols("id", "name", "articles_per_week", "focus_tag_ids",
-			"onboarding_completed_at", "strip_query_params", "strip_whitelist", "auto_title",
+			"onboarding_completed_at", "strip_query_params", "strip_whitelist",
+			"strip_extra_params", "auto_title",
 			"default_week", "default_week_offset", "archive_enabled", "archive_after_months",
 			"capture_tag_sort"),
-		jsonCols: set("strip_whitelist", "focus_tag_ids"),
+		jsonCols: set("strip_whitelist", "strip_extra_params", "focus_tag_ids"),
 		boolCols: set("auto_title", "archive_enabled"),
 		defaults: map[string]any{
 			"focus_tag_ids": "[]", "strip_query_params": "off", "strip_whitelist": "[]",
+			"strip_extra_params": "[]",
 			"auto_title": 1, "default_week": "none", "default_week_offset": 0,
 			"archive_enabled": 0, "archive_after_months": 24, "capture_tag_sort": "recent",
 		},

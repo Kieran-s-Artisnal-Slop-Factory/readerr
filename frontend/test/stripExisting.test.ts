@@ -85,3 +85,30 @@ describe('stripExistingLinks', () => {
     expect((await get<Link>('links', kept.id))!.url).toBe('https://keep.com/watch?v=abc');
   });
 });
+
+describe('user-defined extra strip params', () => {
+  it('strips exact names case-insensitively on top of the built-in list', async () => {
+    await saveUserSettings({ strip_query_params: 'trackers', strip_extra_params: ['aff', 'Track'] });
+    const link = await makeLink('https://example.com/a?AFF=x&track=y&id=7&utm_source=n');
+    await stripExistingLinks();
+    expect((await get<Link>('links', link.id))!.url).toBe('https://example.com/a?id=7');
+  });
+
+  it('supports trailing-* prefix entries', async () => {
+    await saveUserSettings({ strip_query_params: 'trackers', strip_extra_params: ['sess*'] });
+    const link = await makeLink('https://example.com/a?session=1&sessid=2&s=3');
+    await stripExistingLinks();
+    expect((await get<Link>('links', link.id))!.url).toBe('https://example.com/a?s=3');
+  });
+
+  it('applies extras to whitelisted hosts in all mode', async () => {
+    await saveUserSettings({
+      strip_query_params: 'all',
+      strip_whitelist: ['keep.com'],
+      strip_extra_params: ['pp'],
+    });
+    const link = await makeLink('https://keep.com/watch?v=abc&pp=junk');
+    await stripExistingLinks();
+    expect((await get<Link>('links', link.id))!.url).toBe('https://keep.com/watch?v=abc');
+  });
+});

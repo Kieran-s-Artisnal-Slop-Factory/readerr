@@ -62,12 +62,32 @@ function hostWhitelisted(host: string, whitelist: string[]): boolean {
 }
 
 /**
- * Clean a URL per the strip mode. 'trackers' removes only known tracking
- * params (a YouTube ?v= survives); 'all' drops the whole query string —
- * except on whitelisted domains, which fall back to trackers-only cleaning
- * so their meaningful params survive.
+ * Does a query-param name match a user-defined strip entry? Entries are
+ * case-insensitive names; a trailing * matches a prefix (`sess*`).
  */
-export function cleanUrl(url: string, mode: StripMode, whitelist: string[] = []): string {
+function matchesExtraParam(key: string, extraParams: string[]): boolean {
+  const k = key.toLowerCase();
+  return extraParams.some((raw) => {
+    const entry = raw.trim().toLowerCase();
+    if (!entry) return false;
+    if (entry.endsWith('*')) return entry.length > 1 && k.startsWith(entry.slice(0, -1));
+    return k === entry;
+  });
+}
+
+/**
+ * Clean a URL per the strip mode. 'trackers' removes the known tracking
+ * params plus any user-defined extras (Settings → Link handling; a YouTube
+ * ?v= survives); 'all' drops the whole query string — except on whitelisted
+ * domains, which fall back to trackers+extras cleaning so their meaningful
+ * params survive.
+ */
+export function cleanUrl(
+  url: string,
+  mode: StripMode,
+  whitelist: string[] = [],
+  extraParams: string[] = []
+): string {
   if (mode === 'off') return url;
   try {
     const u = new URL(url);
@@ -75,7 +95,9 @@ export function cleanUrl(url: string, mode: StripMode, whitelist: string[] = [])
       u.search = '';
     } else {
       for (const key of [...u.searchParams.keys()]) {
-        if (TRACKING_PARAMS.some((re) => re.test(key))) u.searchParams.delete(key);
+        if (TRACKING_PARAMS.some((re) => re.test(key)) || matchesExtraParam(key, extraParams)) {
+          u.searchParams.delete(key);
+        }
       }
     }
     return u.toString();
@@ -107,10 +129,11 @@ export async function stripExistingLinks(): Promise<BulkStripResult> {
   const result: BulkStripResult = { changed: 0, collided: 0 };
   if (mode === 'off') return result;
   const whitelist = settings?.strip_whitelist ?? [];
+  const extraParams = settings?.strip_extra_params ?? [];
   const links = await all<Link>('links');
   const byUrl = new Map(links.map((l) => [l.url, l]));
   for (const link of links) {
-    const next = cleanUrl(link.url, mode, whitelist);
+    const next = cleanUrl(link.url, mode, whitelist, extraParams);
     if (next === link.url) continue;
     const owner = byUrl.get(next);
     if (owner && owner.id !== link.id) {
@@ -363,6 +386,7 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
   const batchStrip = assign?.stripMode ?? settings?.strip_query_params ?? 'off';
   const settingsStrip = settings?.strip_query_params ?? 'off';
   const whitelist = settings?.strip_whitelist ?? [];
+  const extraParams = settings?.strip_extra_params ?? [];
   const duplicates: string[] = [];
   const merged: Link[] = [];
   const fresh: { row: Link; eff: CaptureAssign }[] = [];
@@ -381,7 +405,7 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
               ? settingsStrip
               : 'trackers'
           : batchStrip;
-    const url = cleanUrl(rawUrl, stripMode, whitelist);
+    const url = cleanUrl(rawUrl, stripMode, whitelist, extraParams);
     if (seen.has(url)) {
       duplicates.push(url); // dedupe within the paste itself
       continue;

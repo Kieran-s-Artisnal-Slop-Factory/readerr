@@ -27,6 +27,16 @@ export async function all<T extends SyncFields>(store: StoreName): Promise<T[]> 
   return rows.filter((r) => !r.deleted_at);
 }
 
+/**
+ * RAW row count (tombstones included) — index-backed and O(1)-cheap, for
+ * "any data at all?" checks where a whole-table read just to count live rows
+ * would defeat the point. A store holding only tombstones counts as
+ * non-empty, which those checks treat as "the user had data".
+ */
+export async function count(store: StoreName): Promise<number> {
+  return (await getDB()).count(store);
+}
+
 export async function get<T extends SyncFields>(
   store: StoreName,
   id: string

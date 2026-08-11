@@ -56,6 +56,8 @@
   let stripMode = $state<StripMode>('off');
   // One domain per line (or comma-separated) in the textarea.
   let whitelistText = $state('');
+  // Extra query params to strip, one per line (trailing * = prefix match).
+  let extraParamsText = $state('');
   let autoTitle = $state(true);
   // 'custom' is a UI-only mode: stored as default_week='current' + an offset.
   let defaultWeekMode = $state<'none' | 'current' | 'custom'>('none');
@@ -106,8 +108,15 @@
       .filter(Boolean)
   );
 
+  const extraParams = $derived(
+    extraParamsText
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+
   const stripPreview = $derived(
-    STRIP_EXAMPLES.map((url) => ({ from: url, to: cleanUrl(url, stripMode, whitelist) }))
+    STRIP_EXAMPLES.map((url) => ({ from: url, to: cleanUrl(url, stripMode, whitelist, extraParams) }))
   );
 
   let strippingExisting = $state(false);
@@ -143,7 +152,11 @@
   }
 
   async function saveStripMode() {
-    await saveUserSettings({ strip_query_params: stripMode, strip_whitelist: whitelist });
+    await saveUserSettings({
+      strip_query_params: stripMode,
+      strip_whitelist: whitelist,
+      strip_extra_params: extraParams,
+    });
     message = 'Link handling saved.';
   }
 
@@ -359,6 +372,7 @@
     const userSettings = await getUserSettings();
     stripMode = userSettings?.strip_query_params ?? 'off';
     whitelistText = (userSettings?.strip_whitelist ?? []).join('\n');
+    extraParamsText = (userSettings?.strip_extra_params ?? []).join('\n');
     autoTitle = userSettings?.auto_title ?? true;
     const dw = userSettings?.default_week ?? 'none';
     const off = userSettings?.default_week_offset ?? 0;
@@ -542,6 +556,24 @@
           <option value="all">All query params</option>
         </select>
       </div>
+      {#if stripMode !== 'off'}
+        <div style="margin-bottom: var(--space-3);">
+          <label for="set-strip-extra">Additional params to strip (one per line)</label>
+          <p class="muted" style="margin-bottom: var(--space-2); font-size: var(--font-size-sm);">
+            Stripped on top of the built-in tracking list (utm_*, ref, si, …).
+            A trailing <code>*</code> matches a prefix: <code>sess*</code>
+            removes <code>session</code> and <code>sessid</code>. Names are
+            case-insensitive.
+          </p>
+          <textarea
+            id="set-strip-extra"
+            rows="3"
+            placeholder={'via\nsess*'}
+            bind:value={extraParamsText}
+            onchange={saveStripMode}
+          ></textarea>
+        </div>
+      {/if}
       {#if stripMode === 'all'}
         <div style="margin-bottom: var(--space-3);">
           <label for="set-strip-whitelist">Whitelisted domains (one per line)</label>

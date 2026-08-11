@@ -43,6 +43,11 @@ export interface UserSettings extends SyncFields {
    * trackers-only cleaning instead, so e.g. a youtube.com ?v= survives.
    */
   strip_whitelist: string[];
+  /**
+   * User-defined query params stripped on top of the built-in tracking list
+   * (exact name, case-insensitive; a trailing * matches a prefix: `sess*`).
+   */
+  strip_extra_params: string[];
   /** Fetch page titles for bare (untitled) links on capture. */
   auto_title: boolean;
   /** Capture default: leave the reading week unset, or preselect a week. */

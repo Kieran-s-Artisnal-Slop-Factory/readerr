@@ -7,8 +7,8 @@
    * (CaptureBox resets itself and shows its report) so several batches can
    * be captured in a row; Escape, the backdrop, or the ✕ close it.
    *
-   * Currently an experiment mounted ONLY on /fab-test — nothing else in the
-   * app references this component yet.
+   * Mounted app-wide from Layout.astro on every page that doesn't embed the
+   * full capture box itself (hasCapture pages render the box inline instead).
    */
   import CaptureBox from './CaptureBox.svelte';
   import type { Link } from '../lib/db/types';

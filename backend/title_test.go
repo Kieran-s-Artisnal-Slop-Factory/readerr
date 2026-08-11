@@ -28,6 +28,38 @@ func TestExtractTitle(t *testing.T) {
 		{"html entities unescaped", `<title>Rust &amp; Go &lt;3</title>`, "Rust & Go <3"},
 		{"whitespace collapsed", "<title>a\n   b\t c</title>", "a b c"},
 		{"no title", `<html><body>nothing</body></html>`, ""},
+		// The apostrophe bug: a shared [^"']+ class used to truncate a
+		// double-quoted og:title at the first ' ("it doesn").
+		{
+			"apostrophe inside double-quoted og:title",
+			`<meta property="og:title" content="it doesn't matter your rank">`,
+			"it doesn't matter your rank",
+		},
+		{
+			"apostrophe with content before property",
+			`<meta content="it doesn't matter" property="og:title">`,
+			"it doesn't matter",
+		},
+		{
+			"double quote inside single-quoted og:title",
+			`<meta property='og:title' content='she said "go"'>`,
+			`she said "go"`,
+		},
+		{
+			"apostrophe as &#39; entity",
+			`<meta property="og:title" content="it doesn&#39;t matter">`,
+			"it doesn't matter",
+		},
+		{
+			"apostrophe in title tag",
+			`<title>it doesn't matter your rank</title>`,
+			"it doesn't matter your rank",
+		},
+		{
+			"empty og:title falls back to the title tag",
+			`<meta property="og:title" content=""><title>Fallback</title>`,
+			"Fallback",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -43,6 +75,19 @@ func TestExtractTitleCapsLength(t *testing.T) {
 	got := extractTitle("<title>" + long + "</title>")
 	if len(got) != maxTitleChars {
 		t.Errorf("len = %d, want %d", len(got), maxTitleChars)
+	}
+}
+
+// Truncation must count runes, not bytes — slicing bytes can split a
+// multi-byte character and emit a mangled final rune.
+func TestExtractTitleCapsLengthMultibyte(t *testing.T) {
+	long := strings.Repeat("é", 500)
+	got := extractTitle("<title>" + long + "</title>")
+	if runes := []rune(got); len(runes) != maxTitleChars {
+		t.Errorf("rune len = %d, want %d", len(runes), maxTitleChars)
+	}
+	if strings.ContainsRune(got, '�') {
+		t.Error("truncation split a multi-byte rune")
 	}
 }
 

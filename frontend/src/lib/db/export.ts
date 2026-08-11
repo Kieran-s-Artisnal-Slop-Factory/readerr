@@ -157,7 +157,9 @@ export async function downloadExport(
  */
 export async function wipeLocalData(): Promise<void> {
   const db = await getDB();
-  const names = [...Object.keys(STORES), ...LOCAL_STORES, 'sync_meta'];
+  // label_usage is a derived local cache (chip recency) — wiped so the
+  // backfill rebuilds it from whatever data replaces the wiped stores.
+  const names = [...Object.keys(STORES), ...LOCAL_STORES, 'sync_meta', 'label_usage'];
   const tx = db.transaction(names, 'readwrite');
   for (const name of names) tx.objectStore(name).clear();
   await tx.done;
@@ -279,6 +281,12 @@ export async function importData(envelope: ExportEnvelope): Promise<ImportResult
     if (replace) {
       await db.delete('sync_meta', 'lastPullSeq');
       await db.delete('sync_meta', 'serverEpoch');
+      // Chip-recency cache is derived from the joins just replaced — drop it
+      // (and its backfill flag) so it rebuilds from the restored data.
+      await db.delete('sync_meta', 'labelUsageBackfilled');
+      if (db.objectStoreNames.contains('label_usage')) {
+        await db.clear('label_usage');
+      }
     }
   }
 

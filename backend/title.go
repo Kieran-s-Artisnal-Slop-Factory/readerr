@@ -22,9 +22,15 @@ import (
 var titleClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	ogTitleRe = regexp.MustCompile(`(?is)<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']`)
+	// The content value is matched per quote style — a double-quoted value
+	// may legitimately contain apostrophes (content="it doesn't matter") and
+	// a single-quoted one may contain double quotes. A shared [^"']+ class
+	// truncated at the first apostrophe INSIDE double quotes ("it doesn").
+	// RE2 has no backreferences, so each quote style is its own alternative;
+	// extractTitle takes whichever capture group matched.
+	ogTitleRe = regexp.MustCompile(`(?is)<meta[^>]+property=["']og:title["'][^>]+content=(?:"([^"]+)"|'([^']+)')`)
 	// og:title with content before property (attribute order varies).
-	ogTitleRe2 = regexp.MustCompile(`(?is)<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']`)
+	ogTitleRe2 = regexp.MustCompile(`(?is)<meta[^>]+content=(?:"([^"]+)"|'([^']+)')[^>]+property=["']og:title["']`)
 	titleTagRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 	spaceRe    = regexp.MustCompile(`\s+`)
 )
@@ -108,14 +114,26 @@ func (s *server) handleTitle(w http.ResponseWriter, r *http.Request) {
 func extractTitle(page string) string {
 	var raw string
 	for _, re := range []*regexp.Regexp{ogTitleRe, ogTitleRe2, titleTagRe} {
-		if m := re.FindStringSubmatch(page); m != nil {
-			raw = m[1]
+		m := re.FindStringSubmatch(page)
+		if m == nil {
+			continue
+		}
+		// The og regexes have one group per quote style; take whichever hit.
+		for _, g := range m[1:] {
+			if g != "" {
+				raw = g
+				break
+			}
+		}
+		if raw != "" {
 			break
 		}
 	}
 	title := strings.TrimSpace(spaceRe.ReplaceAllString(html.UnescapeString(raw), " "))
-	if len(title) > maxTitleChars {
-		title = title[:maxTitleChars]
+	// Truncate by runes, not bytes — a byte slice can split a multi-byte
+	// character and hand the client a mangled replacement rune.
+	if r := []rune(title); len(r) > maxTitleChars {
+		title = string(r[:maxTitleChars])
 	}
 	return title
 }

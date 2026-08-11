@@ -42,27 +42,41 @@ Three fixes, none of which change what the page shows:
    never mutated, so deep-proxying tens of thousands of rows so a search box can
    filter them was pure overhead.
 
-## What is left, and why
+## The second round: the last two whole-library reads (fixed)
 
-The remaining ~900ms is two genuine whole-library reads. Both are expected given
-the current design; neither is free to remove:
+The ~900ms that remained after the first round was two genuine whole-library
+reads. Both are now gone (IDB migration v9, `db.ts`):
 
-- **`all('links')` — 474ms.** Suggestions need the backlog: unread, un-slushed,
-  non-resource links, priority-ordered. None of those are indexable (IndexedDB
-  won't index booleans or nulls), so finding candidates means reading the
-  library. Iterating the `added_at` index with early termination would fix it
-  for the common case, but priority ordering breaks a naive early stop — a
-  priority-1 link captured yesterday must beat a priority-3 from two years ago.
-  A compound `[priority, added_at]` index would do it properly.
-- **`tagsByRecentUse()` — 399ms.** Ordering ~120 tags by most recent use means
-  reading all 61k join rows for their `updated_at`. A `last_used_at` column on
-  the tag row would make it a 120-row read — but that is a schema change, so it
-  needs the migration + `sync.go` + sync-test work every data-model change here
-  requires.
+- **`all('links')` — was 474ms on every load.** The read served two purposes:
+  the adder's search corpus and the suggestions pool. They were split apart.
+  The search corpus now loads lazily on first focus of the adder (most visits
+  never type in it), and `suggestLinks` without a pool reads the backlog
+  through indexes with early termination: rows with an explicit priority come
+  from a compound `[priority, added_at]` index, and null-priority rows (the
+  common case — IndexedDB won't index null, so they are absent from the
+  compound index by construction) come from the plain `added_at` index; the
+  two streams merge in (priority, added_at) order and stop at the quota. Both
+  cursors share one transaction — an idle IDB transaction auto-commits, so
+  two transactions would kill each other's cursor. Focus-tag pools resolve
+  through the `link_tags` index, bounded by the tag's own assignments.
+- **`tagsByRecentUse()` — was 399ms per capture-box mount.** Recency now lives
+  in `label_usage`, a LOCAL-ONLY store with one row per tag/topic id, stamped
+  by `assignTag`/`assignTopic` and rebuilt from the joins by a one-time
+  backfill (so existing ordering carried over). Local-only deliberately: a
+  synced `last_used_at` column on the tag row was the obvious design, but
+  every assignment would then rewrite the tag row itself, and under whole-row
+  LWW a stale device stamping recency could clobber a concurrent rename —
+  the same stale-snapshot class the sync audit spent weeks killing. Per-device
+  recency is also arguably the better UX (your recent tags, not the
+  household's). Name-merges carry the stray's recency onto the survivor.
+
+Guards: `test/perfPaths.test.ts` — ordering equivalence against the old
+whole-table implementations as oracle, plus tests that FAIL if a whole-table
+`getAll` ever returns to either path.
 
 Rule of thumb this leaves behind: **on a hot page, a whole-table read should be
 something you chose deliberately, not something a helper does on your behalf.**
-The three fixed items were all helpers quietly reading everything.
+Every fixed item above was a helper quietly reading everything.
 
 ## Seeding
 

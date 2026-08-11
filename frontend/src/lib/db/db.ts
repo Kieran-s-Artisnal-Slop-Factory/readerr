@@ -91,6 +91,24 @@ const MIGRATIONS: Migration[] = [
       store.createIndex('updated_at', 'updated_at', { multiEntry: false });
     }
   },
+  // v9 — two page-load reads stop scanning whole tables (performance.md):
+  //   - label_usage: local-only recency per tag/topic id for the capture
+  //     box's chip ordering, replacing a whole link_tags/link_topics scan.
+  //     Derived data — never synced or backed up, rebuilt by a one-time
+  //     backfill (links.ts labelUsageMap) when absent.
+  //   - links.priority_added: compound [priority, added_at] index for backlog
+  //     suggestions. Rows with priority NULL are deliberately absent (IDB
+  //     doesn't index null); suggestLinks serves them from the existing
+  //     added_at index and merges the two streams.
+  (db, tx) => {
+    if (!db.objectStoreNames.contains('label_usage')) {
+      db.createObjectStore('label_usage', { keyPath: 'id' });
+    }
+    const links = tx.objectStore('links');
+    if (!links.indexNames.contains('priority_added')) {
+      links.createIndex('priority_added', ['priority', 'added_at'], { multiEntry: false });
+    }
+  },
 ];
 
 /** Local-only stores that live in IndexedDB but never sync or appear in STORES. */

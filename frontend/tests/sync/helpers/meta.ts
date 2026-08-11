@@ -47,6 +47,7 @@ export const TABLES: Record<string, TableMeta> = {
       'onboarding_completed_at',
       'strip_query_params',
       'strip_whitelist',
+      'strip_extra_params',
       'auto_title',
       'default_week',
       'default_week_offset',
@@ -54,7 +55,7 @@ export const TABLES: Record<string, TableMeta> = {
       'archive_after_months',
       'capture_tag_sort',
     ],
-    ['strip_whitelist', 'focus_tag_ids'],
+    ['strip_whitelist', 'strip_extra_params', 'focus_tag_ids'],
     ['auto_title', 'archive_enabled']
   ),
   plans: t(['id', 'period', 'starts_on', 'articles_per_week', 'focus_tag_ids', 'note'], ['focus_tag_ids']),

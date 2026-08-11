@@ -469,6 +469,45 @@ export async function reorderEntries(
 }
 
 /**
+ * Walk the backlog in (priority, added_at) order through indexes, collecting
+ * up to `need` links that pass `wanted` — never a whole-table read
+ * (performance.md). Two streams merge: rows with an EXPLICIT priority come
+ * from the compound 'priority_added' index; rows with priority null
+ * (effective 3, the common case) are absent from it — IndexedDB doesn't
+ * index null — and come from the 'added_at' index instead, skipping the
+ * explicit rows the other stream owns. Both cursors live on ONE transaction,
+ * so awaiting either keeps the other alive, and the loop awaits nothing else
+ * (an idle IDB transaction auto-commits). Ties between an explicit-3 and a
+ * null-3 with the same added_at take the explicit row first.
+ */
+async function collectBacklog(need: number, wanted: (l: Link) => boolean): Promise<Link[]> {
+  if (need <= 0) return [];
+  const out: Link[] = [];
+  const tx = (await getDB()).transaction('links');
+  let exp = await tx.store.index('priority_added').openCursor();
+  let nul = await tx.store.index('added_at').openCursor();
+  const skipExplicit = async () => {
+    while (nul && (nul.value as Link).priority != null) nul = await nul.continue();
+  };
+  await skipExplicit();
+  while (out.length < need && (exp || nul)) {
+    const e = exp ? (exp.value as Link) : null;
+    const n = nul ? (nul.value as Link) : null;
+    const takeExp =
+      e !== null && (n === null || (e.priority ?? 3) < 3 || e.added_at <= n.added_at);
+    const candidate = takeExp ? e! : n!;
+    if (wanted(candidate)) out.push(candidate);
+    if (takeExp) {
+      exp = await exp!.continue();
+    } else {
+      nul = await nul!.continue();
+      await skipExplicit();
+    }
+  }
+  return out;
+}
+
+/**
  * Triage suggestions: unread, un-slushed, non-resource backlog links not
  * already picked — priority first (1 beats 3), oldest-captured within a
  * priority so the backlog still drains front-to-back.
@@ -479,6 +518,12 @@ export async function reorderEntries(
  * several focus tags counts against the first bucket that takes it). Any
  * bucket that runs dry, and any leftover quota, falls back to the general
  * backlog pool. Priority ordering applies inside every pool.
+ *
+ * With a `pool` the caller's array is filtered in memory (the week page
+ * passes its already-loaded search corpus when it has one); without it the
+ * general pool is read through indexes with early termination — see
+ * collectBacklog — and focus pools through the link_tags index, so no path
+ * scans the whole links table.
  */
 export async function suggestLinks(
   excludeLinkIds: Set<string>,
@@ -488,13 +533,15 @@ export async function suggestLinks(
   pool?: Link[]
 ): Promise<Link[]> {
   if (count <= 0) return [];
-  const links = pool ?? (await all<Link>('links'));
   // links.ts owns effectivePriority but imports this module — inline the
   // null-means-3 rule rather than creating an import cycle.
   const priority = (l: Link) => l.priority ?? 3;
-  const candidates = links
-    .filter((l) => !l.read_at && !l.slushed_at && !l.is_resource && !excludeLinkIds.has(l.id))
-    .sort((a, b) => priority(a) - priority(b) || a.added_at.localeCompare(b.added_at));
+  const eligible = (l: Link) =>
+    !l.read_at && !l.slushed_at && !l.is_resource && !excludeLinkIds.has(l.id);
+  const bySuggestionOrder = (a: Link, b: Link) =>
+    priority(a) - priority(b) || a.added_at.localeCompare(b.added_at);
+
+  const candidates = pool ? pool.filter(eligible).sort(bySuggestionOrder) : null;
 
   const chosen: Link[] = [];
   const taken = new Set<string>();
@@ -520,7 +567,17 @@ export async function suggestLinks(
           tagged.add(j.link_id);
         }
       }
-      pools.push(candidates.filter((l) => tagged.has(l.id)));
+      if (candidates) {
+        pools.push(candidates.filter((l) => tagged.has(l.id)));
+      } else {
+        // Bounded by the tag's own assignments — resolve and filter directly.
+        const tagPool: Link[] = [];
+        for (const linkId of tagged) {
+          const link = await get<Link>('links', linkId);
+          if (link && eligible(link)) tagPool.push(link);
+        }
+        pools.push(tagPool.sort(bySuggestionOrder));
+      }
     }
     // Split the quota: earlier tags get the remainder (3 over 2 → 2+1).
     const base = Math.floor(count / focusTagIds.length);
@@ -532,7 +589,14 @@ export async function suggestLinks(
   }
 
   // Fill whatever's left (no focus, dry buckets) from the general pool.
-  take(candidates, count - chosen.length);
+  if (candidates) {
+    take(candidates, count - chosen.length);
+  } else {
+    take(
+      await collectBacklog(count - chosen.length, (l) => eligible(l) && !taken.has(l.id)),
+      count - chosen.length
+    );
+  }
   return chosen;
 }
 
