@@ -1,9 +1,19 @@
-- [ ] suggestLinks reads the whole links table (~474ms at 77k) because the backlog
-  filter (unread / un-slushed / non-resource, priority-ordered) has nothing
-  indexable. A compound [priority, added_at] index would let it stop early.
-- [ ] tagsByRecentUse reads all 61k link_tags (~399ms) to order ~120 tags by most
-  recent use. A `last_used_at` column on the tag row makes it a 120-row read, but
-  that is a data-model change: migration + sync.go + sync tests.
+- [ ] Performance Improvements
+  - [ ] suggestLinks reads the whole links table (~474ms at 77k) because the backlog
+    filter (unread / un-slushed / non-resource, priority-ordered) has nothing
+    indexable. A compound [priority, added_at] index would let it stop early.
+  - [ ] tagsByRecentUse reads all 61k link_tags (~399ms) to order ~120 tags by most
+    recent use. A `last_used_at` column on the tag row makes it a 120-row read, but
+    that is a data-model change: migration + sync.go + sync tests.
+- [ ] Make the terms used to strip tracking configurable. Keep the same default list, but allow people to specify other query params to strip if they want to
+- [ ] I noticed previously when adding links that have a `'` in them that the auto-titling (in the backend) it breaks (e.g. if a page is titled `it doesn't matter your rank`, I would get `it doesn` back as the page title), make sure everything is escaped properly in responses and on any ingest for the auto-titling. I can't remember if this was already fixed previously or not, so just verify and fix if necessary
+- [ ] Cleanup (do this last)
+  - [ ] Documentation overhaul
+    - [ ] Scan through every document in `docs/dev` (ignore `experiments & plans`) and `docs/user`
+      - [ ] Ensure all docs are Up to date, making changes where necessary
+    - [ ] Update code comments across the entire frontend and backend to make sure they align with the current state of the system
+  - [ ] Verify all files are necessary, cleanup any that are no longer in use (if there are any)
+  - [ ] Add a file called `further-cleanup.md` to `docs/dev/experiments & plans` that details a plan to refactor the existing code to simplify where possible if there are any good opportunities to
 
 Ensure for each change:
 
