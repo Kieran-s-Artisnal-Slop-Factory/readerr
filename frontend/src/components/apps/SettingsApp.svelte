@@ -36,7 +36,7 @@
     type SyncLogStats,
   } from '../../lib/services/syncLog';
   import Pagination from '../Pagination.svelte';
-  import { cleanUrl } from '../../lib/services/capture';
+  import { cleanUrl, stripExistingLinks } from '../../lib/services/capture';
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
   import { href } from '../../lib/paths';
   import Card from '../Card.svelte';
@@ -110,6 +110,38 @@
     STRIP_EXAMPLES.map((url) => ({ from: url, to: cleanUrl(url, stripMode, whitelist) }))
   );
 
+  let strippingExisting = $state(false);
+
+  /** One-time bulk apply of the strip setting to the already-saved library. */
+  async function runStripExisting() {
+    if (strippingExisting) return;
+    if (
+      !confirm(
+        'Rewrite the URLs of all existing links using the setting above? ' +
+          'Removed query params cannot be restored.'
+      )
+    ) {
+      return;
+    }
+    strippingExisting = true;
+    try {
+      const { changed, collided } = await stripExistingLinks();
+      const parts = [
+        changed === 0
+          ? 'No stored URLs needed cleaning.'
+          : `Cleaned ${changed.toLocaleString()} link URL${changed === 1 ? '' : 's'}.`,
+      ];
+      if (collided > 0) {
+        parts.push(
+          `${collided} skipped — another saved link already has the cleaned URL.`
+        );
+      }
+      message = parts.join(' ');
+    } finally {
+      strippingExisting = false;
+    }
+  }
+
   async function saveStripMode() {
     await saveUserSettings({ strip_query_params: stripMode, strip_whitelist: whitelist });
     message = 'Link handling saved.';
@@ -169,6 +201,20 @@
   // already hold data (see docs/dev/sync.md).
   let conflictOpen = $state(false);
   let resolving = $state(false);
+
+  /**
+   * The explicit escape hatch for a decommissioned server: with sync off,
+   * background sync stops entirely and the week page closes stale weeks from
+   * local data (instead of deferring until a sync that can never succeed).
+   */
+  function toggleSyncMode(e: Event) {
+    const on = (e.currentTarget as HTMLInputElement).checked;
+    setSyncMode(on ? 'sync' : 'offline');
+    syncEnabled = on;
+    message = on
+      ? 'Sync enabled — it runs automatically in the background.'
+      : 'Sync disabled on this device — everything stays local until you turn it back on.';
+  }
 
   async function saveSyncUrl() {
     const previous = getSyncUrl();
@@ -525,6 +571,20 @@
           </li>
         {/each}
       </ul>
+      <div style="margin-top: var(--space-3);">
+        <button
+          class="btn"
+          onclick={runStripExisting}
+          disabled={strippingExisting || stripMode === 'off'}
+          title={stripMode === 'off' ? 'Pick a stripping mode above first.' : undefined}
+        >
+          {strippingExisting ? 'Stripping…' : 'Run stripping on existing links'}
+        </button>
+        <p class="muted" style="margin: var(--space-1) 0 0; font-size: var(--font-size-sm);">
+          New pastes are cleaned automatically; this applies the setting above
+          to every link already saved.
+        </p>
+      </div>
 
       <label class="check" style="margin-top: var(--space-4);">
         <input type="checkbox" bind:checked={autoTitle} onchange={saveAutoTitle} />
@@ -610,6 +670,17 @@
         </p>
       {/if}
       <div style="margin-bottom: var(--space-3);">
+        <label class="check">
+          <input type="checkbox" checked={syncEnabled} onchange={toggleSyncMode} />
+          Sync enabled on this device
+        </label>
+        <p class="muted" style="margin: var(--space-1) 0 0; font-size: var(--font-size-sm);">
+          Off makes this device fully local-only: no backup, no other devices,
+          and the weekly close runs from local data alone. Saving a server URL
+          turns it back on.
+        </p>
+      </div>
+      <div style="margin-bottom: var(--space-3);">
         <label for="set-sync-url">Sync server URL (blank = same origin)</label>
         <input
           id="set-sync-url"
@@ -657,7 +728,12 @@
         <button class="btn" onclick={testSyncServer} disabled={testing}>
           {testing ? 'Testing…' : 'Test connection'}
         </button>
-        <button class="btn btn-primary" onclick={runSync} disabled={syncing}>
+        <button
+          class="btn btn-primary"
+          onclick={runSync}
+          disabled={syncing || !syncEnabled}
+          title={syncEnabled ? undefined : 'Sync is disabled on this device.'}
+        >
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
       </div>

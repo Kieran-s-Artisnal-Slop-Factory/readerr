@@ -177,3 +177,22 @@ describe('captureLinks end-to-end', () => {
     expect(result.badOptions).toEqual(['!tgas=[x]', '!w=999']);
   });
 });
+
+describe('!list', () => {
+  it('parses names, matching by prefix down to !l', () => {
+    expect(parseLineOptions('!list=[CLI tools]').opts.list).toEqual(['CLI tools']);
+    expect(parseLineOptions('!li=[a, b]').opts.list).toEqual(['a', 'b']);
+    expect(parseLineOptions('!l=[x]').opts.list).toEqual(['x']);
+  });
+
+  it('treats [] and false as "no lists"', () => {
+    expect(parseLineOptions('!l=[]').opts.list).toBe(false);
+    expect(parseLineOptions('!l=false').opts.list).toBe(false);
+  });
+
+  it('rejects a bare !l', () => {
+    const { opts, bad } = parseLineOptions('!l');
+    expect(opts.list).toBeUndefined();
+    expect(bad).toEqual(['!l']);
+  });
+});

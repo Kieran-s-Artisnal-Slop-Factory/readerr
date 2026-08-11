@@ -24,6 +24,7 @@
   import {
     currentWeekStart,
     findWeek,
+    formatWeekRange,
     weekEntries,
     weekStartPlus,
     type WeekEntry,
@@ -220,7 +221,7 @@
     </Card>
 
     <Card
-      title={`${focusWeek === currentWeekStart() ? 'This week' : `Week of ${fmt(focusWeek)}`}${isThisOrLater(focusWeek) ? '' : ' (past)'}`}
+      title={`${focusWeek === currentWeekStart() ? 'This week' : `Week of ${formatWeekRange(focusWeek)}`}${isThisOrLater(focusWeek) ? '' : ' (past)'}`}
     >
       <div class="focus-nav">
         <button class="btn" onclick={() => shiftFocus(-1)}>← Previous</button>

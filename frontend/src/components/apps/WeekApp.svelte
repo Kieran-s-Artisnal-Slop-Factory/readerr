@@ -40,7 +40,9 @@
     currentWeekStart,
     ensureOpenWeek,
     findWeek,
+    formatWeekRange,
     hasStaleOpenWeeks,
+    pruneUnfinishedEntries,
     removeFromWeek,
     reorderEntries,
     setEntryDone,
@@ -344,6 +346,10 @@
   /** Load whichever week `focusStart` points at (may not have a row yet). */
   async function loadWeek() {
     week = await findWeek(focusStart);
+    // Past weeks read as "what I actually read": opening a closed week drops
+    // its never-finished ('rolled') entries — their links went back to the
+    // backlog at close, so only the reading history is being tidied.
+    if (week?.closed_at) await pruneUnfinishedEntries(week);
     triage = await effectiveTriage(focusStart);
     const names: string[] = [];
     for (const id of triage.focusTagIds) {
@@ -560,9 +566,9 @@
     await refresh();
   }
 
+  /** "August 3-9" — the week's whole span, not just its Monday. */
   function formatWeek(weekStart: string): string {
-    const d = new Date(`${weekStart}T00:00:00`);
-    return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+    return formatWeekRange(weekStart);
   }
 </script>
 

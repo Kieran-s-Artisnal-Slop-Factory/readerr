@@ -4,8 +4,10 @@
  *
  *   - [Title](url) !tags=[a, b, with\, comma] !topics=[x] !week=2 !clean=false !done !favourite !resource
  *
- * Commands match by prefix, minimum shown: ta(gs), to(pics), f(avourite),
- * d(one), r(esources), c(lean), w(eeks), p(riority) — case-insensitive.
+ * Commands match by prefix, minimum shown: ta(gs), to(pics), l(ist),
+ * f(avourite), d(one), r(esources), c(lean), w(eeks), p(riority) —
+ * case-insensitive. !list=[name] adds to a resource list (creating it if
+ * new) and implies !resource.
  * p takes 1 (highest) to 3 (the default for unset links). Booleans accept
  * true/1/yes and false/0/no; a bare flag means true. Arrays are
  * comma-delimited in brackets, items trimmed, `\` escaping the next
@@ -23,6 +25,11 @@ export interface LineOptions {
   tags?: string[] | false;
   /** Topic names to add on top of the UI selection; false = no topics. */
   topics?: string[] | false;
+  /**
+   * Resource-list names to add on top of the UI selection; false = no lists.
+   * A named list implies the resource flag (lists only hold resources).
+   */
+  list?: string[] | false;
   favourite?: boolean;
   done?: boolean;
   resource?: boolean;
@@ -46,6 +53,7 @@ const MAX_WEEKS_AHEAD = 52;
 const COMMANDS = [
   { full: 'tags', min: 'ta' },
   { full: 'topics', min: 'to' },
+  { full: 'list', min: 'l' },
   { full: 'favourite', min: 'f' },
   { full: 'done', min: 'd' },
   { full: 'resources', min: 'r' },
@@ -157,8 +165,9 @@ export function parseLineOptions(text: string): ParsedLineOptions {
 
     switch (cmd) {
       case 'tags':
-      case 'topics': {
-        const key = cmd === 'tags' ? 'tags' : 'topics';
+      case 'topics':
+      case 'list': {
+        const key = cmd;
         if (raw !== undefined && raw.startsWith('[') && raw.endsWith(']')) {
           const items = parseArray(raw);
           opts[key] = items.length > 0 ? items : false; // [] = exclude, like false

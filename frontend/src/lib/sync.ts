@@ -678,6 +678,45 @@ async function runRequestedSync(): Promise<void> {
 }
 
 /**
+ * Flush the debounced push when the page is going away: a write made in the
+ * last 800ms has an armed timer that will never fire once the page dies —
+ * exactly how a week closed Sunday night on flaky wifi stayed local-only for
+ * days and then lost LWW to another device's stale close. Best-effort: an
+ * interrupted push is idempotent and re-sends on the next load.
+ */
+function flushPendingSync(): void {
+  if (!requestSyncTimer && !requestSyncPending) return;
+  if (requestSyncTimer) {
+    clearTimeout(requestSyncTimer);
+    requestSyncTimer = null;
+  }
+  requestSyncPending = false;
+  if (getSyncMode() === 'offline') return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  if (isTestMode() && localStorage.getItem('readerr-test-bg-sync') !== '1') return;
+  void syncFresh();
+}
+
+/**
+ * Install the connectivity/lifecycle sync triggers (called once per page
+ * from Navbar, alongside maybeAutoSync):
+ *   - 'online': writes made while offline never armed the push debounce
+ *     (requestSync bails on !onLine), so reconnecting is what retries them.
+ *   - 'pagehide' / tab hidden: flush a still-debounced push immediately —
+ *     in an MPA every navigation kills pending timers.
+ * requestSync/flushPendingSync gate on sync mode and test mode themselves,
+ * so page loads in the harness stay side-effect free.
+ */
+export function installSyncFlush(): void {
+  if (typeof window === 'undefined') return;
+  window.addEventListener('online', () => requestSync());
+  window.addEventListener('pagehide', flushPendingSync);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPendingSync();
+  });
+}
+
+/**
  * Background sync, safe to call on every page load: always runs once when
  * the app is opened (per browser session), then at most every 15 minutes as
  * the user navigates.

@@ -61,6 +61,22 @@ export async function listMembers(listId: string): Promise<ListMember[]> {
   return members.sort((a, b) => a.entry.position - b.entry.position);
 }
 
+/** Resource-list twin of ensureTagIdsByName: resolve names, creating new lists. */
+export async function ensureListIdsByName(names: string[]): Promise<string[]> {
+  const lists = await all<ResourceList>('resource_lists');
+  const byName = new Map(lists.map((l) => [l.name.toLowerCase(), l.id]));
+  const ids: string[] = [];
+  for (const name of names) {
+    let id = byName.get(name.toLowerCase());
+    if (!id) {
+      id = (await createResourceList(name)).id;
+      byName.set(name.toLowerCase(), id);
+    }
+    ids.push(id);
+  }
+  return ids;
+}
+
 /** Add a link to a list; the link becomes a resource if it wasn't one. */
 export async function addToList(listId: string, link: Link): Promise<void> {
   const joins = await byIndex<ResourceListLink>('resource_list_links', 'list_id', listId);

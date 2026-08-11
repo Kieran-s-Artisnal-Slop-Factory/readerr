@@ -314,6 +314,21 @@ export async function setEntryDone(entry: WeekLink, done: boolean): Promise<Week
   return (await patch<WeekLink>('week_links', entry.id, () => ({ done_at }))) ?? entry;
 }
 
+/**
+ * A week's full Monday–Sunday span: "August 3-9", or "July 27-August 2" when
+ * it crosses a month boundary. Used wherever a week is named in prose (the
+ * week page nav, the Plans pages) so the end of the week is visible at a
+ * glance.
+ */
+export function formatWeekRange(weekStart: string): string {
+  const start = new Date(`${weekStart}T00:00:00`);
+  const end = new Date(`${weekStart}T00:00:00`);
+  end.setDate(end.getDate() + 6);
+  const startLabel = start.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+  if (start.getMonth() === end.getMonth()) return `${startLabel}-${end.getDate()}`;
+  return `${startLabel}-${end.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`;
+}
+
 /** The Monday options offered by week pickers: this week + the next `count`. */
 export function upcomingWeekOptions(count = 12): { value: string; label: string }[] {
   const thisWeek = currentWeekStart();
@@ -564,6 +579,36 @@ export async function closeWeek(week: Week): Promise<CloseResult> {
 
   await put('weeks', { ...week, closed_at: new Date().toISOString() });
   return result;
+}
+
+/**
+ * Drop never-finished entries from a CLOSED week, so past weeks read as
+ * "what I actually read". A close stamps unfinished entries 'rolled' and
+ * returns their links to the backlog; the entry row itself then just clutters
+ * the history — this tombstones it. Anything completed (done_at, or a
+ * 'read'/'slushed' outcome) is untouched, and the link's backlog/week state
+ * doesn't change (the close already handled it).
+ *
+ * Runs when the week page opens a closed week. Gated like the reconcilers:
+ * read-only in the harness unless invoked with heals, and deferred while a
+ * pull is applying (tombstoning mid-pull could race a just-arriving row).
+ * Returns how many entries were removed.
+ */
+export async function pruneUnfinishedEntries(week: Week): Promise<number> {
+  if (!week.closed_at) return 0;
+  if (!healsAllowed()) return 0;
+  if (isSyncing()) return 0;
+  const rows = await byIndex<WeekLink>('week_links', 'week_id', week.id);
+  let removed = 0;
+  for (const entry of rows) {
+    const finished =
+      !!entry.done_at || entry.outcome === 'read' || entry.outcome === 'slushed';
+    if (!finished) {
+      await softDelete('week_links', entry.id);
+      removed++;
+    }
+  }
+  return removed;
 }
 
 /**

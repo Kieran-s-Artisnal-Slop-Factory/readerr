@@ -18,7 +18,9 @@ import {
   ensureOpenWeek,
   ensureWeek,
   findWeek,
+  formatWeekRange,
   pendingWeeksForLink,
+  pruneUnfinishedEntries,
   reconcileOpenWeeks,
   reorderEntries,
   reviewLink,
@@ -542,5 +544,64 @@ describe('autoCloseStaleWeeks', () => {
     // The current week is untouched — only *stale* weeks close.
     await ensureWeek(currentWeekStart());
     expect(await autoCloseStaleWeeks()).toBeNull();
+  });
+});
+
+describe('pruneUnfinishedEntries', () => {
+  it('drops rolled entries from a closed week and keeps the finished ones', async () => {
+    const lastWeek = weekStartPlus(currentWeekStart(), -1);
+    const week = await ensureWeek(lastWeek);
+    const read = await makeLink({ favourite: true });
+    const slushed = await makeLink();
+    const rolled = await makeLink();
+    for (const l of [read, slushed, rolled]) await addLinkToWeek(week.id, l.id);
+    for (const { entry, link } of await weekEntries(week.id)) {
+      if (link.id !== rolled.id) await setEntryDone(entry, true);
+    }
+    await closeWeek(week);
+    const closed = (await findWeek(lastWeek))!;
+
+    const removed = await pruneUnfinishedEntries(closed);
+    expect(removed).toBe(1);
+
+    const remaining = await weekEntries(closed.id);
+    expect(remaining.map(({ link }) => link.id).sort()).toEqual([read.id, slushed.id].sort());
+    // The rolled link itself is untouched — still an ordinary backlog link.
+    const rolledLink = (await get<Link>('links', rolled.id))!;
+    expect(rolledLink.read_at).toBeNull();
+    expect(rolledLink.slushed_at).toBeNull();
+
+    // Idempotent: a second visit removes nothing.
+    expect(await pruneUnfinishedEntries(closed)).toBe(0);
+  });
+
+  it('never touches an open week', async () => {
+    const week = await ensureWeek(currentWeekStart());
+    const link = await makeLink();
+    await addLinkToWeek(week.id, link.id);
+    expect(await pruneUnfinishedEntries(week)).toBe(0);
+    expect((await weekEntries(week.id)).length).toBe(1);
+  });
+
+  it('keeps an entry completed by done_at even without an outcome', async () => {
+    const lastWeek = weekStartPlus(currentWeekStart(), -1);
+    const week = await ensureWeek(lastWeek);
+    const link = await makeLink();
+    await addLinkToWeek(week.id, link.id);
+    for (const { entry } of await weekEntries(week.id)) await setEntryDone(entry, true);
+    // Simulate a close that somehow missed the outcome stamp (pull races):
+    // completion alone must protect the entry.
+    await put<Week>('weeks', { ...week, closed_at: new Date().toISOString() });
+    const closed = (await findWeek(lastWeek))!;
+    expect(await pruneUnfinishedEntries(closed)).toBe(0);
+  });
+});
+
+describe('formatWeekRange', () => {
+  it('spans Monday to Sunday within one month', () => {
+    expect(formatWeekRange('2026-08-03')).toBe('August 3-9');
+  });
+  it('names both months across a boundary', () => {
+    expect(formatWeekRange('2026-07-27')).toBe('July 27-August 2');
   });
 });

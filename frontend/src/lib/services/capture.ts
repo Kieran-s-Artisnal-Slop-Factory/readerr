@@ -11,7 +11,7 @@
  * retry mechanism, no queue needed.
  */
 import { all, byIndex, bulkPut, get, patch, put, withSyncFields } from '../db/repo';
-import type { Link, StripMode } from '../db/types';
+import type { Link, ResourceListLink, StripMode } from '../db/types';
 import { parseLineOptions, splitLineOptions, type LineOptions } from './captureDsl';
 import {
   assignTag,
@@ -22,6 +22,7 @@ import {
   tagsForLink,
   topicsForLink,
 } from './links';
+import { addToList, ensureListIdsByName } from './resourceLists';
 import { getUserSettings } from './settings';
 import {
   currentWeekStart,
@@ -81,6 +82,47 @@ export function cleanUrl(url: string, mode: StripMode, whitelist: string[] = [])
   } catch {
     return url;
   }
+}
+
+export interface BulkStripResult {
+  /** Links whose URL was rewritten. */
+  changed: number;
+  /** Links left alone because the cleaned URL belongs to another link. */
+  collided: number;
+}
+
+/**
+ * Apply the CURRENT strip settings to every stored link's URL — capture only
+ * cleans NEW pastes, so links saved before stripping was enabled keep their
+ * tracking junk until this runs (Settings → Link handling → "Run stripping on
+ * existing links"). Only the url field is written, via patch, so concurrent
+ * pulled edits survive. A cleaned URL that another live link already owns is
+ * skipped: rewriting it would leave two rows for one URL and capture's dedupe
+ * would pick between them arbitrarily. Archived (cold-store) links are not
+ * touched — they're frozen history.
+ */
+export async function stripExistingLinks(): Promise<BulkStripResult> {
+  const settings = await getUserSettings();
+  const mode = settings?.strip_query_params ?? 'off';
+  const result: BulkStripResult = { changed: 0, collided: 0 };
+  if (mode === 'off') return result;
+  const whitelist = settings?.strip_whitelist ?? [];
+  const links = await all<Link>('links');
+  const byUrl = new Map(links.map((l) => [l.url, l]));
+  for (const link of links) {
+    const next = cleanUrl(link.url, mode, whitelist);
+    if (next === link.url) continue;
+    const owner = byUrl.get(next);
+    if (owner && owner.id !== link.id) {
+      result.collided++;
+      continue;
+    }
+    await patch<Link>('links', link.id, () => ({ url: next }));
+    byUrl.delete(link.url);
+    byUrl.set(next, link);
+    result.changed++;
+  }
+  return result;
 }
 
 export interface CaptureResult {
@@ -154,6 +196,8 @@ export function parseUrls(text: string): {
 export interface CaptureAssign {
   tagIds?: string[];
   topicIds?: string[];
+  /** Resource lists to add every captured link to (implies isResource). */
+  listIds?: string[];
   /** Monday 'YYYY-MM-DD' — queues every captured link for that week. */
   weekStart?: string | null;
   /** Mark everything done on capture (joins this week, slushes if unremarked). */
@@ -216,6 +260,16 @@ async function mergeIntoExisting(link: Link, assign?: CaptureAssign): Promise<Li
     changed = true;
   }
 
+  // List memberships the link doesn't already hold. The flags block above has
+  // already upgraded is_resource (listIds implies it via effectiveAssign), so
+  // addToList only inserts the membership row.
+  for (const listId of assign.listIds ?? []) {
+    const joins = await byIndex<ResourceListLink>('resource_list_links', 'list_id', listId);
+    if (joins.some((j) => j.link_id === link.id)) continue;
+    await addToList(listId, link);
+    changed = true;
+  }
+
   // A selected week the link was never part of adds it for another look.
   if (assign.weekStart) {
     const history = await weekHistoryForLink(link.id);
@@ -272,6 +326,12 @@ async function effectiveAssign(
       : opts.topics
         ? [...new Set([...(assign?.topicIds ?? []), ...(await ensureTopicIdsByName(opts.topics))])]
         : (assign?.topicIds ?? []);
+  const listIds =
+    opts.list === false
+      ? []
+      : opts.list
+        ? [...new Set([...(assign?.listIds ?? []), ...(await ensureListIdsByName(opts.list))])]
+        : (assign?.listIds ?? []);
   const weekStart =
     opts.week === false
       ? null
@@ -281,10 +341,13 @@ async function effectiveAssign(
   return {
     tagIds,
     topicIds,
+    listIds,
     weekStart,
     markDone: opts.done ?? assign?.markDone ?? false,
     favourite: opts.favourite ?? assign?.favourite ?? false,
-    isResource: opts.resource ?? assign?.isResource ?? false,
+    // A resource list only holds resources, so membership implies the flag —
+    // even over an explicit !resource=false on the same line.
+    isResource: listIds.length > 0 || (opts.resource ?? assign?.isResource ?? false),
     priority: opts.priority ?? assign?.priority,
   };
 }
@@ -358,6 +421,9 @@ export async function captureLinks(text: string, assign?: CaptureAssign): Promis
     // Labels first: markLinkDone's slush check must see topic assignments.
     for (const tagId of eff.tagIds ?? []) await assignTag(link.id, tagId);
     for (const topicId of eff.topicIds ?? []) await assignTopic(link.id, topicId);
+    // The row was created with is_resource already true (listIds implies it),
+    // so addToList only inserts the membership.
+    for (const listId of eff.listIds ?? []) await addToList(listId, link);
     if (eff.weekStart) await setLinkWeek(link.id, eff.weekStart);
     // Done from capture doesn't slush immediately (week-close still can).
     if (eff.markDone) await markLinkDone(link, false);

@@ -19,7 +19,7 @@
     updatePlan,
     type PlanFields,
   } from '../../lib/services/plans';
-  import { currentWeekStart } from '../../lib/services/weeks';
+  import { currentWeekStart, formatWeekRange } from '../../lib/services/weeks';
   import type { Plan, PlanPeriod, Tag } from '../../lib/db/types';
 
   let loading = $state(true);
@@ -144,7 +144,7 @@
     if (plan.period === 'month') {
       return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     }
-    return `Week of ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`;
+    return `Week of ${formatWeekRange(plan.starts_on)}`;
   }
 </script>
 

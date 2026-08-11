@@ -10,8 +10,12 @@
   let archiveEnabled = $state(false);
 
   onMount(() => {
-    // Opportunistic background sync, throttled internally.
-    import('../lib/sync').then(({ maybeAutoSync }) => maybeAutoSync());
+    // Opportunistic background sync (throttled internally), plus the
+    // reconnect/page-hide flush so offline or just-made writes still push.
+    import('../lib/sync').then(({ maybeAutoSync, installSyncFlush }) => {
+      installSyncFlush();
+      maybeAutoSync();
+    });
     // The Archive collection only appears once archival mode is enabled.
     import('../lib/services/settings').then(async ({ getUserSettings }) => {
       archiveEnabled = (await getUserSettings())?.archive_enabled ?? false;

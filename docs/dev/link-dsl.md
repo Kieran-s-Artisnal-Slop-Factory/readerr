@@ -44,6 +44,7 @@ Rules that make it unambiguous:
 |---|---|---|---|
 | `!tags` | `!ta` | array, or `false` | tag names to add, **merged** with the UI-selected chips; `false` (or `[]`) excludes the UI selection for this line |
 | `!topics` | `!to` | array, or `false` | same, for topics |
+| `!list` | `!l` | array, or `false` | resource-list names to add the link to (created if new), merged with the UI-selected chips; membership **implies `!resource`** (even over `!resource=false`); `false`/`[]` excludes the UI selection |
 | `!favourite` | `!f` | bool (bare = true) | favourite the link |
 | `!done` | `!d` | bool (bare = true) | mark read on capture (joins the current week as done) |
 | `!resources` | `!r` | bool (bare = true) | flag as a resource |
@@ -141,9 +142,10 @@ flowchart TD
   `!tags=[]`'s brackets). The caret is set **after `await tick()`** — setting
   it before Svelte flushes the bound value gets clobbered back to the end.
 
-Command insertions are canonical: `!tags=[]`, `!topics=[]` (caret inside),
-`!favourite`, `!done`, `!resource`, `!clean=false` (the common use), and
-`!week=` (caret after `=`).
+Command insertions are canonical: `!tags=[]`, `!topics=[]`, `!list=[]` (caret
+inside), `!favourite`, `!done`, `!resource`, `!clean=false` (the common use),
+and `!week=` (caret after `=`). Name completion inside an unclosed `[` covers
+tags, topics, and resource lists alike.
 
 ## Tests
 

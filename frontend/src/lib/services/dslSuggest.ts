@@ -22,6 +22,7 @@ export interface DslSuggestion {
 const COMMAND_SUGGESTIONS = [
   { full: 'tags', insert: '!tags=[]', caretOffset: -1, hint: 'comma-separated names, or false' },
   { full: 'topics', insert: '!topics=[]', caretOffset: -1, hint: 'comma-separated names, or false' },
+  { full: 'list', insert: '!list=[]', caretOffset: -1, hint: 'resource list names — implies !resource' },
   { full: 'favourite', insert: '!favourite', caretOffset: 0, hint: 'bare = true; =false to clear' },
   { full: 'done', insert: '!done', caretOffset: 0, hint: 'mark read on capture' },
   { full: 'resources', insert: '!resource', caretOffset: 0, hint: 'flag as a resource' },
@@ -34,7 +35,8 @@ export function dslSuggestions(
   text: string,
   caret: number,
   tagNames: string[],
-  topicNames: string[]
+  topicNames: string[],
+  listNames: string[] = []
 ): DslSuggestion[] {
   const lineStart = text.lastIndexOf('\n', caret - 1) + 1;
   const before = text.slice(lineStart, caret);
@@ -49,12 +51,13 @@ export function dslSuggestions(
     const cmd =
       w.startsWith('ta') && 'tags'.startsWith(w) ? 'tags'
       : w.startsWith('to') && 'topics'.startsWith(w) ? 'topics'
+      : w.startsWith('l') && 'list'.startsWith(w) ? 'list'
       : null;
     if (!cmd) return [];
     // The partial item = everything after the last unescaped comma.
     const partial = (value[2].split(/(?<!\\),/).pop() ?? '').trimStart();
     const start = caret - partial.length;
-    const names = cmd === 'tags' ? tagNames : topicNames;
+    const names = cmd === 'tags' ? tagNames : cmd === 'topics' ? topicNames : listNames;
     const q = partial.toLowerCase();
     const starts = names.filter((n) => n.toLowerCase().startsWith(q));
     const contains = q
@@ -62,7 +65,7 @@ export function dslSuggestions(
       : [];
     return [...starts, ...contains].slice(0, 8).map((name) => ({
       label: name,
-      hint: cmd === 'tags' ? 'existing tag' : 'existing topic',
+      hint: cmd === 'tags' ? 'existing tag' : cmd === 'topics' ? 'existing topic' : 'existing list',
       insert: name.replace(/,/g, '\\,'),
       start,
       caretOffset: 0,

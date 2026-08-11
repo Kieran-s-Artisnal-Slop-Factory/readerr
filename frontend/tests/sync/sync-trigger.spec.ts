@@ -55,6 +55,48 @@ test('a burst of writes coalesces into (few) syncs, and all land', async ({ brow
   }
 });
 
+test('pagehide flushes a still-debounced push immediately', async ({ browser, backend }) => {
+  const A = await createDevice(browser, backend.baseUrl, 'A-flush');
+  try {
+    await enableBgSync(A);
+    const hA = hook(A);
+    const fx = linkFixture({ title: 'flushed on pagehide' });
+    await hA.repoPut('links', fx); // arms the 800ms debounce
+    await A.page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    // Lands well before the debounce would have fired — only the flush can
+    // get it there this fast; a broken flush fails this poll at ~700ms while
+    // the debounce is still pending.
+    await expect
+      .poll(async () => (await backend.pullAll()).rows.links?.length ?? 0, { timeout: 700 })
+      .toBe(1);
+  } finally {
+    await A.context.close();
+  }
+});
+
+test('writes made while offline push when connectivity returns', async ({
+  browser,
+  backend,
+}) => {
+  const A = await createDevice(browser, backend.baseUrl, 'A-offline');
+  try {
+    await enableBgSync(A);
+    const hA = hook(A);
+    await A.context.setOffline(true);
+    await hA.repoPut('links', linkFixture({ title: 'written offline' }));
+    // requestSync bails while offline — nothing lands even past the debounce.
+    await new Promise((r) => setTimeout(r, 1200));
+    await A.context.setOffline(false); // fires the page's 'online' event
+    expect((await backend.pullAll()).rows.links ?? []).toEqual([]);
+    // The 'online' listener re-arms the push; poll until the row lands.
+    await expect
+      .poll(async () => (await backend.pullAll()).rows.links?.length ?? 0, { timeout: 8000 })
+      .toBe(1);
+  } finally {
+    await A.context.close();
+  }
+});
+
 test('background sync stays dormant WITHOUT the opt-in flag (determinism guard)', async ({
   backend,
   deviceA,

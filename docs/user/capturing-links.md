@@ -32,6 +32,10 @@ this paste:
 
 - **Tags** and **Topics** — pick existing ones or type a new name to create
   it on the spot.
+- **Resource lists** — add everything in the paste to one or more resource
+  lists (type a new name to create one). Picking a list turns the ⚒ resource
+  flag on and locks it — lists only hold resources — until the selection is
+  cleared.
 - **Reading week** — schedule the links into this week or a future one (or
   leave them in the Backlog).
 - **Priority** — 1 (top), 2 (soon), or 3 (the default). Lists show priority 1
@@ -61,6 +65,7 @@ The available options (any prefix works — `!ta`, `!fav`, `!p`):
 |---|---|---|
 | `!tags` | `!tags=[a, b]` | add these tags; `!tags=false` skips the ones picked above |
 | `!topics` | `!topics=[x]` | add these topics; `!topics=false` skips them |
+| `!list` | `!list=[CLI tools]` | add to these resource lists (created if new) — implies `!resource`; `!list=false` skips the lists picked above |
 | `!week` | `!week=2` | schedule N weeks ahead (`0` = this week, `false` = none) |
 | `!priority` | `!priority=1` | set priority 1–3 |
 | `!favourite` | `!favourite` | mark as a favourite |

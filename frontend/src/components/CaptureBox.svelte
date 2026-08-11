@@ -12,9 +12,10 @@
   import { captureLinks } from '../lib/services/capture';
   import { dslSuggestions, type DslSuggestion } from '../lib/services/dslSuggest';
   import { tagsByRecentUse, topicsByRecentUse } from '../lib/services/links';
+  import { createResourceList, listResourceLists } from '../lib/services/resourceLists';
   import { getUserSettings } from '../lib/services/settings';
   import { upcomingWeekOptions } from '../lib/services/weeks';
-  import type { Link, StripMode, Tag, Topic } from '../lib/db/types';
+  import type { Link, ResourceList, StripMode, Tag, Topic } from '../lib/db/types';
 
   let {
     onAdded,
@@ -32,8 +33,10 @@
   let report = $state('');
   let tags = $state<Tag[]>([]);
   let topics = $state<Topic[]>([]);
+  let resourceLists = $state<ResourceList[]>([]);
   let selectedTagIds = $state<string[]>([]);
   let selectedTopicIds = $state<string[]>([]);
+  let selectedListIds = $state<string[]>([]);
   let selectedWeek = $state('');
   let markDone = $state(false);
   let isResource = $state(false);
@@ -63,8 +66,21 @@
   const suggestions = $derived(
     suggestDismissed
       ? []
-      : dslSuggestions(text, caret, tags.map((t) => t.name), topics.map((t) => t.name))
+      : dslSuggestions(
+          text,
+          caret,
+          tags.map((t) => t.name),
+          topics.map((t) => t.name),
+          resourceLists.map((l) => l.name)
+        )
   );
+
+  // A selected resource list means these ARE resources — the flag follows
+  // the chips and the ⚒ toggle locks until the selection clears.
+  const listLocked = $derived(selectedListIds.length > 0);
+  $effect(() => {
+    if (listLocked) isResource = true;
+  });
 
   // A new suggestion list highlights its first entry.
   $effect(() => {
@@ -89,7 +105,10 @@
   }
 
   const selectionCount = $derived(
-    selectedTagIds.length + selectedTopicIds.length + (selectedWeek ? 1 : 0)
+    selectedTagIds.length +
+      selectedTopicIds.length +
+      selectedListIds.length +
+      (selectedWeek ? 1 : 0)
   );
 
   const weekOptions = upcomingWeekOptions();
@@ -113,7 +132,11 @@
     // Most-recently-assigned first, so frequent labels stay on the first
     // page once the lists grow long enough to paginate — unless the user
     // prefers tags alphabetical (Settings → Link handling).
-    [tags, topics] = await Promise.all([tagsByRecentUse(), topicsByRecentUse()]);
+    [tags, topics, resourceLists] = await Promise.all([
+      tagsByRecentUse(),
+      topicsByRecentUse(),
+      listResourceLists(),
+    ]);
     if (tagSort === 'alpha') tags = [...tags].sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -129,6 +152,12 @@
     return topic.id;
   }
 
+  async function createList(name: string): Promise<string> {
+    const list = await createResourceList(name);
+    await refreshOptions();
+    return list.id;
+  }
+
   async function add() {
     if (!text.trim() || busy) return;
     busy = true;
@@ -138,6 +167,7 @@
       const { added, duplicates, merged, invalid, badOptions } = await captureLinks(text, {
         tagIds: selectedTagIds,
         topicIds: selectedTopicIds,
+        listIds: selectedListIds,
         weekStart: selectedWeek || null,
         markDone,
         isResource,
@@ -150,6 +180,9 @@
       const labels = selectedTagIds.length + selectedTopicIds.length;
       if (labels > 0 && added.length > 0) parts.push(`${labels} label${labels === 1 ? '' : 's'} applied`);
       if (selectedWeek && added.length > 0) parts.push('queued for the week');
+      if (selectedListIds.length > 0 && (added.length > 0 || merged.length > 0)) {
+        parts.push(`added to ${selectedListIds.length} list${selectedListIds.length === 1 ? '' : 's'}`);
+      }
       if (isResource && added.length > 0) parts.push('as resources');
       if (markDone && added.length > 0) parts.push('marked done');
       if (duplicates.length > 0) parts.push(`${duplicates.length} already saved`);
@@ -162,6 +195,7 @@
       text = '';
       selectedTagIds = [];
       selectedTopicIds = [];
+      selectedListIds = [];
       // Restore the default week rather than clearing (respects the setting).
       selectedWeek = defaultWeek;
       markDone = false;
@@ -259,11 +293,12 @@
   <span class="helptext"><kbd>Enter</kbd> to add, <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>
   <span
     class="helptext"
-    title={'Per-line options override the selections below for just that line. Commands match by prefix (!ta, !to, !f, !d, !r, !c, !w). !tags=false skips the selected tags; !week=0 is this week, !week=false none; \\, escapes a comma inside a name.'}
+    title={'Per-line options override the selections below for just that line. Commands match by prefix (!ta, !to, !l, !f, !d, !r, !c, !w). !tags=false skips the selected tags; !list=[name] adds to a resource list (created if new) and implies !resource; !week=0 is this week, !week=false none; \\, escapes a comma inside a name.'}
   >
     Per-line options: <code>!tags=[a,b]</code> <code>!topics=[x]</code>
-    <code>!week=2</code> <code>!priority=1</code> <code>!favourite</code>
-    <code>!done</code> <code>!resource</code> <code>!clean=false</code>
+    <code>!list=[y]</code> <code>!week=2</code> <code>!priority=1</code>
+    <code>!favourite</code> <code>!done</code> <code>!resource</code>
+    <code>!clean=false</code>
   </span>
   <hr style="margin: 0 auto; border: none; border-top: 1px solid var(--border-color); width:85%;padding: var(--space-2) 0;" />
     <div class="organize">
@@ -292,6 +327,17 @@
           pageLabel="topics"
           pageSize={chipPageSize}
           onCreate={createTopic}
+        />
+      </div>
+      <div class="organize-group">
+        <span class="organize-label">Resource lists</span>
+        <ChipSelect
+          items={resourceLists}
+          bind:selected={selectedListIds}
+          createPlaceholder="New list…"
+          pageLabel="lists"
+          pageSize={chipPageSize}
+          onCreate={createList}
         />
       </div>
       <div class="organize-group">
@@ -331,8 +377,13 @@
       class="icon-btn"
       class:active={isResource}
       aria-pressed={isResource}
-      title="Flag these as resources (tools, apps, references) rather than articles to read."
-      onclick={() => (isResource = !isResource)}
+      disabled={listLocked}
+      title={listLocked
+        ? 'Links added to a resource list are always resources — clear the list selection to toggle.'
+        : 'Flag these as resources (tools, apps, references) rather than articles to read.'}
+      onclick={() => {
+        if (!listLocked) isResource = !isResource;
+      }}
     >
       ⚒
     </button>
@@ -440,6 +491,12 @@
   .icon-btn:hover {
     border-color: var(--color-primary);
     color: var(--color-primary-strong);
+  }
+
+  /* Locked (a resource list is selected): stays lit, reads non-interactive. */
+  .icon-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.85;
   }
 
   .icon-btn.active {

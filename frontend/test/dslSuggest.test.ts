@@ -8,8 +8,9 @@ import { dslSuggestions } from '../src/lib/services/dslSuggest';
 
 const TAGS = ['rust', 'rendering', 'security'];
 const TOPICS = ['history', 'compilers'];
+const LISTS = ['CLI tools', 'reading apps'];
 
-const at = (text: string) => dslSuggestions(text, text.length, TAGS, TOPICS);
+const at = (text: string) => dslSuggestions(text, text.length, TAGS, TOPICS, LISTS);
 
 describe('command suggestions', () => {
   it('offers tags and topics for !t', () => {
@@ -17,7 +18,11 @@ describe('command suggestions', () => {
   });
 
   it('offers everything for a bare !', () => {
-    expect(at('https://a.io !').length).toBe(8);
+    expect(at('https://a.io !').length).toBe(9);
+  });
+
+  it('offers list for !l', () => {
+    expect(at('https://a.io !l').map((s) => s.insert)).toEqual(['!list=[]']);
   });
 
   it('offers priority for !p', () => {
@@ -62,6 +67,10 @@ describe('value suggestions', () => {
 
   it('uses topic names inside !topics=[', () => {
     expect(at('https://a.io !to=[h').map((s) => s.label)).toEqual(['history']);
+  });
+
+  it('uses resource-list names inside !list=[', () => {
+    expect(at('https://a.io !l=[cl').map((s) => s.label)).toEqual(['CLI tools']);
   });
 
   it('escapes commas in inserted names', () => {
