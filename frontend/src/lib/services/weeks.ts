@@ -8,7 +8,9 @@
  *   - done but unremarked → 'slushed' (link.slushed_at set — the slush
  *     archive is "things I read that had nothing written about them")
  *   - unfinished → 'rolled', and the link just returns to the backlog
- * Entries keep their week_link rows forever, so past weeks are history.
+ * Completed entries keep their week_link rows forever, so past weeks are
+ * history; opening a closed week prunes its never-finished entries
+ * (pruneUnfinishedEntries), since their links went back to the backlog.
  */
 import {
   all,
@@ -49,22 +51,6 @@ export function weekStartPlus(weekStart: string, weeks: number): string {
   return weekStartOf(d);
 }
 
-/**
- * Fold duplicate OPEN weeks for the same Monday into one. Two devices that
- * each `ensureWeek()` a Monday before syncing the other's row mint separate
- * week rows, and row-level LWW never merges different ids — so the /week page
- * could render the local (empty) row while the entries hung off its synced
- * twin. Collapse every group of open weeks sharing a `week_start` into the
- * smallest-id row (device-independent → both devices converge on the same
- * survivor), re-point the strays' `week_links` onto it (dropping any that
- * duplicate a link the survivor already holds), and tombstone the strays.
- *
- * Closed weeks are deliberately left alone: a closed week and a fresh open
- * week legitimately share a Monday (reopening a Monday queues into a new row),
- * so identity can't collapse to one fixed id the way `user_settings` does —
- * it's a per-key min-id reconcile. Idempotent: one open week per Monday
- * writes nothing. Same fix class as `reconcilePlans` and `getNote`.
- */
 /** Device-independent order: raw code-unit comparison, matching the server's
  * byte-order sort and dedupePairs. `localeCompare` would let a da/nb-locale
  * device pick a different survivor (it collates 'aa' after 'z'), so the two
@@ -98,6 +84,22 @@ function mergeEntryState(survivor: WeekLink, stray: WeekLink): WeekLink | null {
   return changed ? next : null;
 }
 
+/**
+ * Fold duplicate OPEN weeks for the same Monday into one. Two devices that
+ * each `ensureWeek()` a Monday before syncing the other's row mint separate
+ * week rows, and row-level LWW never merges different ids — so the /week page
+ * could render the local (empty) row while the entries hung off its synced
+ * twin. Collapse every group of open weeks sharing a `week_start` into the
+ * smallest-id row (device-independent → both devices converge on the same
+ * survivor), re-point the strays' `week_links` onto it (dropping any that
+ * duplicate a link the survivor already holds), and tombstone the strays.
+ *
+ * Closed weeks are deliberately left alone: a closed week and a fresh open
+ * week legitimately share a Monday (reopening a Monday queues into a new row),
+ * so identity can't collapse to one fixed id the way `user_settings` does —
+ * it's a per-key min-id reconcile. Idempotent: one open week per Monday
+ * writes nothing. Same fix class as `reconcilePlans` and `getNote`.
+ */
 export async function reconcileOpenWeeks(): Promise<void> {
   // Test mode: the fold is a write — run it only when invoked explicitly
   // (window.__readerr.reconcileOpenWeeksNow), never as a read side effect.
@@ -529,7 +531,9 @@ export async function suggestLinks(
   excludeLinkIds: Set<string>,
   focusTagIds: string[],
   count: number,
-  /** Already-loaded links, to avoid a second full scan (the week page holds them). */
+  /** Already-loaded links, when the caller happens to have them (the week
+   * page's lazily-loaded search corpus); omit and the backlog is read
+   * through indexes. */
   pool?: Link[]
 ): Promise<Link[]> {
   if (count <= 0) return [];

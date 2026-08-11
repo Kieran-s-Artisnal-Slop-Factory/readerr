@@ -149,11 +149,12 @@ export async function downloadExport(
 }
 
 /**
- * Empty every data store (synced, local-only, and the sync cursors) while
- * keeping the database and localStorage prefs (theme, sync URL) intact —
- * the "replace local with server data" path, where a pull refills
- * everything right after. Unlike clearAllData this survives without a
- * reload-and-reonboard, because the connection stays open.
+ * Empty every data store (synced, local-only, the sync cursors, and the
+ * derived label_usage cache) while keeping the database, localStorage prefs
+ * (theme, sync URL), and the sync_log history intact — the "replace local
+ * with server data" path, where a pull refills everything right after.
+ * Unlike clearAllData this survives without a reload-and-reonboard, because
+ * the connection stays open.
  */
 export async function wipeLocalData(): Promise<void> {
   const db = await getDB();
@@ -198,7 +199,7 @@ export interface ImportResult {
 
 /**
  * Load an export. Full backups (and legacy files without a scope) clear the
- * stores first — a restore. Curated/range files merge rows in by id.
+ * stores first — a restore. Curated/range/template files merge rows in by id.
  */
 export async function importData(envelope: ExportEnvelope): Promise<ImportResult> {
   // A theme export fed to the data importer deserves directions, not a

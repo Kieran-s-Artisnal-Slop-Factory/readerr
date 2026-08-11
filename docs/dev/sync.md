@@ -34,12 +34,27 @@ What this means in practice:
 
 ## Modes
 
-- **Sync mode** (default): background sync runs once per browser session and
-  then at most every 15 minutes as you navigate
-  (`maybeAutoSync` in sync.ts), plus whenever you hit **Sync now**. The
-  backend also resolves page titles for captured links.
+- **Sync mode** (default): syncs fire from five triggers —
+  1. **after every write**, debounced ~800 ms (`requestSync`, fired by every
+     repo.ts write helper), so an edit reaches the server within about a
+     second and a burst of writes coalesces into one sync;
+  2. **on reconnect** (the `online` event) — writes made while offline never
+     armed the debounce, so coming back online is what retries them;
+  3. **on `pagehide`/tab-hidden**, flushing a still-debounced push
+     immediately — in an MPA every navigation kills pending timers
+     (`installSyncFlush`);
+  4. **once per browser session** and then at most every 15 minutes as you
+     navigate (`maybeAutoSync`);
+  5. **manually**, via **Sync now** in Settings.
+
+  The backend also resolves page titles for captured links.
 - **Offline mode** (chosen in onboarding): no network calls, ever. You can
   opt back in at any time by entering a server URL in Settings.
+- **Settings → Sync also has an on/off toggle** — the same
+  `readerr-sync-mode` flag, flippable after onboarding. Turning sync off also
+  releases the stale-week close gate (below): weeks close from local state
+  rather than deferring for a server that will never answer. Entering a
+  server URL re-enables sync.
 
 The mode and server URL live in localStorage (`readerr-sync-mode`,
 `readerr-sync-url`), not in synced settings — they're per-device by nature.
@@ -54,8 +69,8 @@ DB_PATH=readerr.db PORT=8080 ./readerr
 
 Point the app at it under **Settings → Sync**:
 
-- **Blank URL = same origin.** If the backend serves the built frontend
-  (the Docker image does), leave the URL empty.
+- **Blank URL = same origin**, under the app's base path. If the backend
+  serves the built frontend (the Docker image does), leave the URL empty.
 - Otherwise enter it explicitly, e.g. `http://192.168.1.10:8080`.
 - **Test connection** probes the server's `/healthz` and explains common
   failures (wrong path, proxy in the way, server down) in plain terms
@@ -86,9 +101,14 @@ stores). Depending on what it finds:
 
   | Option | What happens | Implementation |
   |---|---|---|
-  | **Merge both** (recommended) | Server data downloads, combines with local under last-write-wins per item, and the result pushes back. | `resetLocalSyncState()` then a normal `syncNow()` |
-  | **Use server data** | This device is wiped (including local-only data like archived links) and replaced with the server copy. Confirms first. | `wipeLocalData()` then `syncNow()`, then reload |
-  | **Use local data** | The **server** is wiped and repopulated with this device's copy. Other devices syncing to it will converge on this dataset. Confirms first. | `resetServer()` (`POST /sync/reset`) + `resetLocalSyncState()` + `syncNow()` |
+  | **Merge both** (recommended) | Server data downloads, combines with local under last-write-wins per item, and the result pushes back. | `resetLocalSyncState()` then `syncFresh()` |
+  | **Use server data** | This device is wiped (including local-only data like archived links) and replaced with the server copy. Confirms first. | `wipeLocalData()` then `syncFresh()`, then reload |
+  | **Use local data** | The **server** is wiped and repopulated with this device's copy. Other devices syncing to it will converge on this dataset. Confirms first. | `resetServer()` (`POST /sync/reset`) + `resetLocalSyncState()` + `syncFresh()` |
+
+  These flows call `syncFresh()`, not `syncNow()`, deliberately: `syncNow()`
+  coalesces into an already-running sync — which captured the *old* server
+  URL and cursors when it started — while `syncFresh()` waits out any
+  in-flight run and starts a cycle that sees the reconfiguration.
 
 Switching servers always resets the device's sync bookkeeping —
 `resetLocalSyncState()` nulls every row's `server_seq` (they were assigned
@@ -110,13 +130,16 @@ shared history. UI lives in
 > `/sync/stats`, `/sync/push`, and `/sync/pull`. `syncNow()` probes
 > `/sync/stats` first; a changed epoch triggers `resetLocalSyncState()` so
 > that sync exchanges complete datasets under LWW instead of trusting dead
-> cursors. As a second belt, every reconcile-on-read that folds duplicates
-> re-`put`s its survivor even when the survivor's values already won —
+> cursors. As a second belt, every reconcile-on-read that folds duplicates —
 > `reconcileOpenWeeks`, `reconcilePlans`, `getNote`, `reconcileTags`,
 > `reconcileTopics`, and the generic `dedupePairs` (`getUserSettings` always
-> did) — so the row everything now hangs off is re-pushed under a fresh
-> `server_seq` and reaches devices whose cursor had already passed its
-> original one. Folds are one-time events, so converged data never churns.
+> did) — persists its survivor via `putReconciled` (repo.ts), which preserves
+> the row's own `updated_at` (so stale fold content can never outrank a
+> genuine edit under LWW) and records a `store:id` ref in the `pendingRepush`
+> queue; the next push re-sends those rows **by id**, regardless of the
+> watermark, so the row everything now hangs off still reaches devices whose
+> cursor had already passed its original seq. Folds are one-time events, so
+> converged data never churns.
 > As a third belt, the **server folds duplicate open weeks itself**
 > (`reconcileWeeks` in [sync.go](../../backend/sync.go)), inside every push
 > transaction: same min-id survivor rule as the client's
@@ -155,11 +178,16 @@ Sync is not a backup — a bad edit propagates everywhere. For real backups:
 - **`GET /backup`** on the server — downloads the SQLite file itself.
 - **Export Markdown** — every topic, tag, and link as plain markdown files.
 
-Importing a backup **drops the push cursor** (`importData` in
-[export.ts](../../frontend/src/lib/db/export.ts)), because imported rows carry
-historical `updated_at` values the dirty-tracked push would otherwise skip —
-the next sync re-scans and re-pushes everything once, and the server
-LWW-ignores whatever it already has.
+Importing a backup interacts with sync bookkeeping (`importData` in
+[export.ts](../../frontend/src/lib/db/export.ts)). A **full restore is a new
+baseline**: the stores are cleared, every restored row's `server_seq` is
+nulled, and both cursors *and* the remembered server epoch are dropped — so
+the next sync exchanges complete datasets with the server instead of
+trusting bookkeeping that predates the restore. The merge scopes
+(curated/range/template) drop only the **push cursor**, because imported
+rows carry historical `updated_at` values the dirty-tracked push would
+otherwise skip — the next sync re-scans and re-pushes everything once, and
+the server LWW-ignores whatever it already has.
 
 ---
 
@@ -167,16 +195,25 @@ LWW-ignores whatever it already has.
 
 ## Wire format
 
-**`POST /sync/push`** — body `{ rows: { <table>: Row[] } }`. The server
-walks tables in parent-before-child order, and for each row: skips it unless
-`updated_at` is *strictly newer* than what it holds (LWW), otherwise
+**`POST /sync/push`** — body `{ rows: { <table>: Row[] }, final }`, where
+`final` is true on the last chunk of a multi-request push (the server runs
+its open-week fold only then, once every row of the push has landed). The
+server walks tables in parent-before-child order, and for each row: skips it
+unless `updated_at` is *strictly newer* than what it holds (LWW), otherwise
 `INSERT OR REPLACE`s it stamped with the next `server_seq`. Response:
-`{ accepted: [{table, id, server_seq}], latestSeq }`.
+`{ accepted: [{table, id, server_seq}], conflicts: {table: Row[]},
+rejected, latestSeq, epoch }`. `conflicts` carries the server's copy of
+every row that lost LWW; the client adopts these locally under its own `>=`
+rule — the server *keeps* a tie (its check is `<=` skip) while the client
+*adopts* one, so a millisecond tie converges on the server's incumbent
+instead of the two asymmetric rules ping-ponging. `rejected` lists rows the
+server couldn't store at all (constraint violations).
 
 **`GET /sync/pull?since=N&limit=M`** — every row (tombstones included) with
 `server_seq > N`. With `limit`, the M rows with the **globally smallest**
 seqs come back and `latestSeq` is the last of them; without it, everything
-(older-client compatible). Response: `{ rows: {table: Row[]}, latestSeq }`.
+(older-client compatible). Response:
+`{ rows: {table: Row[]}, latestSeq, epoch }`.
 
 Booleans travel as JSON booleans and are stored as SQLite INTEGER 0/1;
 array fields (e.g. `focus_tag_ids`) travel as JSON arrays and are stored as
@@ -235,6 +272,49 @@ sequenceDiagram
   `http.ServeFile`'s Content-Length/range handling doesn't mix with
   streaming compression.
 
+## Concurrency: one sync at a time
+
+`syncNow()` never runs two cycles concurrently: an `inFlightSync` promise
+coalesces every caller into the run already in progress. Joining is correct
+only for callers that need "a completed sync" and changed nothing themselves
+(the navbar auto-sync, the week page's close gate). A caller whose own
+preceding writes — or reconfiguration of the server URL, cursors, or local
+data — must be part of the cycle uses `syncFresh()` instead: it waits out
+any in-flight run (which captured the *old* state at its start) and then
+starts, or joins, a cycle guaranteed to have begun after the call.
+`requestSync`'s debounced push and the Settings/Onboarding server-migration
+flows use it for exactly this reason.
+
+Two related helpers: `isSyncing()` is true while a sync is applying rows,
+and the on-read reconcilers check it and defer — folding over a half-applied
+pull could tombstone a just-pulled week before its child rows land,
+orphaning them; the next read after the sync settles reconciles with
+complete data. `hasEverReachedServer()` reports whether this device has ever
+completed a sync or received an epoch probe answer, which is how the app
+tells "server temporarily unreachable" from "this deployment has no server
+at all".
+
+## The stale-week close gate
+
+Auto-closing a stale week from local state can overwrite another device's
+completions (audit D14): a device offline all week still holds the week
+open, and closing it locally stamps every entry `rolled` with fresh
+timestamps that then win LWW over the real outcomes. So when sync is
+enabled, the week page's init **syncs before it closes**: if
+`hasStaleOpenWeeks()`, it awaits `syncNow()` raced against a 10-second
+timeout (skipped entirely while offline), and runs `autoCloseStaleWeeks`
+only on success — by then the pull has delivered any close recorded
+elsewhere, making the local close a no-op. On failure or timeout the close
+is **deferred**: the week stays open with a notice, and it retries after the
+next successful sync. The manual **Close week** button gets the same gate —
+it syncs first (adopting a close recorded elsewhere rather than overwriting
+it) and, when the server can't answer, warns explicitly in the confirm
+dialog. The deferral applies only when `hasEverReachedServer()`: a device
+that has never reached a server (static/serverless deployments run in the
+default 'sync' mode) holds the only copy of its data and closes locally as
+before, instead of deferring forever. Guards:
+`tests/sync/stale-close.spec.ts`.
+
 ## Cursors and bookkeeping
 
 Client-side, in the local-only `sync_meta` store:
@@ -244,9 +324,11 @@ Client-side, in the local-only `sync_meta` store:
 | `lastPushAt` | max `updated_at` ever successfully pushed; the dirty-scan floor |
 | `lastPullSeq` | `server_seq` high-water mark pulled so far |
 | `lastSyncAt` / `lastError` | status for the Settings page |
+| `serverEpoch` | the server counter lifetime last seen; a mismatch on the pre-sync `/sync/stats` probe triggers `resetLocalSyncState()` |
 | `pendingRepush` | `store:id` refs whose preserved `updated_at` sits below the watermark (fold survivors) — re-sent explicitly |
 | `pendingArchivedPush` | ids of archived links the server has never seen (see below) |
 | `archivedPushBackfillDone` | the one-time sweep for links stranded before that queue existed has run |
+| `labelUsageBackfilled` | the one-time scan that seeded the local-only `label_usage` chip-recency cache has run |
 
 ### Archived links and the push
 
@@ -299,10 +381,27 @@ echo; it costs a little bandwidth, never correctness.
 
 ## Tests
 
-[backup.test.ts](../../frontend/test/backup.test.ts) drives `importData` +
-`syncNow` against an in-memory fake server that mirrors sync.go's LWW/seq/
-limit semantics, over three backup fixtures — it pins the import↔push-cursor
-interplay and the count parity between client and server.
+Three layers guard sync:
+
+- **Vitest suites** (`cd frontend && npm test`):
+  [backup.test.ts](../../frontend/test/backup.test.ts) drives `importData` +
+  `syncNow` against an in-memory fake server that mirrors sync.go's LWW/seq/
+  limit semantics, over three backup fixtures — it pins the
+  import↔push-cursor interplay and the count parity between client and
+  server. Reconciler unit tests (`reconcile.test.ts`, `joinDedupe.test.ts`,
+  `tagHierarchy.test.ts`, `archive.test.ts`, `staleSnapshot.test.ts`) cover
+  the fold rules in isolation.
+- **The Playwright multi-device harness** (`cd frontend && npm run
+  test:sync`): 17 spec files under `frontend/tests/sync/` drive real
+  browsers against a real backend — including a sabotage suite (12 seeded
+  bugs the invariants must catch) and an oracle spec — with a reporter that
+  enforces store coverage. A change touching sync is done when its tripwire
+  flips red → green **and** the full suite stays green with 12/12 sabotage
+  detection. Design doc:
+  [experiments & plans/sync-testing-framework.md](experiments%20&%20plans/sync-testing-framework.md).
+- **Backend Go tests** (`cd backend && go test ./...`):
+  [sync_test.go](../../backend/sync_test.go) (push/pull/LWW/fold semantics)
+  and [title_test.go](../../backend/title_test.go).
 
 ## Troubleshooting
 
@@ -313,8 +412,10 @@ interplay and the count parity between client and server.
   backend (a plain web server, or a stale URL after moving servers).
 - **400 on push** — app and server versions likely disagree; update both to
   the same version.
-- **A device shows old data** — open Settings and hit **Sync now**;
-  background sync is throttled to every 15 minutes.
+- **A device shows old data** — edits push within about a second of being
+  made, but the 15-minute throttle governs how often a device *pulls* as it
+  navigates. Open Settings and hit **Sync now** on the device that's missing
+  the change.
 - **Moved to a new server and data didn't transfer** — configure the new
   URL in Settings and pick a conflict option; don't copy browser data
   around by hand.

@@ -20,7 +20,7 @@ link-part  := URL | "-" WS URL | "*" WS URL | "•" WS URL
             | markdown | bullet markdown          where markdown = "[" title "](" URL ")"
 option     := "!" command [ "=" value ]           bare command (no "=") means true
 command    := any prefix of a full command word, at least the minimum:
-              ta(gs)  to(pics)  f(avourite)  d(one)  r(esources)  c(lean)  w(eeks)  p(riority)
+              ta(gs)  to(pics)  l(ist)  f(avourite)  d(one)  r(esources)  c(lean)  w(eeks)  p(riority)
 value      := array | bool | int
 array      := "[" item ( "," item )* "]"          items whitespace-trimmed
 bool       := true | 1 | yes | false | 0 | no     (case-insensitive)
@@ -56,19 +56,27 @@ Unknown tag/topic **names are auto-created** (case-insensitive match against
 existing names first). `!w` digits win over the boolean short forms — `!w=0`
 is *this week*, not "no week"; only the words `false`/`no` opt out.
 
+`!clean` cleaning honours the configured strip mode plus the user-defined
+`strip_extra_params` list (Settings → Link handling — which also offers a
+bulk re-strip over links already captured).
+
 ### Semantics: layering over the UI
 
 Each line resolves to an *effective assignment*: the capture box's UI
 selections (chips, week dropdown, toggles) are the batch defaults, and the
-line's options are layered on top — tags/topics **merge**, everything else
-**overrides**. Malformed or unknown options never fail a line: they're
+line's options are layered on top — tags/topics/lists **merge**, everything
+else **overrides**. Malformed or unknown options never fail a line: they're
 collected as `badOptions` and surfaced in the capture report
 ("2 options not understood (!tgas=[x] !w=99)") while the link still captures.
 
 If the URL **already exists**, the line's effective assignment merges into
-the existing link instead of creating a duplicate: tags/topics append, flags
-only ever upgrade, and a selected week the link was never part of adds it as
-a `review` entry.
+the existing link instead of creating a duplicate: tags/topics/list
+memberships append, flags only ever upgrade — an explicit `!priority` is the
+one exception, **replacing** the existing value — and a selected week the
+link was never part of adds it as a `review` entry. `!done` applies last
+(so it sees the labels and week assigned above it), and only when the link
+is unread or sits un-ticked in an open week; a link already read with
+nothing pending is left alone rather than re-filed into the current week.
 
 ## Implementation
 
@@ -83,7 +91,7 @@ flowchart LR
     O --> E
     E --> C["captureLinks()\ncapture.ts"]
     C --> EA["effectiveAssign()\nUI defaults ⊕ line opts\n(names → ids, auto-create)"]
-    EA -->|new URL| New["bulkPut + assign\ntags/topics/week/done"]
+    EA -->|new URL| New["bulkPut + assign\ntags/topics/lists/week/done"]
     EA -->|existing URL| Merge["mergeIntoExisting()"]
 ```
 
@@ -98,9 +106,13 @@ flowchart LR
   strips bullets, splits off options, validates the URL, and attaches `opts`
   to each entry. `captureLinks` computes the per-line `effectiveAssign`
   (resolving names via `ensureTagIdsByName`/`ensureTopicIdsByName` in
-  [links.ts](../../frontend/src/lib/services/links.ts), which auto-create),
-  applies per-line URL cleaning, then either creates the link or merges into
-  an existing one.
+  [links.ts](../../frontend/src/lib/services/links.ts) and
+  `ensureListIdsByName` in
+  [resourceLists.ts](../../frontend/src/lib/services/resourceLists.ts), all
+  of which auto-create), applies per-line URL cleaning, then either creates
+  the link or merges into an existing one. `effectiveAssign` is also where
+  list membership **implies `!resource`** — the rule is enforced once there,
+  not per write path.
 - **Week numbers** become concrete Mondays via
   `weekStartPlus(currentWeekStart(), n)` and go through the normal
   `setLinkWeek` path, so a link still sits in at most one upcoming week.
@@ -118,14 +130,15 @@ The capture box suggests as you type, in two contexts:
 flowchart TD
     K["caret moves / input"] --> X{"text before caret,<br/>on this line"}
     X -->|"…ends with WS !prefix"| CMD["command menu:<br/>every command the prefix<br/>could become, with hints"]
-    X -->|"…inside unclosed !tags=[ / !topics=[<br/>(after last unescaped comma)"| VAL["name menu:<br/>existing tag/topic names,<br/>prefix matches first,<br/>then substring, max 8"]
+    X -->|"…inside unclosed !tags=[ / !topics=[ / !list=[<br/>(after last unescaped comma)"| VAL["name menu:<br/>existing tag/topic/list names,<br/>prefix matches first,<br/>then substring, max 8"]
     X -->|otherwise| None["no menu"]
     CMD -->|"accept (Tab/Enter/click)"| INS1["insert canonical form<br/>!tags=[] lands caret inside []"]
     VAL -->|accept| INS2["insert name,<br/>commas escaped"]
 ```
 
 - **[dslSuggest.ts](../../frontend/src/lib/services/dslSuggest.ts)** is a pure
-  function `dslSuggestions(text, caret, tagNames, topicNames)` returning
+  function `dslSuggestions(text, caret, tagNames, topicNames, listNames)`
+  returning
   `{ label, hint, insert, start, caretOffset }[]`. The two regexes mirror
   the parser's rules exactly — including the *must-follow-whitespace* rule,
   so a `!` at the start of the textbox or of a line (never valid DSL)
@@ -144,8 +157,8 @@ flowchart TD
 
 Command insertions are canonical: `!tags=[]`, `!topics=[]`, `!list=[]` (caret
 inside), `!favourite`, `!done`, `!resource`, `!clean=false` (the common use),
-and `!week=` (caret after `=`). Name completion inside an unclosed `[` covers
-tags, topics, and resource lists alike.
+and `!week=` / `!priority=` (caret after `=`). Name completion inside an
+unclosed `[` covers tags, topics, and resource lists alike.
 
 ## Tests
 
@@ -155,6 +168,12 @@ tags, topics, and resource lists alike.
 - [captureEntry.test.ts](../../frontend/test/captureEntry.test.ts) — all six
   line shapes (`url`, `[t](url)`, `-`/`*` bullets of each) × with/without
   options, plus a mixed-batch capture.
+- [captureList.test.ts](../../frontend/test/captureList.test.ts) — `!list`:
+  name resolution/auto-create, merge with the UI chips, the implies-resource
+  rule, membership merging into existing links.
+- [captureDone.test.ts](../../frontend/test/captureDone.test.ts) — `!done`:
+  fresh captures and the re-capture cases (unread, un-ticked in an open
+  week, already read).
 - [dslSuggest.test.ts](../../frontend/test/dslSuggest.test.ts) — autocomplete:
   prefix narrowing, caret placement, after-comma completion, comma escaping,
   the whitespace-trigger rules.

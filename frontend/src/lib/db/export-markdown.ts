@@ -28,7 +28,7 @@ function yamlStr(s: string): string {
   return JSON.stringify(s);
 }
 
-export async function buildMarkdownExport(): Promise<Blob> {
+async function buildMarkdownExport(): Promise<Blob> {
   const [links, tags, topics, linkTags, linkTopics, notes, excerpts] = await Promise.all([
     all<Link>('links'),
     all<Tag>('tags'),

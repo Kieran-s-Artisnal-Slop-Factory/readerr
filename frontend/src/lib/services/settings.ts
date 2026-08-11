@@ -1,7 +1,9 @@
 /**
- * The user_settings singleton row (created lazily). Holds the phase-3
- * triage knobs: articles_per_week (weekly quota, null = off) and
- * focus_tag_id (tag to prefer when suggesting links, null = none).
+ * The user_settings singleton row (created lazily). Holds every
+ * device-independent preference: the triage knobs — articles_per_week
+ * (weekly quota, null = off) and focus_tag_ids (tags to prefer when
+ * suggesting links, empty = none) — plus URL cleaning, auto-title, the
+ * default capture week, archival, and capture-chip sort.
  */
 import { all, put, putReconciled, softDeleteMany, withSyncFields } from '../db/repo';
 import { healsAllowed } from '../testMode';

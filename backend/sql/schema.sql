@@ -213,7 +213,7 @@ CREATE TABLE week_links (
 CREATE INDEX idx_week_links_week ON week_links (week_id);
 CREATE INDEX idx_week_links_link ON week_links (link_id);
 
--- Sync pull filters on server_seq per table (scaling.md phase A).
+-- Sync pull filters on server_seq per table; index it so pulls aren't full scans.
 CREATE INDEX idx_user_settings_seq ON user_settings (server_seq);
 CREATE INDEX idx_plans_seq ON plans (server_seq);
 CREATE INDEX idx_links_seq ON links (server_seq);

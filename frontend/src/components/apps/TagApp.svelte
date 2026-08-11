@@ -53,7 +53,7 @@
     parentIds.map((id) => allTags.find((t) => t.id === id)).filter((t): t is Tag => !!t)
   );
 
-  // Resolve tag chips for the visible page only (scaling.md phase A).
+  // Resolve tag chips for the visible page only.
   $effect(() => {
     const slice = visible;
     void tagsForLinks(slice).then((m) => (tagsByLink = m));

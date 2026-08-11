@@ -376,9 +376,11 @@ async function effectiveAssign(
 }
 
 /**
- * Store pasted URLs as backlog links, skipping duplicates. Any tag/topic
- * ids in `assign` are attached to every newly captured link; per-line
- * !options adjust individual lines (see captureDsl.ts).
+ * Store pasted URLs as backlog links. A duplicate URL isn't re-added: its
+ * line's options merge onto the existing link (mergeIntoExisting), and it
+ * reports in `duplicates` — plus `merged` when something actually changed.
+ * The labels, lists, week, flags, and priority in `assign` apply to every
+ * captured link; per-line !options override them line by line (captureDsl.ts).
  */
 export async function captureLinks(text: string, assign?: CaptureAssign): Promise<CaptureResult> {
   const { entries, invalid, badOptions } = parseUrls(text);

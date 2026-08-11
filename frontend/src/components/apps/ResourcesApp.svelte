@@ -2,7 +2,7 @@
   /**
    * Links flagged as resources — tools/apps/blogs, not articles to "read" —
    * plus the resource lists grouping them. Paginated at 100 with
-   * page-scoped labels (scaling.md phase A).
+   * page-scoped labels.
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';

@@ -29,8 +29,15 @@ Every synced row carries:
 
 [repo.ts](../../frontend/src/lib/db/repo.ts) is the only code that manages
 these: `withSyncFields()` mints them, `put`/`bulkPut` re-stamp `updated_at`,
-`softDelete`/`softDeleteMany` write tombstones, and `all`/`get`/`byIndex`
-filter tombstones. It also runs every row through a JSON round-trip before
+`patch` applies a partial update computed against the *current* row,
+`putReconciled` persists a reconcile-fold survivor **without** restamping
+(see the singleton family below), `softDelete`/`softDeleteMany` write
+tombstones, and the reads — `all`/`get`/`byIndex`/`count` — filter tombstones
+out (`byIndexWithDeleted` is the deliberate opt-out for readers that need
+them). `dedupePairs` collapses duplicate junction rows onto a min-id
+survivor. Every write helper also fires the debounced `requestSync()`
+([sync.md](sync.md)), so an edit reaches the server within about a second.
+repo.ts also runs every row through a JSON round-trip before
 writing, because Svelte 5 `$state` proxies fail IndexedDB's structured clone.
 
 ## Entities
@@ -52,13 +59,16 @@ erDiagram
     links ||--o{ week_links : ""
 
     user_settings {
+        text name "display name, null = unset"
         int articles_per_week "weekly quota, null = off"
         json focus_tag_ids "suggestion focus"
         text onboarding_completed_at "null = show onboarding"
         text strip_query_params "off | trackers | all"
         json strip_whitelist "domains exempt from 'all'"
+        json strip_extra_params "extra params to strip; trailing * = prefix"
         bool auto_title
         text default_week "none | current (+offset)"
+        int default_week_offset
         bool archive_enabled
         int archive_after_months
         text capture_tag_sort "recent | alpha"
@@ -175,7 +185,8 @@ Design decisions embedded here:
     ([settings.ts](../../frontend/src/lib/services/settings.ts)) and each
     `plans` row ([plans.ts](../../frontend/src/lib/services/plans.ts)).
   - **Per-pair dedupe** for the junction tables (`link_tags`, `link_topics`,
-    `resource_list_links`), whose natural key is a `(left, right)` pair: the
+    `resource_list_links`, `tag_parents`), whose natural key is a
+    `(left, right)` pair: the
     assign helpers guard only against the local db, so two devices that form
     the same pair each mint a join row — cosmetic duplicate chips and inflated
     counts. `dedupePairs` ([repo.ts](../../frontend/src/lib/db/repo.ts)) groups
@@ -183,11 +194,21 @@ Design decisions embedded here:
     rest, surfaced through every join read (`dedupeLinkTags`/`dedupeLinkTopics`
     in [links.ts](../../frontend/src/lib/services/links.ts) /
     [topics.ts](../../frontend/src/lib/services/topics.ts), `dedupeListLinks`
-    in [resourceLists.ts](../../frontend/src/lib/services/resourceLists.ts)).
+    in [resourceLists.ts](../../frontend/src/lib/services/resourceLists.ts),
+    `dedupeEdges` in [tagTree.ts](../../frontend/src/lib/services/tagTree.ts)
+    for `tag_parents` edges).
     `link_topics` also keeps the **lowest `ref_number`** so a `[^3]` citation
     stays put. The tag/topic name-merge above re-points these same join rows,
     so it runs **before** the pair-dedupe on every shared read path (reconcile
     at the top, then dedupe), never after.
+
+  Every fold in this family writes its survivor through `putReconciled`
+  ([repo.ts](../../frontend/src/lib/db/repo.ts)), which deliberately does
+  **not** restamp `updated_at` — stale content folded on a lagging device
+  must never outrank a genuine edit under LWW. Because that preserved
+  timestamp usually sits below the push watermark, the survivor is also
+  recorded in the `pendingRepush` queue and the next push re-sends it by id
+  regardless of the watermark — see [sync.md](sync.md).
 
   When adding a synced table that's "one row per natural key", make identity
   deterministic from that key (a fixed id, or a min-id reconcile) — never rely
@@ -228,13 +249,13 @@ Design decisions embedded here:
 
 `STORES` in types.ts defines one object store per SQL table (keyPath `id`)
 plus its indexes; migration v1 creates them all, later migrations add stores
-and indexes append-only. Current version: **7**.
+and indexes append-only. Current version: **9**.
 
 | Store | Indexes | Notes |
 |---|---|---|
 | `user_settings` | `updated_at` | singleton at fixed id `USER_SETTINGS_ID`; `getUserSettings` collapses duplicates |
 | `plans` | `starts_on`, `updated_at` | one per `(period, starts_on)`; `reconcilePlans` collapses duplicates on read |
-| `links` | `url`, `added_at`, `updated_at` | `url` powers capture dedupe |
+| `links` | `url`, `added_at`, `updated_at`, `priority_added` | `url` powers capture dedupe; `priority_added` (v9) is a compound `[priority, added_at]` index — rows with `priority` null are deliberately absent from it (IDB doesn't index null), so the backlog suggester merges it with the `added_at` index |
 | `tags`, `topics` | `updated_at` | one per `lower(name)`; `reconcileTags`/`reconcileTopics` collapse duplicates, re-point join rows + `focus_tag_ids` |
 | `resource_lists` | `updated_at` | |
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
@@ -249,7 +270,10 @@ dirty-tracked sync push — see [sync.md](sync.md).
 
 Boolean filters (unread/favourite/resource) and priority sorting are
 `getAll` + in-memory filter/sort: booleans aren't valid IDB keys, priority is
-a small cardinality, and render pagination keeps the working set small.
+a small cardinality, and render pagination keeps the working set small. The
+one exception is the backlog suggester, which walks the compound
+`priority_added` index (plus the `added_at` index for null-priority rows) as
+paged cursors instead of scanning — see [performance.md](performance.md).
 
 ### Local-only stores (never synced, no SQL twin)
 
@@ -258,6 +282,7 @@ a small cardinality, and render pagination keeps the working set small.
 | `sync_meta` | v2 | sync cursors (`lastPushAt`, `lastPullSeq`) + status; excluded from backups |
 | `archived_links` | v5 | yearly archival: cold slushed links hard-moved out of `links` so hot paths deserialize fewer rows; **included** in full backups (`LOCAL_STORES` in db.ts) |
 | `sync_log` | v6 | sync history diagnostics; excluded from backups |
+| `label_usage` | v9 | chip-recency cache for the capture box (last-use per tag/topic id); derived data — excluded from backups, wiped on full restore and rebuilt by a one-time backfill (`labelUsageMap` in links.ts) |
 
 `archived_links` is the deliberate exception to "everything syncs": archiving
 hard-deletes from `links` for a real perf win while the *server* keeps the
@@ -289,16 +314,17 @@ flowchart LR
 
 - `boolCols` per table (e.g. `links.favourite`, `user_settings.auto_title`)
   convert JSON booleans ↔ INTEGER 0/1.
-- `jsonCols` (e.g. `focus_tag_ids`, `strip_whitelist`) convert JSON arrays ↔
-  JSON-encoded TEXT.
+- `jsonCols` (e.g. `focus_tag_ids`, `strip_whitelist`, `strip_extra_params`)
+  convert JSON arrays ↔ JSON-encoded TEXT.
 - Everything else passes through as TEXT/INTEGER unchanged. Dates are
   strings everywhere: calendar fields are local `YYYY-MM-DD`, `*_at` fields
   are UTC ISO 8601 (which compare correctly as strings — LWW relies on it).
 - Server-only: the `sync_state` table (the global `last_seq` counter) and
   `idx_*_seq` indexes for pull.
 
-Migration counters as of this writing: SQLite `user_version` **14** (the
-`links.priority` column is the latest), IDB version **7**. Fresh installs
+Migration counters as of this writing: SQLite `user_version` **18** (the
+`user_settings.strip_extra_params` column is the latest), IDB version **9**.
+Fresh installs
 skip migrations — SQLite executes `schema.sql` wholesale, IDB creates the
 current `STORES` map in v1 — so both migration chains only run for
 pre-existing databases. (Priority added no IDB migration: IndexedDB is
@@ -317,14 +343,18 @@ that shouldn't sync:
 | `readerr-theme`, `readerr-theme-config`, `readerr-theme-css` | theme.ts | light/dark pin, theme config, pre-compiled CSS for flash-free boot |
 | `readerr-archive-last-run`, `readerr-archive-suggest-dismissed` | archive.ts / ArchiveSuggestModal | archival throttle + one-time prompt |
 | `readerr-sync-log-prefs`, `readerr-sync-log-stats` | syncLog.ts | history options + always-on counters |
+| `readerr-test-mode`, `readerr-test-bg-sync` | testMode.ts / sync.ts | Playwright-harness seams: freeze background sync and make on-read healers read-only so cross-device snapshots stay deterministic |
 
 ## Exports
 
 [export.ts](../../frontend/src/lib/db/export.ts) serializes the model to a JSON
 envelope `{ schemaVersion, exportedAt, scope, data: {store: rows[]} }` in
 four scopes (full/curated/range/template); **full** includes tombstones and
-`LOCAL_STORES` and is the only true backup (importing it replaces
-everything; other scopes merge by id).
+`LOCAL_STORES` and is the only true backup: importing it clears each store,
+nulls every restored row's `server_seq`, and drops both sync cursors and the
+remembered server epoch — a fresh baseline against whatever server it syncs
+to next. The other scopes merge by id under the same last-write-wins rule
+sync uses, so an older imported row never regresses a newer local one.
 [export-markdown.ts](../../frontend/src/lib/db/export-markdown.ts) writes the
 prose model out as a zip of markdown files — possible precisely because
 markdown is the stored format. Backup fixtures used by the test suite live

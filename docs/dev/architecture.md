@@ -53,6 +53,8 @@ readerr/
 │   ├── sync.go               table metadata + push/pull/stats/reset handlers
 │   ├── title.go              GET /title — server-side page-title extraction
 │   ├── db.go                 schema bootstrap + user_version migrations
+│   ├── sync_test.go          push/pull/LWW/fold tests (+ title_test.go)
+│   ├── cmd/dbdump/           CLI: dump a readerr SQLite file for inspection
 │   └── sql/schema.sql        canonical DDL (fresh databases get this whole file)
 ├── frontend/
 │   ├── astro.config.mjs      Astro 7, static output, Svelte integration
@@ -70,11 +72,16 @@ readerr/
 │   │   │   ├── sync.ts       client sync engine
 │   │   │   ├── theme.ts      theming engine (tokens, compile, import/export)
 │   │   │   ├── paths.ts      base-path-aware href() helper
+│   │   │   ├── testMode.ts   harness seam: freezes background sync + heals in test mode
+│   │   │   ├── testHook.ts   harness seam: window.__readerr introspection API
 │   │   │   └── importKind.ts backup-vs-theme file sniffing
 │   │   └── styles/           theme.css (design tokens) + global.css
-│   └── test/                 vitest suites + backup fixtures
-├── docs/                     reference docs (you are here)
-│   └── experiments & plans/  design notes + working task lists
+│   ├── test/                 vitest suites + backup fixtures
+│   └── tests/sync/           Playwright multi-device sync harness (specs + helpers)
+├── docs/
+│   ├── dev/                  developer reference (you are here)
+│   │   └── experiments & plans/  design notes + working task lists
+│   └── user/                 user-facing guides (getting started, capturing, sync…)
 ├── .github/workflows/        CI: docker.yaml (image → GHCR), astro.yaml (Pages)
 ├── Dockerfile                single image: Go binary serving the built frontend
 ├── docker-compose.yml        ready-to-go deploy (published image, ./data bind mount)
@@ -100,7 +107,10 @@ are torn down and re-created. Consequences worth internalizing:
 - **In-progress UI state dies on navigation** — anything that must survive
   goes to IndexedDB or localStorage.
 - Editors flush pending autosaves on `pagehide`/`visibilitychange`
-  ([MarkdownEditor.svelte](../../frontend/src/components/MarkdownEditor.svelte)).
+  ([MarkdownEditor.svelte](../../frontend/src/components/MarkdownEditor.svelte)),
+  and `installSyncFlush` ([sync.ts](../../frontend/src/lib/sync.ts)) flushes a
+  still-debounced sync push the same way — every navigation kills pending
+  timers, so anything armed must fire before the page dies.
 
 `Layout.astro` also runs two inline scripts on every page: the theme boot
 (applies compiled theme CSS from localStorage before first paint) and the
@@ -137,6 +147,7 @@ flowchart TD
     R["lib/db/repo.ts<br/>generic CRUD, tombstones, updated_at stamping"]
     D["lib/db/db.ts<br/>connection + append-only IDB migrations"]
     T["lib/db/types.ts<br/>entity interfaces + STORES map"]
+    Y["lib/sync.ts<br/>push/pull engine"]
     A --> C
     A --> S
     C --> S
@@ -144,7 +155,12 @@ flowchart TD
     R --> D
     S -.->|types only| T
     R -.-> T
+    R -.->|"requestSync()"| Y
 ```
+
+The one deliberate upward edge: every repo.ts write helper fires the
+debounced `requestSync()` into sync.ts — data flows down, a fire-and-forget
+change notification flows up.
 
 - **[repo.ts](../../frontend/src/lib/db/repo.ts)** is the only writer of sync
   bookkeeping: `withSyncFields()` mints ids and the sync trio, `put`/`bulkPut`
@@ -189,27 +205,38 @@ stateDiagram-v2
     Done --> Slush: week closes and link is unremarked\n(no favourite, no topic)
     Done --> Read: favourited or in a topic
     Slush --> InWeek: "review in…" (kind = review)
-    Slush --> Archive: archival (>24 mo, local-only store)
+    Slush --> Archive: archival (archive_after_months, default 24, local-only store)
     InWeek --> Backlog: week closes unfinished (rolled)
 ```
 
+One footnote to the close transition: a rolled entry's `week_links` row is
+pruned when its closed week is next viewed (`pruneUnfinishedEntries` in
+weeks.ts), so past weeks read as "what I actually read" — completed entries
+stay forever.
+
 ## Backend
 
-Four files, stdlib only, no auth (single-user LAN posture — see the CORS and
-SSRF comments in the source):
+Four files — plus their tests (`sync_test.go`, `title_test.go`) and a small
+`cmd/dbdump` inspection CLI — stdlib only, no auth (single-user LAN posture
+— see the CORS and SSRF comments in the source):
 
 - **[main.go](../../backend/main.go)** — route table, permissive CORS, gzip
   middleware on `/sync/pull`, `STATIC_DIR` file serving so one origin can
   serve app + sync, `DB_PATH`/`PORT` env config.
 - **[sync.go](../../backend/sync.go)** — the `tables` metadata map (columns,
-  bool/JSON column marshalling) that must mirror `schema.sql` and the
+  bool/JSON column marshalling, and per-column `defaults` filled in for
+  NOT NULL columns that older client rows may omit) that must mirror
+  `schema.sql` and the
   frontend `STORES` map, plus handlers: `POST /sync/push`, `GET /sync/pull`
   (with `limit` paging), `GET /sync/stats`, `POST /sync/reset`,
   `GET /backup`. Details in [sync.md](sync.md).
 - **[title.go](../../backend/title.go)** — `GET /title?url=`: fetches a page
   server-side (browsers can't cross-origin), extracts `og:title` or
   `<title>` by scanning the body in 256 KB chunks up to 2 MB (YouTube puts
-  its title past byte 640k), logs every request with an outcome reason.
+  its title past byte 640k), logs every request with an outcome reason. The
+  og regexes carry one capture group per quote style (and both attribute
+  orders), and titles are truncated by runes, not bytes, so a multi-byte
+  character never splits into a mangled replacement rune.
 - **[db.go](../../backend/db.go)** — opens SQLite (WAL, busy timeout), applies
   [schema.sql](../../backend/sql/schema.sql) wholesale on fresh databases, and
   steps `PRAGMA user_version` through the append-only `migrations` array
@@ -220,13 +247,16 @@ SSRF comments in the source):
 - **Three definitions in lockstep.** Any schema change touches
   `backend/sql/schema.sql` **and** a `backend/db.go` migration **and**
   `frontend/src/lib/db/types.ts` (+ possibly an IDB migration in `db.ts`)
-  **and** the `tables` map in `backend/sync.go`. Grep for an existing column
-  (e.g. `capture_tag_sort`) to see all four touch points.
+  **and** the `tables` map in `backend/sync.go` (columns, plus a `defaults`
+  entry for any NOT NULL column older client rows may omit). Grep for an
+  existing column (e.g. `capture_tag_sort`) to see all four touch points.
 - **Append-only migrations, both sides.** Never edit a shipped migration;
-  add a new one. IDB is at v7, SQLite `user_version` at 13.
+  add a new one. The authoritative version counters live in
+  [data-model.md](data-model.md).
 - **Local-only stores** (IDB stores with no SQL twin, excluded from
   `STORES`): `sync_meta` (cursors), `archived_links` (cold storage),
-  `sync_log` (diagnostics). See [data-model.md](data-model.md).
+  `sync_log` (diagnostics), `label_usage` (chip-recency cache). See
+  [data-model.md](data-model.md).
 - **Base-path awareness.** Every app-absolute URL goes through `href()` in
   [paths.ts](../../frontend/src/lib/paths.ts) so the app works hosted at `/` or
   under a sub-path.
@@ -237,13 +267,16 @@ SSRF comments in the source):
 
 ## Development workflow
 
-- `.claude/launch.json` defines dev servers: `backend` (Go, :8080),
-  `frontend` (Astro dev, :4323), `frontend-preview` (serves the built
-  `dist/`, :4324).
+- `.claude/launch.json` defines one dev server: `readerr-frontend`
+  (`npm --prefix frontend run dev`, :4321).
 - **Tests:** `cd frontend && npm test` — vitest over `frontend/test/`, using
   `fake-indexeddb` for data-layer tests and JSON fixtures in
   `test/fixtures/` for backup round-trips. Backend: `go vet ./... && go
-  build ./...` (no Go test suite yet).
+  test ./...` (`sync_test.go`, `title_test.go`).
+- **Sync harness:** `cd frontend && npm run test:sync` — the Playwright
+  multi-device suite under `frontend/tests/sync/` (real browsers against a
+  real backend, sabotage + oracle specs, coverage-enforcing reporter). Design
+  doc: [experiments & plans/sync-testing-framework.md](experiments%20&%20plans/sync-testing-framework.md).
 - **Build:** `npm run build` produces a static site the Go server (or any
   static host) serves; `docker compose up` builds the single image.
 - **Demo data:** Settings → Danger zone can seed a configurable multi-year
@@ -254,7 +287,7 @@ SSRF comments in the source):
 
 | You want to… | Start at |
 |---|---|
-| add a field to an entity | `sql/schema.sql` → `db.go` migration → `types.ts` → `sync.go` tables map |
+| add a field to an entity | `sql/schema.sql` → `db.go` migration → `types.ts` → `sync.go` tables map (+ a `defaults` entry if NOT NULL) |
 | change paste/capture behavior | `services/capture.ts` (+ `captureDsl.ts` for the DSL) |
 | change the weekly flow | `services/weeks.ts`, `apps/WeekApp.svelte` |
 | touch tags or tag nesting | `services/tagTree.ts`, the tag reads in `services/links.ts` + [tagging.md](tagging.md) |

@@ -3,7 +3,7 @@
    * The slush archive: read links that weren't part of a topic or
    * favourited when their week closed. Each row can be re-scheduled
    * ("reviewed") into an upcoming week. Paginated at 250 with page-scoped
-   * labels (scaling.md phase A).
+   * labels.
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';

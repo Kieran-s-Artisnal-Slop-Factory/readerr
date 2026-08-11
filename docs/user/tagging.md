@@ -11,7 +11,9 @@ Add tags to a link from:
 
 - the **capture box** — pick tag chips before pasting, or type
   `!tags=[rust, os]` on the line itself ([Capturing links](capturing-links.md));
-- the **link row** — the `#` button opens an inline tag picker;
+- the **link row** — on the Backlog and Favourites, the `#` button opens an
+  inline tag picker (elsewhere, use the link's detail page — the **›** button
+  — or bulk-select);
 - **bulk editing** — select several links and tag them all at once.
 
 Typing a tag name that doesn't exist yet **creates it**. Tag names are matched
@@ -119,6 +121,10 @@ without understanding them. Anything you nest from then on syncs normally.
 
 If a freshly-updated device is missing some hierarchy, the quickest fix is to
 re-add it there — a few clicks, and it syncs back out to everything else. To
-force a full re-pull instead, go to **Settings → Sync**, clear the server URL
-and save, then paste it back and save again: readerr will offer **Merge both**,
-which re-reads everything from the server.
+force a full re-pull instead, go to **Settings → Sync** and save a *different*
+server address — the conflict prompt only appears when the saved URL is
+non-empty and different from the one before, so clearing the field and
+re-saving does nothing. If your setup normally leaves the URL blank (the app
+is served by the sync server), type the server's full address and save.
+readerr will offer **Merge both**, which does a full re-push *and* re-pull
+against the server.

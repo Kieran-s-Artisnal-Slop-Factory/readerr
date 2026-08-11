@@ -26,7 +26,7 @@ export interface SyncFields {
 export type StripMode = 'off' | 'trackers' | 'all';
 
 /**
- * Single row (single-user app). articles_per_week / focus_tag_id are the
+ * Single row (single-user app). articles_per_week / focus_tag_ids are the
  * default triage knobs, overridable per period by Plan rows.
  */
 export interface UserSettings extends SyncFields {

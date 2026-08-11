@@ -88,8 +88,8 @@ UPDATE user_settings SET focus_tag_ids = '["' || focus_tag_id || '"]' WHERE focu
 ALTER TABLE plans ADD COLUMN focus_tag_ids TEXT NOT NULL DEFAULT '[]';
 UPDATE plans SET focus_tag_ids = '["' || focus_tag_id || '"]' WHERE focus_tag_id IS NOT NULL;
 `,
-	// v7 → v8 (scaling.md phase A): sync pull filters WHERE server_seq > ?
-	// on every table — index it so pulls stop being full scans.
+	// v7 → v8: sync pull filters WHERE server_seq > ? on every table —
+	// index it so pulls stop being full scans.
 	`
 CREATE INDEX idx_user_settings_seq ON user_settings (server_seq);
 CREATE INDEX idx_plans_seq ON plans (server_seq);
@@ -121,7 +121,7 @@ ALTER TABLE user_settings ADD COLUMN default_week TEXT NOT NULL DEFAULT 'none'
 ALTER TABLE user_settings ADD COLUMN default_week_offset INTEGER NOT NULL DEFAULT 0;
 `,
 	// v11 → v12: yearly-archival preferences. Archived rows are a local-only
-	// IndexedDB store (see yearly-archival.md); only the settings sync.
+	// IndexedDB store (the client's services/archive.ts); only the settings sync.
 	`
 ALTER TABLE user_settings ADD COLUMN archive_enabled INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE user_settings ADD COLUMN archive_after_months INTEGER NOT NULL DEFAULT 24;

@@ -3,7 +3,7 @@
 readerr ships as a **single Docker image**: the Go backend serves the built
 static frontend and the sync API on one origin, backed by one SQLite file.
 There's no separate web server, no database service, and no auth
-([../docs/architecture.md](architecture.md)) — run it on a LAN or behind a
+([architecture.md](architecture.md)) — run it on a LAN or behind a
 reverse proxy you trust.
 
 ```mermaid

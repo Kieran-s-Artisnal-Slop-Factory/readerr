@@ -1,6 +1,7 @@
 /**
  * Link assignment and query helpers over the join tables. All deletes are
- * soft (tombstoned join rows) so they sync.
+ * soft (tombstoned join rows) so they sync — the local-only label_usage
+ * cache is the exception: derived, never synced, hard-deleted.
  */
 import {
   all,
@@ -28,10 +29,11 @@ const tagPairKey = (j: LinkTag): string => `${j.link_id} ${j.tag_id}`;
 
 /**
  * Collapse duplicate (link, tag) joins to one per pair (see dedupePairs).
- * Every read of link_tags runs through here so a tag assigned to a link on
- * two devices never surfaces as a doubled chip or an inflated tag count.
- * link_topics has its own twin (dedupeLinkTopics) that also keeps footnote
- * numbers stable.
+ * Every display read of link_tags runs through here so a tag assigned to a
+ * link on two devices never surfaces as a doubled chip or an inflated tag
+ * count; the one-time label_usage backfill reads the raw store and is
+ * exempt (it only computes max(updated_at) per label). link_topics has its
+ * own twin (dedupeLinkTopics) that also keeps footnote numbers stable.
  */
 async function dedupeLinkTags(rows: LinkTag[]): Promise<LinkTag[]> {
   return dedupePairs('link_tags', rows, tagPairKey);
@@ -396,12 +398,6 @@ export async function linksFromChildTags(
   return [...byLink.values()];
 }
 
-export async function linksForTopic(topicId: string): Promise<Link[]> {
-  const joins = await dedupeLinkTopics(await byIndex<LinkTopic>('link_topics', 'topic_id', topicId));
-  const links = await Promise.all(joins.map((j) => get<Link>('links', j.link_id)));
-  return links.filter((l): l is Link => !!l);
-}
-
 /**
  * Resolve tag names to ids (case-insensitive), creating any that don't
  * exist yet — the capture DSL names tags by text, and a typo'd new name is
@@ -526,9 +522,9 @@ function countBy<T>(rows: T[], key: (row: T) => string): Map<string, number> {
 }
 
 /**
- * Tags for just the given links (scaling.md phase A: list pages resolve
- * labels for the visible page only — ~100 indexed lookups — instead of
- * building whole-database maps).
+ * Tags for just the given links: list pages resolve labels for the visible
+ * page only — ~100 indexed lookups — instead of building whole-database
+ * maps.
  */
 export async function tagsForLinks(links: Link[]): Promise<Map<string, Tag[]>> {
   const map = new Map<string, Tag[]>();
@@ -574,21 +570,6 @@ export async function tagsByLinkMap(): Promise<Map<string, Tag[]>> {
   for (const j of joins) {
     const tag = tagById.get(j.tag_id);
     if (tag) byLink.set(j.link_id, [...(byLink.get(j.link_id) ?? []), tag]);
-  }
-  return byLink;
-}
-
-/** All live topic assignments as a link_id → Topic[] map (for list pages). */
-export async function topicsByLinkMap(): Promise<Map<string, Topic[]>> {
-  const [joins, topics] = await Promise.all([
-    all<LinkTopic>('link_topics').then(dedupeLinkTopics),
-    all<Topic>('topics'),
-  ]);
-  const topicById = new Map(topics.map((t) => [t.id, t]));
-  const byLink = new Map<string, Topic[]>();
-  for (const j of joins) {
-    const topic = topicById.get(j.topic_id);
-    if (topic) byLink.set(j.link_id, [...(byLink.get(j.link_id) ?? []), topic]);
   }
   return byLink;
 }

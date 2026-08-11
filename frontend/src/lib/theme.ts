@@ -10,7 +10,7 @@
  *                          by an inline script in Layout.astro so pages
  *                          never flash the default theme
  *
- * theme.css keeps the gruvbox values as its defaults, so gruvbox with no
+ * theme.css keeps the forest values as its defaults, so forest with no
  * overrides compiles to no CSS at all.
  */
 import { importKindOf } from './importKind';
@@ -68,7 +68,7 @@ export const SHARED_VARS: { name: string; label: string }[] = [
 ];
 
 /** Defaults for shared tokens (mirrors theme.css). */
-export const SHARED_DEFAULTS: Record<string, string> = {
+const SHARED_DEFAULTS: Record<string, string> = {
   '--font-body': 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   '--font-size-sm': '0.85rem',
   '--font-size-base': '1rem',
@@ -303,7 +303,7 @@ export function hasCustomizations(cfg: ThemeConfig): boolean {
  * even though the boot script injects it earlier in <head> than Astro's
  * bundled stylesheets.
  */
-export function compileCss(cfg: ThemeConfig): string {
+function compileCss(cfg: ThemeConfig): string {
   if (cfg.base === 'forest' && !hasCustomizations(cfg)) return '';
   const lines: string[] = [':root:root {'];
   for (const v of PAIRED_VARS) {

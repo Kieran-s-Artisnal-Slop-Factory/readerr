@@ -17,8 +17,12 @@ edited in two places, the **most recent edit wins** — there's nothing to merge
 by hand. You can sync in any order, on any schedule, and everyone ends up with
 the same data.
 
-Background sync runs when you open the app and roughly every 15 minutes as you
-use it; you can also hit **Sync now** in Settings.
+Your edits **push about a second after you make them** (debounced, so a burst
+of edits goes up as one push), and anything still pending is flushed when you
+close or hide the tab. Writes made offline push as soon as the connection
+comes back. On top of that, a full sync runs when you open the app and
+roughly every 15 minutes as you use it, and **Sync now** in Settings forces a
+full round trip whenever you want one.
 
 ## Turning sync on
 
@@ -31,6 +35,16 @@ use it; you can also hit **Sync now** in Settings.
 
 > If the app is *served by* the sync server (the normal Docker setup below),
 > leave the URL **blank** — it syncs to the same address it loaded from.
+
+## Turning sync off
+
+**Settings → Sync** also has a **Sync enabled on this device** switch. Turn
+it off and the device is fully local: nothing pushes or pulls, **Sync now**
+is greyed out ("Sync is disabled on this device."), Sync history is hidden,
+and the weekly close runs from local data without waiting for a server.
+Saving a server URL turns sync back on. It's the clean way to retire a device
+from a sync setup — or to stop a device waiting on a server that no longer
+exists.
 
 ## Deploying your own backend
 
@@ -98,12 +112,14 @@ already has data, readerr asks how to combine them:
 
 - **Merge both** (recommended) — combine everything; newest edit wins per
   item. Nothing is lost.
-- **Use server data** — replace this device with the server's copy.
+- **Use server data** — replace this device with the server's copy. The
+  confirmation warns that local-only rows — archived links — are cleared
+  too, so export a backup first if you need them.
 - **Use local data** — wipe the server and replace it with this device's copy.
 
 Pick **Merge** unless you specifically want one side to overwrite the other.
 (A caveat about "Use local data" and *other* already-synced devices is in
-[gotchas](gotchas.md#i-chose-use-local-data-and-another-device-is-now-out-of-date).)
+[gotchas](gotchas.md#i-chose-use-local-data-and-rows-i-wiped-reappeared).)
 
 ## Backups and exports
 
@@ -124,6 +140,7 @@ instead of a server.
 ## Watching sync health
 
 **Settings → Sync** shows the last sync time or the last error. Expand **Sync
-history** for a log of recent syncs, with options for how much to track (all
-errors, only real errors ignoring offline blips, or none) and how long to keep
-it. Counters for errors, successful syncs, and last-synced are always shown.
+history** (shown only while sync is enabled) for a log of recent syncs, with
+options for how much to track (all errors, only real errors ignoring offline
+blips, or none) and how long to keep it. Counters for errors, successful
+syncs, and last-synced are always shown.

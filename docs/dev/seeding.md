@@ -29,6 +29,8 @@ random-data generator. They are pinned by
   capped by what is eligible. The returned `SeedSummary` reports what was
   actually written, not what was asked for.
 - **Deterministic.** Same options in, same dataset out (seeded mulberry32).
+  The seed is derived from the two volume knobs alone (links/week and
+  weeks) — no other control re-keys the random stream.
 - **Names are unique.** Tag names in particular: duplicates would be folded by
   `reconcileTags` on the first read, silently undoing the count you asked for.
 - **The tag graph is acyclic by construction.** A tag is only ever nested
@@ -41,14 +43,27 @@ random-data generator. They are pinned by
 - **Rows go through the normal stores** with `server_seq: null`, so a seeded
   library pushes and converges exactly like a real one.
 
+Two known gaps: seeded links all carry `priority: null`, so the compound
+`priority_added` index is never exercised by seeded data, and no `plans`
+rows are generated.
+
 Seeding is additive — it mixes into whatever is already there and mints fresh
-ids each run, so repeated runs stack up. Seed onto a fresh install.
+ids each run, so repeated runs stack up. Seed onto a fresh install: the fixed
+resource-pool URLs in particular are re-inserted verbatim each run (seeding
+writes through `bulkPut`, bypassing capture's URL dedupe), so repeated runs
+mint duplicate links for the same URLs.
+
+One warning worth heeding: seeding is not sync-aware. The rows land in the
+normal stores, so with a server configured the debounced write trigger pushes
+the entire dataset ~800 ms after the last chunk lands. Turn sync off (or
+point at a throwaway server) before seeding a dataset you don't intend to
+keep.
 
 ## The controls
 
 | Group | Control | Meaning |
 |---|---|---|
-| Volume | Usage weight | links per week (1–500) |
+| Volume | Usage weight | links per week — the Settings slider runs 5–500 in steps of 5; the API clamps 1–500 |
 | | Duration | weeks of history (1–1040, ±15% jitter per week) |
 | Origins | Domains to draw from | size of the hostname pool |
 | Lifecycle | Favourites / Resources / Slushed | % of generated links |
@@ -89,6 +104,11 @@ slots simply stay under it — nothing is invented to hit the total.
 after the distribution split, so with many topics and a low reference budget
 `minRefs` can push the total above the requested percentage. That is
 deliberate: a topic with zero references is not a useful test fixture.
+
+**One fixed resource list.** Every run seeds the same "Handy tools" list from
+a fixed ten-URL pool (`RESOURCE_POOL`), adding the first six as members. It
+answers to no control and is not reported in the `SeedSummary` — it exists so
+the resource-list pages have something to show.
 
 ## Archival and the local-only cold store
 

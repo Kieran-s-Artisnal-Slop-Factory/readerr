@@ -13,12 +13,18 @@ So titles won't resolve when:
 
 - you're in **offline mode** (no server configured), or
 - you're **temporarily offline**, or
+- **Automatically title bare links** (Settings → Link handling) is switched
+  off, or
 - the site blocks automated fetches (some do).
 
 Untitled links aren't stuck, though: readerr retries them **every time you
-open the Backlog** while online, so they usually sort themselves out. You can
-always click a link's title to edit it by hand — a hand-edited title is
-authoritative and won't be overwritten.
+open the Backlog page** (only there) while online, so they usually sort
+themselves out. You can always click a link's title to edit it by hand — a
+hand-edited title is authoritative and won't be overwritten.
+
+One historical quirk: titles containing an apostrophe used to arrive
+truncated ("it doesn"). That's fixed on the server side — if you still see
+it, your sync server needs updating.
 
 ## My data disappeared / the browser cleared it
 
@@ -48,7 +54,9 @@ something to the top for good, raise its **priority** rather than dragging it.
 Priority **3 is the default** — it means "no particular priority." Only 1 and 2
 change where a link sorts and show a chip. Setting 3 explicitly is the same as
 leaving it unset, and (deliberately) re-capturing a duplicate at priority 3
-won't overwrite a 1 or 2 you'd set earlier.
+won't overwrite a 1 or 2 you'd set earlier. The one exception: an explicit
+`!priority=3` on the line *does* mean "reset this" — it knocks an existing 1
+or 2 back to the default.
 
 ## Closing a week "lost" some links
 
@@ -61,28 +69,49 @@ Closing a week doesn't delete anything — it **sorts** the week's links:
 If a read link vanished, it's almost certainly in the Slush. Favourite it or
 file it in a topic before closing if you want it kept as read.
 
+Reopening a closed week shows only what you actually read — the rolled
+entries are removed from the week itself (the links are safe in the Backlog).
+
+## A link disappeared when I ticked it read
+
+The **✓** on a Backlog or Favourites row doesn't just mark the link read — it
+files it into the current week as done, and the entry completes on the spot,
+so the link is **slushed immediately** unless it's favourited or in a topic.
+It moved to the **Slush** (Collections → Slush); it isn't gone. Unticking
+pulls it back, and favouriting it or filing it in a topic first keeps it as
+*read* instead.
+
+## "Last week couldn't be closed yet"
+
+With sync on, a device won't close a stale week until it hears from the sync
+server — another device might have closed that week already. The week stays
+open, and closes automatically after the next successful sync. Nothing is
+lost in the meantime. If the server is gone for good, turn sync off in
+**Settings → Sync** and the week closes locally.
+
 ## The ＋ button isn't on every page
 
 The floating **＋** capture button appears on pages that *don't* already have a
 capture box. The Reading List and Backlog have their own box at the top, so
 they don't show the ＋ — use the box that's already there.
 
-## I chose "Use local data" and another device is now out of date
+## I chose "Use local data" and rows I wiped reappeared
 
-The **Use local data** conflict option wipes the server and repopulates it from
-the device you're on. That device is fine — but any **other** device that had
-already synced will keep showing its old data, because it doesn't know the
-server was reset. To fix an out-of-date device: re-onboard it with **Sync from
-existing server**, or re-enter the server URL in its Settings and choose
-**Use server data**. When in doubt, prefer **Merge both**, which never
-strands a device.
+The **Use local data** conflict option wipes the server and repopulates it
+from the device you're on. Other devices notice the reset on their next sync
+and re-sync from scratch — they won't be left on stale data. But they'll also
+push their own copy back up, so rows you wiped can reappear. If you want one
+dataset to win everywhere, use **Use local data** here and then **Use server
+data** on each other device (or prefer **Merge both** and delete what you
+don't want).
 
 ## Changes on one device aren't showing on another
 
-Background sync is throttled to about every 15 minutes. If you want to see a
-change immediately, open **Settings → Sync** and hit **Sync now** on both
-devices. Also check the sync status there — a failed sync (wrong URL, server
-down) is shown with an explanation.
+Edits push to the server within about a second (and flush when you close the
+tab or come back online) — it's *pulling* that's throttled, to roughly every
+15 minutes. So open **Settings → Sync** and hit **Sync now** on the device
+that's *missing* the change. Also check the sync status there — a failed sync
+(wrong URL, server down) is shown with an explanation.
 
 ## The app looks broken after an update (developers)
 

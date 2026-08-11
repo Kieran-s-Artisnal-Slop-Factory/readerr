@@ -24,7 +24,7 @@ Two distinct notions of "offline":
 
 | | How it's chosen | What it means |
 |---|---|---|
-| **Offline mode** | onboarding, or by clearing the sync URL | *policy*: `readerr-sync-mode = 'offline'` in localStorage — no network calls, ever (no sync, no title fetch) |
+| **Offline mode** | onboarding, or turning the Settings → Sync toggle off (clearing the sync URL does **not** set it — a blank URL just means same-origin) | *policy*: `readerr-sync-mode = 'offline'` in localStorage — no network calls, ever (no sync, no title fetch) |
 | **Temporarily offline** | `navigator.onLine` / failed fetches | *circumstance*: network features skip or fail quietly and retry later |
 
 ### Durability
@@ -66,7 +66,7 @@ flowchart TD
   fallback.
 - **Assets are stale-while-revalidate** — instant loads, background
   freshness.
-- `CACHE_VERSION` (`readerr-v2`) names the cache; bump it to invalidate
+- `CACHE_VERSION` (`readerr-v3`) names the cache; bump it to invalidate
   everything after a breaking asset change. `activate` deletes old caches
   and claims clients.
 - Cross-origin requests and non-GETs (every `/sync/*` POST) bypass the
@@ -114,12 +114,30 @@ its own URL, and all app links go through `href()` in
 immediately when `navigator.onLine` is false or the mode is offline; a
 failed `syncNow()` records the error (Settings shows it, the
 [sync log](sync.md#sync-history--status)'s *explicit errors* mode ignores
-offline-caused ones) and simply waits for the next trigger — session start,
-the 15-minute throttle, or a manual **Sync now**. Nothing queues: push is
+offline-caused ones) and simply waits for the next trigger — a write's
+debounced push, session start, the 15-minute throttle, or a manual
+**Sync now**. Almost nothing queues: push is
 cursor-based ("everything changed since `lastPushAt`"), so however long the
 device was offline, the next successful sync carries it all, in bounded
-chunks. The Navbar shows an `offline` badge driven by the
+chunks. The exceptions are two small by-id queues in `sync_meta` —
+`pendingRepush` (reconcile-fold survivors whose preserved `updated_at` sits
+below the push watermark) and `pendingArchivedPush` (archived links the
+server has never seen) — drained explicitly by the next push; see
+[sync.md](sync.md). The Navbar shows an `offline` badge driven by the
 `online`/`offline` window events.
+
+`installSyncFlush` (sync.ts, installed once per page alongside
+`maybeAutoSync`) covers the two gaps the debounced push leaves around
+connectivity. On `online`, it calls `requestSync()` — writes made while
+offline never armed the debounce at all (`requestSync` bails when
+`!navigator.onLine`), so reconnecting is what retries them. On `pagehide` /
+tab-hidden, it flushes a still-pending debounce immediately — in an MPA
+every navigation kills pending timers, so a write made in the last ~800 ms
+had an armed timer that would never fire once the page died. This is the
+Sunday-night-wifi bug: mark the week's last article done on the phone, close
+the browser, and without the flush that completion sits unpushed until the
+phone's next visit — by which time another device may have closed the week
+from stale state.
 
 ### Title fetching
 
@@ -133,7 +151,11 @@ titles needs the backend (browsers can't read cross-origin pages), so
 - skips entirely in offline mode (no backend exists; a client-side fetch
   would be CORS-blocked for nearly every site),
 - otherwise fires-and-forgets against `GET /title`, retrying 3× per link and
-  logging a console warning when it gives up.
+  logging a console warning when it gives up. A resolved title is written
+  through `repo.patch()` — only `title` and `title_fetched` change, computed
+  against the *current* row — and a row that already reads `title_fetched`
+  (settled elsewhere) or was deleted mid-fetch is skipped rather than
+  overwritten or resurrected.
 
 `title_fetched = false` **is** the retry queue: `retryMissingTitles()` runs
 on every Backlog mount and re-attempts every bare link, so titles captured
@@ -153,7 +175,7 @@ sequenceDiagram
     App->>BE: GET /title?url=… (per bare link)
     BE-->>App: {ok, title}
     App->>DB: title updated, title_fetched = true
-    Note over App,BE: next auto-sync tick
+    Note over App,BE: debounced push, ~800ms after the write
     App->>BE: push everything since lastPushAt
 ```
 

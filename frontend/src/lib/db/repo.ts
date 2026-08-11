@@ -1,14 +1,16 @@
 /**
  * CRUD helpers over IndexedDB. All reads filter tombstones; all writes stamp
- * updated_at (the LWW conflict-resolution field). Rows are never hard
- * deleted — softDelete sets deleted_at so deletions can sync in Phase 3.
+ * updated_at (the LWW conflict-resolution field). softDelete sets deleted_at
+ * so deletions sync; the only hard deletes are deliberate — the archival
+ * move out of `links` (archive.ts) and the derived local-only label_usage
+ * cache (links.ts).
  */
 import { getDB } from './db';
 import { healsAllowed } from '../testMode';
 import { requestSync } from '../sync';
 import type { StoreName, SyncFields } from './types';
 
-export const newId = (): string => crypto.randomUUID();
+const newId = (): string => crypto.randomUUID();
 export const nowIso = (): string => new Date().toISOString();
 
 /** Attach generated id + sync fields to a new entity. */

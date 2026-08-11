@@ -12,10 +12,10 @@ New here? Start with **[Getting started](getting-started.md)**.
 | Guide | What it covers |
 |---|---|
 | [Getting started](getting-started.md) | the first five minutes: capture, the Reading List, the Backlog |
-| [Capturing links](capturing-links.md) | paste formats, the `!options` shortcuts, priorities, auto-titles |
+| [Capturing links](capturing-links.md) | paste formats, the `!options` shortcuts, priorities, resource lists, auto-titles |
 | [Organizing & reading](organizing-and-reading.md) | weekly flow, plans, tags/topics, favourites, resources, bulk edits, archiving |
 | [Tagging](tagging.md) | tagging links, and nesting tags under parent tags |
-| [Sync & backups](sync-and-backups.md) | multiple devices, backups, and **how to run your own sync server** |
+| [Sync & backups](sync-and-backups.md) | multiple devices, the per-device sync switch, backups, and **how to run your own sync server** |
 | [Common gotchas](gotchas.md) | the handful of surprises worth knowing up front |
 
 ## The 30-second tour

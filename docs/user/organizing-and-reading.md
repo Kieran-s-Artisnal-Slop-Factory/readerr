@@ -12,6 +12,10 @@ Backlog  →  Reading week  →  read it ✓  →  close the week  →  kept / s
 1. **Pick links into a week.** Schedule them when you capture, drag them in
    from the Backlog, or let a **Plan** suggest a weekly batch (below).
 2. **Read and mark done.** On the Reading List, the **✓** marks a link read.
+   Rows in the **Review** section show a **Reviewed** button instead — it
+   completes the review without touching the link's original read date. Every
+   row also has a **✕** that removes the link from this week without deleting
+   anything; it stays wherever else it lives.
 3. **Close the week** with the button at the bottom. Each link gets an
    outcome:
    - **Read** — you favourited it or filed it in a topic. It stays in your
@@ -20,10 +24,38 @@ Backlog  →  Reading week  →  read it ✓  →  close the week  →  kept / s
      **Slush** (see below), out of the way but searchable.
    - **Rolled** — you didn't finish it. It simply returns to the Backlog.
 
-Use **← Previous / Next →** on the Reading List to look at other weeks. Past
-and future weeks are read-only; only the current week has the capture box,
-suggestions, and Close button. A week whose Monday has already passed closes
-itself automatically when you next open the app.
+Closing asks you to confirm first, and the confirmation says how many
+unfinished links will roll back to the Backlog. (The button is disabled while
+the week is empty.) With sync on, readerr checks with the server before
+closing, waiting up to ~10 seconds: if another device already closed the week
+you'll see "This week was already closed on another device." rather than a
+second close, and if the server can't confirm either way, the confirmation
+gains a warning so you know before proceeding.
+
+Use **← Previous / Next →** to look at other weeks. Only the current week gets
+the inline add/search box, the quota suggestions, and the **Close week**
+button — but the capture box at the top is always there, and you can still
+tick, remove, re-order and bulk-edit rows in an older week.
+
+### Weeks close themselves
+
+A week whose Monday has already passed closes itself when you next open the
+**Reading List** page (only that page runs the check). With sync on — and if
+this device has reached the server before — readerr syncs *first* and only
+closes after a successful sync, so it never repeats a close that already
+happened on another device. If the server is offline, failing, or slow (about
+10 seconds), the week stays open with a notice that last week "couldn't be
+closed yet", and closes automatically after the next successful sync. A device
+with sync off, or one that has never synced, closes immediately from local
+data. Either way you get a summary: "Last week ended and was closed
+automatically: N read, N slushed, N returned to the backlog."
+
+### Past weeks show what you actually read
+
+Open a closed week and any links you never finished drop out of it — they
+went back to the Backlog when the week closed, so the week keeps only your
+read and slushed history. This trimming is permanent, and it syncs to your
+other devices.
 
 ### Priorities
 
@@ -75,12 +107,23 @@ stranding you on an empty one.
 
 - **Defaults** — a weekly **quota** (e.g. "5 articles/week") and optional
   **focus tags**. On the Reading List, readerr suggests Backlog links to fill
-  the quota, preferring your focus tags (and higher priorities first).
+  the quota, preferring your focus tags (and higher priorities first). With
+  more than one focus tag the quota is **split** across them (a quota of 3
+  over two tags suggests 2 from one and 1 from the other), and any leftover
+  is filled from the general backlog.
 - **Scheduled plans** — override the defaults for a specific **week or month**
   (e.g. "next week is compilers, 3 articles"). A weekly plan beats a monthly
-  plan beats the defaults, field by field.
+  plan beats the defaults, field by field. Each scheduled plan has **Edit**
+  and **Delete**; editing can move a plan to a different week or month, and
+  readerr asks before replacing a plan that already exists there.
 
-**Plans → Upcoming weeks** shows a calendar strip of what's scheduled ahead.
+**Plans → Upcoming weeks** shows an 8-week strip of what's scheduled ahead,
+with **Earlier / Later** to page through. Click a cell to focus that week: a
+card titled like "Week of August 3-9" (plus "(past)" where that applies)
+shows its quota, focus tags, plan note, and a line saying where the plan
+comes from (a weekly plan, a monthly plan, or the defaults), along with any
+links already scheduled into it. **Plan this week / Edit plan** opens an
+inline editor right there, and **Clear week plan** removes it.
 
 ## The Slush
 
@@ -157,6 +200,20 @@ Each list has an overview document and **exports**:
   list, or a whole zip of pages (an index plus one page per list) for the
   entire Resources section.
 
+## What's on a link row
+
+Link rows carry a few controls beyond the flag toggles:
+
+- A **📅 chip** appears when the link is scheduled into a reading week,
+  naming the week.
+- The **✎** button edits the title inline. A hand-edited title is
+  authoritative — auto-titling never overwrites it.
+- On the Backlog and Favourites, the **#** button opens an inline panel with
+  the tag picker *and* a reading-week selector, so you can tag and schedule
+  without leaving the list.
+- Links with notes or excerpts show a small line under the title, so you can
+  see at a glance that there's writing attached.
+
 ## Per-link notes and excerpts
 
 Open any link (the **›** button) for its detail page: edit its title, toggle
@@ -172,8 +229,8 @@ completes without disturbing the original read date — and leaves the Slush.
 
 ## Bulk editing
 
-On the **Backlog** and **Reading List**, tick the checkbox on any rows to
-open a **bulk operations** panel. Select a range and, in one action:
+On the **Backlog**, **Favourites** and **Reading List**, tick the checkbox on
+any rows to open a **bulk operations** panel. Select a range and, in one action:
 
 - add or remove tags/topics,
 - set/clear favourite, resource, or done,
@@ -201,7 +258,8 @@ old **slushed** links (read, not favourited, not in a topic) older than a
 threshold (default 24 months) into a searchable **Archive** tab that the main
 views never load — so the app stays snappy at scale. It's off by default,
 reversible (you can un-archive), and readerr suggests turning it on once you
-pass ~50,000 links.
+pass ~50,000 links. The **Collections → Archive** entry only appears in the
+nav once archival mode is enabled.
 
 ## Stats
 

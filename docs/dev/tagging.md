@@ -66,6 +66,9 @@ database writes nothing.
 Every rule picks a **device-independent** winner (smallest id) so two devices
 reach the same answer without coordinating. See the "logical singletons keyed by
 UUID" section of [data-model.md](data-model.md) for the family this belongs to.
+Survivors persist via `putReconciled`, which preserves `updated_at` — §5
+explains why that rule holds for content folds and inverts for structural
+re-points.
 
 ### Ordering matters
 
@@ -75,13 +78,17 @@ the duplicate `(link_id, survivor)` pairs the dedupe then collapses. Running
 them the other way round leaves duplicates behind. `tagsByRecentUse`, the tag
 index and the tag page all order it correctly; new read paths must too.
 
-When a tag merge happens, the survivor inherits **three** kinds of row:
+When a tag merge happens, the survivor inherits **four** kinds of row:
 
 - `link_tags` — via `repointTagJoins`
 - `tag_parents` — via `repointTagParents`, in **both** directions (the stray may
   be a child in one edge and a parent in another)
 - `focus_tag_ids` arrays on `user_settings` and every `plan` — via
-  `remapFocusTags`
+  `remapSettingsFocusTags` / `remapPlansFocusTags` (each an alias of its
+  module's `remapFocusTags`)
+- the stray's `label_usage` recency — via `remapLabelUsage`, which carries the
+  fresher `used_at` onto the survivor. This one is a local-only derived cache
+  (chip ordering), so it's hard-deleted, not tombstoned
 
 ## 3. The nesting graph
 
@@ -92,8 +99,12 @@ tagWithDescendants(tagId, maxDepth?)   // the tag + everything beneath it
 tagsWithDescendants(tagIds, maxDepth?) // same, many roots, one adjacency build
 tagWithAncestors(tagId, maxDepth?)     // the mirror walk
 parentsOf(tagId) / childrenOf(tagId)   // direct neighbours, name-sorted
+parentIdsOf(tagId)                     // ids only, no name sort
 parentMap()                            // child → parents, whole graph at once
 setTagParents(childId, parentIds)      // what the picker saves
+addTagParent / removeTagParent         // single-edge writes
+wouldCycle(childId, parentId)          // UX-only insert check (see below)
+repointTagParents(survivor, strays)    // merge support, both directions
 reconcileTagParents()                  // repair
 ```
 
@@ -181,7 +192,8 @@ harness checks after every convergence.
 
 **Adding a store touches more places than you think.** `tag_parents` needed:
 `STORES` + an IndexedDB migration, the backend schema + a migration,
-`tableOrder` **and** `tables` metadata in `sync.go`, the scoped export paths,
+`tableOrder` **and** `tables` metadata in `sync.go` (columns, plus `defaults`
+for any NOT NULL column older rows may omit), the scoped export paths,
 `TABLE_ORDER`/`TABLES`/`FOREIGN_KEYS` in the harness `meta.ts`, `ALL_STORES` in
 the reporter, and a `field-matrix.spec.ts` round-trip. The last two are guards —
 the coverage check failed the build until the round-trip existed, which is the

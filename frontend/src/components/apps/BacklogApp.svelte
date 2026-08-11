@@ -1,9 +1,9 @@
 <script lang="ts">
   /**
    * Backlog: quick-paste capture plus every captured link, newest first,
-   * not-done above done (#15), paginated at 100 (scaling.md phase A). Tag
-   * chips are resolved for the visible page only; searching by tag name
-   * lazily loads the full tag map on first keystroke.
+   * not-done above done (#15), paginated at 100. Tag chips are resolved for
+   * the visible page only; searching by tag name lazily loads the full tag
+   * map on first keystroke.
    */
   import { onMount } from 'svelte';
   import BulkActionsPanel from '../BulkActionsPanel.svelte';

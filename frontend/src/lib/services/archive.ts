@@ -1,12 +1,13 @@
 /**
- * Yearly archival (see yearly-archival.md): move cold slushed links out of
- * the hot `links` store into a local-only `archived_links` store so hot
- * paths deserialize fewer rows.
+ * Yearly archival: move cold slushed links out of the hot `links` store into
+ * a local-only `archived_links` store so hot paths deserialize fewer rows.
  *
  * Archiving hard-deletes from `links` (real perf win) and copies the row to
  * `archived_links`. The server keeps the full history, so nothing is lost;
- * the sync cursor never re-pulls an aged-out row. Archival is deterministic
- * (a function of slushed_at age), so every device converges independently.
+ * a pull can still deliver edits for an archived link, and sync.ts routes
+ * them onto the cold copy instead of resurrecting the hot row. Archival is
+ * deterministic (a function of slushed_at age), so every device converges
+ * independently.
  */
 import { getDB } from '../db/db';
 import { all, put } from '../db/repo';

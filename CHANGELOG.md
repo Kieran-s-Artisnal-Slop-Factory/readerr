@@ -19,7 +19,7 @@
 ## Other
 
 - The reading list's last whole-library reads at scale are gone (~900ms at 77k links): the search box's corpus loads on first use instead of on every page load, backlog suggestions read through a new priority index with early termination, and capture-box chip ordering keeps a small local recency cache instead of scanning every tag/topic assignment. Existing chip ordering carries over via a one-time backfill.
-- Added a refactoring survey at docs/dev/experiments & plans/further-cleanup.md.
+- Full documentation overhaul: every developer and user doc audited against the code and corrected — stale sync/week-close/DSL/migration claims fixed and the newer features (sync toggle, extra strip params, closed-week pruning, resource-list capture) documented. Code comments across frontend and backend brought back in line with current behavior, a handful of unused files and dead exports removed, and a refactoring survey added at docs/dev/experiments & plans/further-cleanup.md.
 
 - Documented the `!list` capture command in the user capture guide and the DSL reference, and marked audit finding D14 (stale-week auto-close clobber) fixed in the sync audit.
 - The sync test harness can now exercise REAL page-load behavior (test gates off) via a per-device real-mode switch — used to replay the stale-week incident end-to-end.

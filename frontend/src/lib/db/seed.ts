@@ -432,12 +432,6 @@ export function resolveSeedOptions(options: SeedOptions): ResolvedSeedOptions {
   };
 }
 
-/** How many links a run will create, for the confirm prompt. */
-export function estimateLinks(options: SeedOptions): number {
-  const o = resolveSeedOptions(options);
-  return o.linksPerWeek * o.weeks;
-}
-
 /** Unique tag name for index i — uniqueness matters, or reconcileTags merges them. */
 function tagName(i: number): string {
   if (i < TAG_WORDS.length) return TAG_WORDS[i];

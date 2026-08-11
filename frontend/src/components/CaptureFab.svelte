@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * Floating capture button (see capture FAB.md): a corner FAB that opens a
+   * Floating capture button: a corner FAB that opens a
    * floating panel hosting the full CaptureBox — every capture feature, no
    * reimplementation. Desktop gets a popover anchored above the button;
    * narrow screens get a bottom sheet. The panel stays open after an add
@@ -26,8 +26,8 @@
     if (e.key === 'Escape' && open) close();
   }
 
-  // Cross-island refresh hook: list pages can listen for this to live-update
-  // (capture FAB.md). No consumers yet — the in-panel report is the feedback.
+  // Cross-island refresh hook: list pages can listen for this to live-update.
+  // No consumers yet — the in-panel report is the feedback.
   function onCaptured(links: Link[]) {
     window.dispatchEvent(new CustomEvent('readerr-captured', { detail: links }));
   }

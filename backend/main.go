@@ -3,10 +3,12 @@
 // Single-user, self-hosted, no auth. The client (frontend/) is local-first;
 // this server is a sync target: POST /sync/push (LWW on updated_at, stamps
 // server_seq from one global counter), GET /sync/pull?since=<server_seq>,
-// GET /backup (sqlite file), plus optional static serving of the built
-// frontend so everything runs on one origin. GET /title is the one
-// deliberate extension beyond sync: it fetches a page title server-side
-// because browsers can't (CORS).
+// GET /sync/stats and POST /sync/reset (the Settings sync card), GET
+// /healthz, GET /backup (sqlite file), GET /dbsize (on-disk size for the
+// stats page), plus optional static serving of the built frontend so
+// everything runs on one origin. GET /title is the one deliberate extension
+// beyond sync: it fetches a page title server-side because browsers can't
+// (CORS).
 package main
 
 import (
@@ -34,7 +36,7 @@ type gzipResponseWriter struct {
 func (w gzipResponseWriter) Write(b []byte) (int, error) { return w.Writer.Write(b) }
 
 // withGzip compresses the response when the client accepts it. Applied to
-// /sync/pull only — its JSON bodies compress ~8:1 (scaling.md §5), while
+// /sync/pull only — its JSON bodies compress ~8:1, while
 // /backup goes through http.ServeFile, whose Content-Length and range
 // handling don't mix with on-the-fly compression.
 func withGzip(next http.Handler) http.Handler {

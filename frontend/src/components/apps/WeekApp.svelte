@@ -6,7 +6,9 @@
    * (suggestions, close) apply to the current open week. Marking a link read
    * completes its entry; a week whose Monday has passed closes itself on
    * load — done links get their outcome and everything unfinished returns to
-   * the backlog.
+   * the backlog. The auto-close waits for a successful sync first (another
+   * device may already have closed the week) and defers with a notice when
+   * the server can't confirm.
    */
   import { onMount } from 'svelte';
   import BulkActionsPanel from '../BulkActionsPanel.svelte';
@@ -295,14 +297,6 @@
   }
 
   /**
-   * The ensureOpenWeek/first-sync race can leave an empty local open week on
-   * screen while the pull is still bringing this week's real row and entries
-   * down. Re-run ensureOpenWeek (which folds away any duplicate open week for
-   * the Monday via reconcileOpenWeeks) and reload whenever a sync actually
-   * pulled something, so the current week heals itself with no manual refresh —
-   * and stay put if the user has navigated away to a past week.
-   */
-  /**
    * Run a close that was deferred because no successful sync had confirmed
    * the server's view yet. Callers guarantee a sync JUST succeeded, so the
    * local state is fresh ground truth — a close that already happened
@@ -321,7 +315,14 @@
     return closed;
   }
 
-  /** Re-resolve the open week and reload, keeping a past-week view in place. */
+  /**
+   * The ensureOpenWeek/first-sync race can leave an empty local open week on
+   * screen while the pull is still bringing this week's real row and entries
+   * down. Re-run ensureOpenWeek (which folds away any duplicate open week for
+   * the Monday via reconcileOpenWeeks) and reload whenever a sync actually
+   * pulled something, so the current week heals itself with no manual refresh —
+   * and stay put if the user has navigated away to a past week.
+   */
   async function refreshOpenWeekView() {
     const viewingOpen = focusStart === openWeekStart;
     const ow = await ensureOpenWeek();

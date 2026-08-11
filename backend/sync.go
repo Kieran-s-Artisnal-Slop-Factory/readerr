@@ -450,8 +450,9 @@ func nowISO() string {
 // cursor and wins client-side LWW on arrival. This is what makes the fold
 // authoritative: whichever device pushed a twin pulls back the merged week
 // in the same sync, and no device can be left holding entries that point at
-// a week it never receives. Runs inside the push transaction on every push;
-// with no duplicate open weeks it writes nothing.
+// a week it never receives. Runs inside the push transaction, on the FINAL
+// chunk only (req.Final — when every row of the push is committed); with no
+// duplicate open weeks it writes nothing.
 func reconcileWeeks(tx *sql.Tx, lastSeq *int64) (int, error) {
 	rows, err := tx.Query(
 		"SELECT id, week_start FROM weeks WHERE deleted_at IS NULL AND closed_at IS NULL")

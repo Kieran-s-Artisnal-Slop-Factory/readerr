@@ -1,10 +1,12 @@
 /**
  * Client sync loop.
  *
- * Push: send rows never accepted by the server (server_seq == null) or
- * modified since the last push (updated_at > lastPushAt); the server applies
- * last-write-wins and returns assigned server_seq values, which are written
- * back without touching updated_at.
+ * Push: send rows modified since the last push (each store's updated_at
+ * index, above the lastPushAt watermark), plus two by-id rescues for rows
+ * that sit below it: fold-reset rows queued in pendingRepush, and archived
+ * links the server has never seen. The server applies last-write-wins and
+ * returns assigned server_seq values, which are written back without
+ * touching updated_at.
  *
  * Pull: request rows with server_seq above our stored high-water mark and
  * apply them under LWW (tombstones simply overwrite — reads filter them).
@@ -68,7 +70,7 @@ export function setSyncUrl(url: string): void {
  * Human-readable message for the status codes worth explaining; anything
  * else falls back to the raw status number + reason phrase.
  */
-export function describeStatus(status: number, statusText: string): string {
+function describeStatus(status: number, statusText: string): string {
   switch (status) {
     case 400:
       return "The server rejected the request as invalid (400). This usually means the app and server versions don't match — update both to the same version.";
@@ -300,16 +302,17 @@ async function checkServerEpoch(base: string): Promise<void> {
   await setMeta('serverEpoch', epoch);
 }
 
-/** Rows per push request — LWW makes multi-request pushes safe (§scaling). */
+/** Rows per push request — LWW makes multi-request pushes safe. */
 const PUSH_CHUNK = 2000;
 /** Rows per pull page; the client loops until a short page arrives. */
 const PULL_LIMIT = 5000;
 
 /**
  * True while a sync is applying rows. On-read reconcilers (notably
- * reconcileOpenWeeks) check this and defer: folding over a half-applied pull
- * could tombstone a just-pulled week before its child rows land, orphaning
- * them. The next read after the sync settles reconciles with complete data.
+ * reconcileOpenWeeks and pruneUnfinishedEntries) check this and defer:
+ * folding over a half-applied pull could tombstone a just-pulled week before
+ * its child rows land, orphaning them. The next read after the sync settles
+ * reconciles with complete data.
  */
 let syncInProgress = false;
 export function isSyncing(): boolean {
@@ -377,7 +380,7 @@ async function doSync(): Promise<SyncResult> {
     await checkServerEpoch(base);
 
     // ---- push (dirty rows via the per-store updated_at index, so the scan
-    // cost tracks changes since the last push, not history — scaling.md §4)
+    // cost tracks changes since the last push, not history)
     const lastPushAt = (await getMeta<string>('lastPushAt')) ?? '';
     const range = lastPushAt ? IDBKeyRange.lowerBound(lastPushAt, true) : undefined;
 

@@ -35,7 +35,7 @@
 
   const visible = $derived(links.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
 
-  // Resolve tag chips for the visible page only (scaling.md phase A).
+  // Resolve tag chips for the visible page only.
   $effect(() => {
     const slice = visible;
     void tagsForLinks(slice).then((m) => (tagsByLink = m));

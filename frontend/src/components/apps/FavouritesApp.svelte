@@ -4,8 +4,8 @@
    * Carries the same toolbar as the Backlog and the Reading List's Done
    * card — search, newest/oldest captured, bulk selection — minus the
    * favourites filter, which every row here would pass anyway.
-   * Paginated at 100; labels resolved for the visible page only
-   * (scaling.md phase A). Tag-name search lazily loads the full map.
+   * Paginated at 100; labels resolved for the visible page only.
+   * Tag-name search lazily loads the full map.
    */
   import { onMount } from 'svelte';
   import BulkActionsPanel from '../BulkActionsPanel.svelte';

@@ -1,19 +1,59 @@
-- [ ] Performance Improvements
-  - [ ] suggestLinks reads the whole links table (~474ms at 77k) because the backlog
-    filter (unread / un-slushed / non-resource, priority-ordered) has nothing
-    indexable. A compound [priority, added_at] index would let it stop early.
-  - [ ] tagsByRecentUse reads all 61k link_tags (~399ms) to order ~120 tags by most
-    recent use. A `last_used_at` column on the tag row makes it a 120-row read, but
-    that is a data-model change: migration + sync.go + sync tests.
-- [ ] Make the terms used to strip tracking configurable. Keep the same default list, but allow people to specify other query params to strip if they want to
-- [ ] I noticed previously when adding links that have a `'` in them that the auto-titling (in the backend) it breaks (e.g. if a page is titled `it doesn't matter your rank`, I would get `it doesn` back as the page title), make sure everything is escaped properly in responses and on any ingest for the auto-titling. I can't remember if this was already fixed previously or not, so just verify and fix if necessary
-- [ ] Cleanup (do this last)
-  - [ ] Documentation overhaul
-    - [ ] Scan through every document in `docs/dev` (ignore `experiments & plans`) and `docs/user`
-      - [ ] Ensure all docs are Up to date, making changes where necessary
-    - [ ] Update code comments across the entire frontend and backend to make sure they align with the current state of the system
-  - [ ] Verify all files are necessary, cleanup any that are no longer in use (if there are any)
-  - [ ] Add a file called `further-cleanup.md` to `docs/dev/experiments & plans` that details a plan to refactor the existing code to simplify where possible if there are any good opportunities to
+DONE (2026-08-11):
+
+1. [x] Performance Improvements
+   - [x] suggestLinks no longer reads the whole links table. IDB v9 adds a
+         compound [priority, added_at] index; explicit-priority rows come from
+         it, null-priority rows (which IndexedDB cannot index — the reason
+         this was parked) come from the existing added_at index, and the two
+         cursor streams merge with early termination. The week page's own
+         whole-library read went too: the search corpus now loads on first
+         focus of the adder instead of on every page load.
+         Tests: test/perfPaths.test.ts — ordering equivalence against the old
+         implementation as oracle + a guard that fails if a whole-table
+         getAll returns to the path.
+   - [x] tagsByRecentUse no longer reads all link_tags. Recency lives in a
+         LOCAL-ONLY label_usage store (one row per tag/topic id), stamped on
+         assignment and rebuilt by a one-time backfill so existing ordering
+         carried over. Deliberately NOT the synced last_used_at column the
+         note suggested: stamping the tag row on every assignment would let a
+         stale device clobber a concurrent rename under whole-row LWW — the
+         exact stale-snapshot class the sync audit killed. Local-only gets
+         the same 61k-to-120-row win with zero sync surface (and per-device
+         recency is arguably the better UX). Docs: performance.md.
+2. [x] Tracking-param stripping is configurable: user_settings gained
+       strip_extra_params (SQLite v18 + sync.go + types + field-matrix).
+       Settings → Link handling has an "Additional params to strip" textarea;
+       entries are case-insensitive, trailing * matches a prefix. Applies to
+       captures, the bulk re-strip, and whitelisted domains in 'all' mode.
+3. [x] Auto-title apostrophe bug: real, and fixed in backend/title.go. The
+       og:title regexes shared a [^"']+ class that stopped at EITHER quote
+       character, so content="it doesn't matter your rank" captured
+       "it doesn". Each quote style now matches to its own closing quote
+       (RE2 has no backreferences); truncation is rune-safe; empty og:title
+       falls through to <title>. Tests in title_test.go cover every
+       quote/apostrophe combination.
+4. [x] Cleanup
+   - [x] Documentation overhaul: every doc in docs/dev (minus experiments &
+         plans) and docs/user audited against the code by subagents and
+         corrected — stale claims fixed (migration counters, sync triggers,
+         wire format, week-close behavior, DSL grammar, seeder guarantees),
+         missing coverage added (sync toggle, extra strip params, closed-week
+         pruning, label_usage, resource-list capture).
+   - [x] Code comments aligned across frontend and backend (stale headers,
+         orphaned docstrings, dangling references to docs deleted in an old
+         reorg, a literal NUL byte in topics.ts that made the file invisible
+         to grep).
+   - [x] Unused files removed: root package-lock.json (empty stub),
+         frontend/public/favicon.svg (byte-identical duplicate of icon.svg),
+         backend/backend.exe (stale build artifact), an empty next-tasks.md
+         draft. Dead exports deleted (estimateLinks, storageEstimate,
+         topicsByLinkMap, linksForTopic); five needlessly-exported internals
+         un-exported. Test-only helpers deliberately kept.
+   - [x] docs/dev/experiments & plans/further-cleanup.md written: a
+         leverage-ordered refactor survey (reconcile-engine extraction,
+         patch() completion, WeekApp/SettingsApp splits, DSL single source of
+         truth, schema-triplication guard, doSync decomposition, and the
+         known-limitation debt that is recorded but deliberately unbuilt).
 
 Ensure for each change:
 
@@ -21,8 +61,8 @@ Ensure for each change:
     - There are no sync issues/regressions with the changes
     - There are adequete tests for the system to ensure no synchronization issues, and that the system works both from the UI and has unit tests
     - Features that touch frontend and backend have testing and validation for both peices
-- Add Changes to the CHANGELOG.md 
-    - If a version exists and does not have a release date yet, keep adding to it, if there's no versions without a release date, then bump version (e.g. `v0.1.0 -> v0.2.0`) in the version file, and add a new main heading to CHANGELOG.md for it (e.g. `v0.2.0 (unreleased)`) and add the changes under there. 
+- Add Changes to the CHANGELOG.md
+    - If a version exists and does not have a release date yet, keep adding to it, if there's no versions without a release date, then bump version (e.g. `v0.1.0 -> v0.2.0`) in the version file, and add a new main heading to CHANGELOG.md for it (e.g. `v0.2.0 (unreleased)`) and add the changes under there.
     - Add all changes under the following categories as sub-headings:
       - Features
       - Bug Fixes

@@ -49,7 +49,7 @@ const MIGRATIONS: Migration[] = [
       joins.createIndex('link_id', 'link_id', { multiEntry: false });
     }
   },
-  // v5 — the archive store (see yearly-archival.md). Local-only: NOT in
+  // v5 — the archive store (see services/archive.ts). Local-only: NOT in
   // STORES, so it never syncs; archived links are hard-moved here out of the
   // hot `links` store. Mirrors the links shape.
   (db) => {
@@ -68,7 +68,7 @@ const MIGRATIONS: Migration[] = [
       store.createIndex('at', 'at', { multiEntry: false });
     }
   },
-  // v7 — updated_at index on every synced store (scaling.md §4): push asks
+  // v7 — updated_at index on every synced store: push asks
   // "what changed since lastPushAt" with an IDBKeyRange instead of scanning
   // whole stores, so its cost tracks edits, not history.
   (_db, tx) => {
@@ -111,7 +111,12 @@ const MIGRATIONS: Migration[] = [
   },
 ];
 
-/** Local-only stores that live in IndexedDB but never sync or appear in STORES. */
+/**
+ * Local-only stores that never sync or appear in STORES but hold real user
+ * data — a full backup must still carry them. sync_meta, sync_log, and
+ * label_usage are deliberately absent: cursors, telemetry, and derived
+ * caches rebuild themselves and aren't worth backing up.
+ */
 export const LOCAL_STORES = ['archived_links'];
 
 export const DB_VERSION = MIGRATIONS.length;

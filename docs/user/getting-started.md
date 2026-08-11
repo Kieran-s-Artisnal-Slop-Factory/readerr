@@ -45,7 +45,8 @@ https://example.com
 - Duplicates are detected automatically — pasting a link you already saved
   won't create a second copy (it just updates the existing one).
 - Page **titles fill themselves in** a moment after you add a bare URL (this
-  needs a sync server and a connection — see
+  needs a sync server, a connection, and **Automatically title bare links**
+  left on in Settings → Link handling — it's on by default; see
   [gotchas](gotchas.md#titles-arent-filling-in)).
 - The links you just added appear in a **Just Added** list right under the
   box, so they're easy to find and open — handy when you've scheduled them
@@ -63,12 +64,16 @@ Want to tag, prioritize, or schedule links as you capture them? That's all in
 3. At the end of the week, hit **Close week**. Links you favourited or wrote
    about are kept as *read*; links you read but didn't remark on are set aside
    in the **Slush**; anything you didn't get to rolls back to the Backlog.
+   (If sync is on, readerr checks with the sync server first — see
+   [Organizing & reading](organizing-and-reading.md).)
 
 The whole rhythm is covered in [Organizing & reading](organizing-and-reading.md).
 
 ## Where everything else lives
 
-The **Settings** page (the gear icon) has: appearance and custom themes,
-sync configuration, backups and exports, archival, and demo data to try
-things out. The nav's **Plans** and **Collections** menus hold automation,
-upcoming weeks, tags, topics, resources, and the slush.
+The **Settings** page (the gear icon) has: appearance and custom themes;
+link handling (URL cleaning, auto-titles, the default capture week, tag-chip
+ordering); sync configuration, including a per-device on/off switch; backups
+and exports; storage; archival; and demo data to try things out, with options
+to shape what gets generated. The nav's **Plans** and **Collections** menus
+hold automation, upcoming weeks, tags, topics, resources, and the slush.
