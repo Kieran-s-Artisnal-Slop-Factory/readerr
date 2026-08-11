@@ -42,7 +42,14 @@ export async function createDevice(
   });
   await context.addInitScript(() => {
     try {
-      localStorage.setItem('readerr-test-mode', '1');
+      // enterRealMode() plants this marker so a spec can exercise the SHIPPED
+      // page-load behavior (auto-sync, stale-week auto-close, onboarding
+      // gate). Default is test mode: page loads do zero DB writes.
+      if (localStorage.getItem('readerr-harness-real-mode') === '1') {
+        localStorage.removeItem('readerr-test-mode');
+      } else {
+        localStorage.setItem('readerr-test-mode', '1');
+      }
     } catch {
       // first-party storage should always exist; a failure surfaces via the hook wait
     }
@@ -79,6 +86,24 @@ export async function bootDevice(device: Device, baseUrl: string, path = '/'): P
     undefined,
     { timeout: 10_000 }
   );
+}
+
+/**
+ * From the device's next navigation on, run in REAL mode: test gates off, so
+ * page loads execute the shipped auto-sync / auto-close / onboarding paths.
+ * window.__readerr does NOT exist in real mode — flip back with exitRealMode
+ * (and re-boot) before reading raw state.
+ */
+export async function enterRealMode(device: Device): Promise<void> {
+  await device.page.evaluate(() => {
+    localStorage.setItem('readerr-harness-real-mode', '1');
+  });
+}
+
+export async function exitRealMode(device: Device): Promise<void> {
+  await device.page.evaluate(() => {
+    localStorage.removeItem('readerr-harness-real-mode');
+  });
 }
 
 export function assertDeviceClean(device: Device): void {

@@ -40,6 +40,7 @@
     currentWeekStart,
     ensureOpenWeek,
     findWeek,
+    hasStaleOpenWeeks,
     removeFromWeek,
     reorderEntries,
     setEntryDone,
@@ -49,7 +50,14 @@
     type CloseResult,
     type WeekEntry,
   } from '../../lib/services/weeks';
-  import { SYNC_EVENT, type SyncResult } from '../../lib/sync';
+  import {
+    getSyncMode,
+    hasEverReachedServer,
+    syncFresh,
+    syncNow,
+    SYNC_EVENT,
+    type SyncResult,
+  } from '../../lib/sync';
   import { isTestMode } from '../../lib/testMode';
   import type { Excerpt, Link, Note, Tag, Week, WeekLink } from '../../lib/db/types';
 
@@ -208,6 +216,19 @@
     return () => window.removeEventListener(SYNC_EVENT, onSync);
   });
 
+  /**
+   * Set when a stale week could not be safely closed on load because the
+   * sync server hadn't confirmed the week wasn't already closed elsewhere;
+   * onSync retries the close after the next successful sync.
+   */
+  let closeDeferred = false;
+  const DEFER_NOTICE =
+    "Last week couldn't be closed yet — the sync server hasn't confirmed " +
+    'whether it was already closed on another device. It will close ' +
+    'automatically after the next successful sync.';
+  /** Don't block first render forever on an unresponsive server. */
+  const CLOSE_SYNC_TIMEOUT_MS = 10_000;
+
   async function init() {
     // Harness: mounting the week page must not write (auto-close stamps
     // outcomes, ensureOpenWeek mints a week row). Tests drive both explicitly
@@ -217,10 +238,52 @@
       loaded = true;
       return;
     }
-    // A week whose Monday has passed closes itself (#14).
-    const autoClosed = await autoCloseStaleWeeks();
-    if (autoClosed) {
-      message = `Last week ended and was closed automatically: ${describeClose(autoClosed)}.`;
+    // A week whose Monday has passed closes itself (#14) — but NEVER from
+    // stale local state when a sync server exists (audit D14). Another device
+    // may already have closed this week; its done/outcome stamps live only on
+    // the server, and a close from the local copy would overwrite them under
+    // LWW with fresh 'rolled' stamps, erasing the week's reading history
+    // everywhere. So: sync first (sharing Navbar's auto-sync run), and close
+    // only once a sync has succeeded. If the server can't confirm in time,
+    // leave the week open and let onSync finish the job after the next
+    // successful sync.
+    if (await hasStaleOpenWeeks()) {
+      // Only wait on the network when a server has ever actually answered:
+      // static/serverless deployments run in the default 'sync' mode too, and
+      // holding their weeks hostage to a sync that can never succeed would
+      // defer the close forever. A device that has never reached a server
+      // holds the only copy of its data — closing locally is safe.
+      if (getSyncMode() !== 'offline' && (await hasEverReachedServer())) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          closeDeferred = true; // a fetch now is doomed — skip straight to deferral
+        } else {
+          const gate = syncNow();
+          const synced = await Promise.race([
+            gate,
+            new Promise<null>((r) => setTimeout(() => r(null), CLOSE_SYNC_TIMEOUT_MS)),
+          ]);
+          closeDeferred = !synced?.ok;
+          if (synced === null) {
+            // Timed out but still running. Its SYNC_EVENT may fire before
+            // `loaded` flips, which onSync ignores — so finish the deferred
+            // close from the promise itself when it eventually succeeds.
+            void gate.then(async (r) => {
+              if (r.ok && closeDeferred && (await retryDeferredClose())) {
+                await refreshOpenWeekView();
+              }
+            });
+          }
+        }
+      }
+      if (!closeDeferred) {
+        // Re-reads after the pull, so a week closed elsewhere is a no-op here.
+        const autoClosed = await autoCloseStaleWeeks();
+        if (autoClosed) {
+          message = `Last week ended and was closed automatically: ${describeClose(autoClosed)}.`;
+        }
+      } else {
+        message = DEFER_NOTICE;
+      }
     }
     const ow = await ensureOpenWeek();
     openWeekStart = ow.week_start;
@@ -237,19 +300,45 @@
    * pulled something, so the current week heals itself with no manual refresh —
    * and stay put if the user has navigated away to a past week.
    */
-  async function onSync(e: Event) {
-    const detail = (e as CustomEvent<SyncResult>).detail;
-    if (!loaded || !detail?.ok || detail.pulled === 0) return;
-    // Harness: refresh the view but never write from an event handler.
-    if (isTestMode()) {
-      await loadWeek();
-      return;
+  /**
+   * Run a close that was deferred because no successful sync had confirmed
+   * the server's view yet. Callers guarantee a sync JUST succeeded, so the
+   * local state is fresh ground truth — a close that already happened
+   * elsewhere was pulled in and makes this a no-op. Returns what was closed.
+   */
+  async function retryDeferredClose(): Promise<CloseResult | null> {
+    if (!closeDeferred) return null;
+    closeDeferred = false;
+    const closed = (await hasStaleOpenWeeks()) ? await autoCloseStaleWeeks() : null;
+    if (closed) {
+      message = `Last week ended and was closed automatically: ${describeClose(closed)}.`;
+    } else if (message === DEFER_NOTICE) {
+      // The remote close arrived (or nothing was stale) — the notice is moot.
+      message = '';
     }
+    return closed;
+  }
+
+  /** Re-resolve the open week and reload, keeping a past-week view in place. */
+  async function refreshOpenWeekView() {
     const viewingOpen = focusStart === openWeekStart;
     const ow = await ensureOpenWeek();
     openWeekStart = ow.week_start;
     if (viewingOpen) focusStart = ow.week_start;
     await loadWeek();
+  }
+
+  async function onSync(e: Event) {
+    const detail = (e as CustomEvent<SyncResult>).detail;
+    if (!loaded || !detail?.ok) return;
+    // Harness: refresh the view but never write from an event handler.
+    if (isTestMode()) {
+      if (detail.pulled > 0) await loadWeek();
+      return;
+    }
+    const closed = closeDeferred ? await retryDeferredClose() : null;
+    if (!closed && detail.pulled === 0) return;
+    await refreshOpenWeekView();
   }
 
   /** Load whichever week `focusStart` points at (may not have a row yet). */
@@ -418,14 +507,43 @@
 
   async function onCloseWeek() {
     if (!week || closing) return;
-    const open = toRead.length + review.length;
-    const detail =
-      `Close this week? ` +
-      (open > 0 ? `${open} unfinished link${open === 1 ? '' : 's'} return to the backlog. ` : '') +
-      `Done links without a topic or favourite go to the slush archive.`;
-    if (!confirm(detail)) return;
     closing = true;
     try {
+      // The manual close is the same stamp-everything write as the automatic
+      // one, so it gets the same D14 guard: sync first, so a close recorded
+      // on another device is adopted instead of overwritten. Only when the
+      // server can't answer does the user decide — with the risk spelled out.
+      let syncWarning = '';
+      if (!isTestMode() && getSyncMode() !== 'offline' && (await hasEverReachedServer())) {
+        const online = typeof navigator === 'undefined' || navigator.onLine;
+        const synced = online
+          ? await Promise.race([
+              syncFresh(),
+              new Promise<null>((r) => setTimeout(() => r(null), CLOSE_SYNC_TIMEOUT_MS)),
+            ])
+          : null;
+        if (synced?.ok) {
+          const fresh = await get<Week>('weeks', week.id);
+          if (!fresh || fresh.closed_at) {
+            message = 'This week was already closed on another device.';
+            await refreshOpenWeekView();
+            return;
+          }
+          week = fresh;
+          await refresh();
+        } else {
+          syncWarning =
+            "The sync server couldn't confirm whether this week was already closed on " +
+            'another device — closing now may overwrite reading history recorded there. ';
+        }
+      }
+      const open = toRead.length + review.length;
+      const detail =
+        syncWarning +
+        `Close this week? ` +
+        (open > 0 ? `${open} unfinished link${open === 1 ? '' : 's'} return to the backlog. ` : '') +
+        `Done links without a topic or favourite go to the slush archive.`;
+      if (!confirm(detail)) return;
       const result = await closeWeek(week);
       message = `Week closed: ${describeClose(result)}.`;
       const ow = await ensureOpenWeek();

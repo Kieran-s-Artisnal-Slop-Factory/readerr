@@ -11,7 +11,7 @@
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
   import { importData } from '../../lib/db/export';
   import { requestPersistentStorage } from '../../lib/db/persistence';
-  import { setSyncUrl, setSyncMode, syncNow, testConnection } from '../../lib/sync';
+  import { setSyncUrl, setSyncMode, syncFresh, testConnection } from '../../lib/sync';
   import {
     loadThemeConfig,
     saveThemeConfig,
@@ -144,7 +144,9 @@
       }
       setSyncUrl(restoreUrl);
       setSyncMode('sync');
-      const result = await syncNow();
+      // syncFresh: a run that starts AFTER the URL was set — joining an
+      // in-flight run would sync against whatever was configured before.
+      const result = await syncFresh();
       if (!result.ok) {
         restoreMessage = `Sync failed: ${result.error}`;
         return;

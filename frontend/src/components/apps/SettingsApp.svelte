@@ -11,7 +11,7 @@
   } from '../../lib/db/seed';
   import { archivableCount, archivedCount, archiveNow } from '../../lib/services/archive';
   import {
-    syncNow,
+    syncFresh,
     getSyncMode,
     getSyncStatus,
     getSyncUrl,
@@ -154,7 +154,7 @@
 
   async function runSync() {
     syncing = true;
-    const result = await syncNow();
+    const result = await syncFresh();
     syncing = false;
     message = result.ok
       ? result.pushed === 0 && result.pulled === 0
@@ -216,7 +216,7 @@
           return;
         }
         await wipeLocalData();
-        const r = await syncNow();
+        const r = await syncFresh();
         if (!r.ok) {
           message = `Sync failed: ${r.error}`;
           return;
@@ -235,14 +235,14 @@
         }
         await resetServer();
         await resetLocalSyncState();
-        const r = await syncNow();
+        const r = await syncFresh();
         message = r.ok
           ? `Server wiped and repopulated: pushed ${r.pushed.toLocaleString()} rows.`
           : `Sync failed: ${r.error}`;
       } else {
         // merge: push all local (server keeps per-row newest), pull all server.
         await resetLocalSyncState();
-        const r = await syncNow();
+        const r = await syncFresh();
         message = r.ok
           ? `Merged: pushed ${r.pushed.toLocaleString()}, pulled ${r.pulled.toLocaleString()} rows.`
           : `Sync failed: ${r.error}`;

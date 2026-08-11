@@ -567,8 +567,26 @@ export async function closeWeek(week: Week): Promise<CloseResult> {
 }
 
 /**
+ * Any open week whose Monday has passed? Read-only (no reconcile) — the week
+ * page uses this to decide whether closing is even on the table before it
+ * pays for a blocking sync.
+ */
+export async function hasStaleOpenWeeks(): Promise<boolean> {
+  const today = currentWeekStart();
+  const weeks = await all<Week>('weeks');
+  return weeks.some((w) => !w.closed_at && w.week_start < today);
+}
+
+/**
  * Close every open week whose Monday has passed (called when the week page
  * loads). Aggregates the outcome counts for a "week ended" notice.
+ *
+ * CALLER CONTRACT (audit D14): when a sync server is configured, run this
+ * only after a SUCCESSFUL sync. Closing from stale local state stamps every
+ * entry 'rolled' under fresh timestamps, which beats the other device's
+ * older, genuine done_at/outcome rows under LWW and rewrites the week's
+ * history everywhere. WeekApp.init/onSync hold that ordering; the test hook
+ * invokes this deliberately.
  */
 export async function autoCloseStaleWeeks(): Promise<CloseResult | null> {
   // Collapse duplicate open weeks first, so a synced twin of a stale week

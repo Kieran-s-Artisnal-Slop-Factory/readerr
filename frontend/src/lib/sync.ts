@@ -316,7 +316,59 @@ export function isSyncing(): boolean {
   return syncInProgress;
 }
 
-export async function syncNow(): Promise<SyncResult> {
+/**
+ * Concurrent syncNow calls share one run: the week page awaits a sync before
+ * auto-closing a stale week (audit D14) at the same moment Navbar fires its
+ * session auto-sync, and two interleaved push/pull cycles would race each
+ * other over the same cursors. Joining is right ONLY for callers that need
+ * "a completed sync" and changed nothing themselves (the close gate, the
+ * navbar auto-sync). A caller whose own preceding writes must be part of the
+ * cycle — or that just reconfigured the server URL / cursors / local data —
+ * must use syncFresh instead: an in-flight run captured the OLD sync state
+ * at its start and would report a stale result as the caller's outcome.
+ */
+let inFlightSync: Promise<SyncResult> | null = null;
+
+export function syncNow(): Promise<SyncResult> {
+  if (inFlightSync) return inFlightSync;
+  const run = doSync().finally(() => {
+    inFlightSync = null;
+  });
+  inFlightSync = run;
+  return run;
+}
+
+/**
+ * A sync cycle guaranteed to START after this call. Any in-flight run is
+ * waited out first — it read the server URL, cursors, and dirty rows before
+ * the caller's changes existed — then a fresh cycle runs (or is joined, if
+ * another one started meanwhile: that one also started after this call).
+ * Used by requestSync (the debounced push MUST include the write that armed
+ * it) and by the Settings/Onboarding server-migration flows.
+ */
+export async function syncFresh(): Promise<SyncResult> {
+  const stale = inFlightSync;
+  if (stale) await stale.catch(() => undefined);
+  return syncNow();
+}
+
+/**
+ * Has this device ever successfully talked to a sync server? True once a
+ * sync completed (lastSyncAt) or a server answered the epoch probe
+ * (serverEpoch — stamped even when the run later fails mid-cycle). The week
+ * page uses this to tell "server temporarily unreachable" (defer stale-week
+ * closes) from "this deployment has no server at all" (static hosting,
+ * scratch installs — local state is the only truth, so closing locally is
+ * safe and must not be held hostage to a sync that can never succeed).
+ */
+export async function hasEverReachedServer(): Promise<boolean> {
+  return (
+    (await getMeta<string>('lastSyncAt')) != null ||
+    (await getMeta<string>('serverEpoch')) != null
+  );
+}
+
+async function doSync(): Promise<SyncResult> {
   syncInProgress = true;
   try {
     const db = await getDB();
@@ -612,7 +664,10 @@ async function runRequestedSync(): Promise<void> {
   requestSyncInFlight = true;
   requestSyncPending = false;
   try {
-    await syncNow();
+    // syncFresh, not syncNow: joining a run whose push scan predates the
+    // write that armed this debounce would resolve without pushing it, and
+    // nothing would re-arm — the edit would sit local until the next trigger.
+    await syncFresh();
   } catch {
     // syncNow already records lastError; nothing to do at the trigger.
   } finally {
