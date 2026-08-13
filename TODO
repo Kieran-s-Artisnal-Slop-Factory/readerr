@@ -1,5 +1,21 @@
 - [ ] Add an `inbox` tab that allows you to subscribe to RSS feeds, and then triage the links into ones you want to add to the backlog/current week reading list, and ones you don't care about
+- [ ] Come up with a plan and put it in `series.md` for how to better handle links that are for series (e.g. part 1, part 2, etc.)
+  - [ ] A series is like a file folder, it contains the other links that make it up, but it can be used itself like a normal link (favourited, added to a week, show up in reading lists)
+  - [ ] Create a demo page with a UI I can test with 
+    - [ ] Add a `add series` that pulls up a modal that allows me to put in:
+      - [ ] A series title
+      - [ ] Series description
+      - [ ] Overview URL
+      - [ ] Tags & topics
+          - [ ] On a per-series and per-link basis
+      - [ ] The links themselves
+        - [ ] Position in series (e.g. 1, 2, 3, etc.)
+        - [ ] URL
+        - [ ] title
+        - [ ] Assignmed weel
+    - [ ] Create UI around how it would look in reading lists, with drop-down nesting to make it obvious if a link is part of a series, or if the series was added, the abiltiy to update individual links as you read them
 - [ ] On the stats page show a distribution of tags by percentage
+
 
 
 Ensure for each change:

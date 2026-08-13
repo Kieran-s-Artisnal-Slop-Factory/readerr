@@ -19,6 +19,7 @@
 ## Other
 
 - The reading list's last whole-library reads at scale are gone (~900ms at 77k links): the search box's corpus loads on first use instead of on every page load, backlog suggestions read through a new priority index with early termination, and capture-box chip ordering keeps a small local recency cache instead of scanning every tag/topic assignment. Existing chip ordering carries over via a one-time backfill.
+- Fixed a CI flake in the sync test harness: backends now bind an OS-assigned port (PORT=0) and report the resolved address, instead of the probe-then-spawn allocation whose close-to-bind window let parallel workers collide ("bind: address already in use").
 - Full documentation overhaul: every developer and user doc audited against the code and corrected — stale sync/week-close/DSL/migration claims fixed and the newer features (sync toggle, extra strip params, closed-week pruning, resource-list capture) documented. Code comments across frontend and backend brought back in line with current behavior, a handful of unused files and dead exports removed, and a refactoring survey added at docs/dev/experiments & plans/further-cleanup.md.
 
 - Documented the `!list` capture command in the user capture guide and the DSL reference, and marked audit finding D14 (stale-week auto-close clobber) fixed in the sync audit.

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -112,9 +113,18 @@ func main() {
 		}
 	}
 
+	// Bind before logging, and log the RESOLVED address: PORT=0 asks the OS
+	// for a free ephemeral port (the sync test harness does this so parallel
+	// backends can never race each other for a pre-picked port), and callers
+	// discover the actual port from this log line.
 	addr := ":" + envOr("PORT", "8080")
-	slog.Info("readerr backend listening", "addr", addr, "db", dbPath)
-	if err := http.ListenAndServe(addr, withCORS(mux)); err != nil {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		slog.Error("listen", "addr", addr, "error", err)
+		os.Exit(1)
+	}
+	slog.Info("readerr backend listening", "addr", ln.Addr().String(), "db", dbPath)
+	if err := http.Serve(ln, withCORS(mux)); err != nil {
 		slog.Error("server exited", "error", err)
 		os.Exit(1)
 	}

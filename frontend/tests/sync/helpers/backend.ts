@@ -8,7 +8,6 @@
  */
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
-import net from 'node:net';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,20 +33,33 @@ export interface BackendHandle {
   stop: () => Promise<void>;
 }
 
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.once('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const addr = srv.address();
-      if (addr && typeof addr === 'object') {
-        const port = addr.port;
-        srv.close(() => resolve(port));
-      } else {
-        srv.close(() => reject(new Error('no port assigned')));
-      }
-    });
+/**
+ * The backend is spawned with PORT=0 — the OS hands it a free ephemeral port
+ * at bind time and it logs the RESOLVED address; this reads the port back out
+ * of that log line. Race-free by construction, unlike the old probe-then-spawn
+ * approach (open a listener on :0, close it, pass the number along), whose
+ * close-to-bind window let a parallel worker's backend steal the port and
+ * flake CI with "bind: address already in use".
+ */
+async function waitForPort(
+  proc: ChildProcess,
+  getLog: () => string,
+  timeoutMs = 15_000
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let exited = false;
+  proc.once('exit', () => {
+    exited = true;
   });
+  for (;;) {
+    const m = getLog().match(/"msg":"readerr backend listening"[^\n]*"addr":"[^"]*:(\d+)"/);
+    if (m) return parseInt(m[1], 10);
+    if (exited) throw new Error('backend exited before reporting its port');
+    if (Date.now() >= deadline) {
+      throw new Error(`backend did not report a listening port within ${timeoutMs}ms`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
 }
 
 async function waitHealthy(baseUrl: string, proc: ChildProcess, timeoutMs = 15_000): Promise<void> {
@@ -83,17 +95,15 @@ async function rmWithRetry(dir: string): Promise<void> {
 }
 
 export async function startBackend(): Promise<BackendHandle> {
-  const port = await freePort();
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'readerr-sync-'));
   const dbPath = path.join(tmpDir, 'readerr.db');
-  const baseUrl = `http://127.0.0.1:${port}`;
 
   let log = '';
   const proc = spawn(BACKEND_BIN, [], {
     env: {
       ...process.env,
       DB_PATH: dbPath,
-      PORT: String(port),
+      PORT: '0', // the OS picks the port; waitForPort reads it from the log
       STATIC_DIR: DIST_DIR,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -101,7 +111,11 @@ export async function startBackend(): Promise<BackendHandle> {
   proc.stdout?.on('data', (d: Buffer) => (log += d.toString()));
   proc.stderr?.on('data', (d: Buffer) => (log += d.toString()));
 
+  let port: number;
+  let baseUrl: string;
   try {
+    port = await waitForPort(proc, () => log);
+    baseUrl = `http://127.0.0.1:${port}`;
     await waitHealthy(baseUrl, proc);
   } catch (err) {
     proc.kill();
