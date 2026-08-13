@@ -1,0 +1,16 @@
+frontend/tests
+frontend/test
+frontend/node_modules
+frontend/dist
+frontend/sprite-preview
+frontend/.astro
+frontend/test-results
+*_test.go
+*.test.ts
+go.mod
+go.sum
+*.json
+.github/
+*.md
+*.svg
+*.ico

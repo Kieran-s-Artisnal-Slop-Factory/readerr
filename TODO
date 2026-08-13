@@ -1,59 +1,6 @@
-DONE (2026-08-11):
+- [ ] Add an `inbox` tab that allows you to subscribe to RSS feeds, and then triage the links into ones you want to add to the backlog/current week reading list, and ones you don't care about
+- [ ] On the stats page show a distribution of tags by percentage
 
-1. [x] Performance Improvements
-   - [x] suggestLinks no longer reads the whole links table. IDB v9 adds a
-         compound [priority, added_at] index; explicit-priority rows come from
-         it, null-priority rows (which IndexedDB cannot index — the reason
-         this was parked) come from the existing added_at index, and the two
-         cursor streams merge with early termination. The week page's own
-         whole-library read went too: the search corpus now loads on first
-         focus of the adder instead of on every page load.
-         Tests: test/perfPaths.test.ts — ordering equivalence against the old
-         implementation as oracle + a guard that fails if a whole-table
-         getAll returns to the path.
-   - [x] tagsByRecentUse no longer reads all link_tags. Recency lives in a
-         LOCAL-ONLY label_usage store (one row per tag/topic id), stamped on
-         assignment and rebuilt by a one-time backfill so existing ordering
-         carried over. Deliberately NOT the synced last_used_at column the
-         note suggested: stamping the tag row on every assignment would let a
-         stale device clobber a concurrent rename under whole-row LWW — the
-         exact stale-snapshot class the sync audit killed. Local-only gets
-         the same 61k-to-120-row win with zero sync surface (and per-device
-         recency is arguably the better UX). Docs: performance.md.
-2. [x] Tracking-param stripping is configurable: user_settings gained
-       strip_extra_params (SQLite v18 + sync.go + types + field-matrix).
-       Settings → Link handling has an "Additional params to strip" textarea;
-       entries are case-insensitive, trailing * matches a prefix. Applies to
-       captures, the bulk re-strip, and whitelisted domains in 'all' mode.
-3. [x] Auto-title apostrophe bug: real, and fixed in backend/title.go. The
-       og:title regexes shared a [^"']+ class that stopped at EITHER quote
-       character, so content="it doesn't matter your rank" captured
-       "it doesn". Each quote style now matches to its own closing quote
-       (RE2 has no backreferences); truncation is rune-safe; empty og:title
-       falls through to <title>. Tests in title_test.go cover every
-       quote/apostrophe combination.
-4. [x] Cleanup
-   - [x] Documentation overhaul: every doc in docs/dev (minus experiments &
-         plans) and docs/user audited against the code by subagents and
-         corrected — stale claims fixed (migration counters, sync triggers,
-         wire format, week-close behavior, DSL grammar, seeder guarantees),
-         missing coverage added (sync toggle, extra strip params, closed-week
-         pruning, label_usage, resource-list capture).
-   - [x] Code comments aligned across frontend and backend (stale headers,
-         orphaned docstrings, dangling references to docs deleted in an old
-         reorg, a literal NUL byte in topics.ts that made the file invisible
-         to grep).
-   - [x] Unused files removed: root package-lock.json (empty stub),
-         frontend/public/favicon.svg (byte-identical duplicate of icon.svg),
-         backend/backend.exe (stale build artifact), an empty next-tasks.md
-         draft. Dead exports deleted (estimateLinks, storageEstimate,
-         topicsByLinkMap, linksForTopic); five needlessly-exported internals
-         un-exported. Test-only helpers deliberately kept.
-   - [x] docs/dev/experiments & plans/further-cleanup.md written: a
-         leverage-ordered refactor survey (reconcile-engine extraction,
-         patch() completion, WeekApp/SettingsApp splits, DSL single source of
-         truth, schema-triplication guard, doSync decomposition, and the
-         known-limitation debt that is recorded but deliberately unbuilt).
 
 Ensure for each change:
 
