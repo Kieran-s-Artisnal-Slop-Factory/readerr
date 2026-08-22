@@ -73,7 +73,15 @@ describe('matchesFlagFilters', () => {
     expect(matchesFlagFilters(res, ['favourite', 'resource'])).toBe(false);
   });
 
-  it('offers exactly the two flags the lists share', () => {
-    expect(FLAG_FILTERS.map((f) => f.value)).toEqual(['favourite', 'resource']);
+  it('filters series, treating a row written before the flag as not one', () => {
+    const series = { favourite: false, is_resource: false, is_series: true } as Link;
+    expect(matchesFlagFilters(series, ['series'])).toBe(true);
+    expect(matchesFlagFilters(plain, ['series'])).toBe(false);
+    // Rows that predate the column carry undefined, not false.
+    expect(matchesFlagFilters({ favourite: false } as Link, ['series'])).toBe(false);
+  });
+
+  it('offers exactly the flags the lists share', () => {
+    expect(FLAG_FILTERS.map((f) => f.value)).toEqual(['favourite', 'resource', 'series']);
   });
 });

@@ -62,7 +62,12 @@
   let feedFilter = $state('');
   let weekStart = $state(currentWeekStart());
 
-  const offline = $derived(getSyncMode() === 'offline');
+  /**
+   * No sync server configured. Feeds still work — the browser fetches them
+   * itself — but only for sites whose CORS headers allow it, so the page says
+   * so up front rather than letting each feed fail mysteriously.
+   */
+  const noServer = $derived(getSyncMode() === 'offline');
   const weekOptions = upcomingWeekOptions();
 
   const visible = $derived(
@@ -85,7 +90,7 @@
     await reload();
     loading = false;
     // The once-a-day check for every feed this device hasn't looked at
-    // recently. Skipped in test mode, offline mode, and while disconnected.
+    // recently. Skipped in test mode and while the browser is disconnected.
     const results = await maybeRefreshDueFeeds(feeds);
     if (results.length > 0) {
       const imported = results.reduce((n, r) => n + r.imported, 0);
@@ -265,12 +270,13 @@
 </script>
 
 <div class="stack">
-  {#if offline}
+  {#if noServer}
     <p class="banner">
-      This device is in offline mode, so feeds can't be fetched — the browser
-      can't read another site's feed on its own, and the sync server does it on
-      your behalf. Existing items are still here to triage. Turn sync on in
-      <a href={href('/settings/')}>Settings</a> to subscribe or refresh.
+      No sync server, so this device fetches feeds <strong>itself</strong>.
+      That works for any site that allows it — some don't (their choice, not
+      readerr's), and those say so when you add them. A
+      <a href={href('/settings/')}>sync server</a> can fetch any feed on your
+      behalf.
     </p>
   {/if}
 
@@ -287,17 +293,17 @@
         type="text"
         placeholder="https://blog.cloudflare.com/rss/"
         bind:value={newUrl}
-        disabled={adding || offline}
+        disabled={adding}
       />
       <label class="days">
         pull last
-        <select bind:value={newDays} disabled={adding || offline}>
+        <select bind:value={newDays} disabled={adding}>
           {#each IMPORT_DAY_CHOICES as days (days)}
             <option value={days}>{days === 0 ? 'nothing' : `${days} days`}</option>
           {/each}
         </select>
       </label>
-      <button type="submit" class="btn btn-primary" disabled={adding || offline || !newUrl.trim()}>
+      <button type="submit" class="btn btn-primary" disabled={adding || !newUrl.trim()}>
         {adding ? 'Adding…' : 'Add feed'}
       </button>
     </form>
@@ -311,7 +317,7 @@
       </p>
     {:else}
       <div class="list-head">
-        <button class="btn" onclick={refreshAll} disabled={busy || offline}>
+        <button class="btn" onclick={refreshAll} disabled={busy}>
           {busy ? 'Working…' : 'Refresh all'}
         </button>
         <label class="toggle">
@@ -360,7 +366,7 @@
                   <button class="btn" onclick={() => (feedFilter = feedFilter === feed.id ? '' : feed.id)}>
                     {feedFilter === feed.id ? 'Show all' : 'Only this'}
                   </button>
-                  <button class="btn" onclick={() => refreshOne(feed)} disabled={busy || offline}>
+                  <button class="btn" onclick={() => refreshOne(feed)} disabled={busy}>
                     Refresh
                   </button>
                   <button class="btn" onclick={() => togglePause(feed)} disabled={busy}>

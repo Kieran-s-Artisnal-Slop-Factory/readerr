@@ -94,6 +94,16 @@ export function checkInvariants(db: Db): InvariantViolation[] {
   // 7. One live week_link per (week, link).
   dupCheck(v, 'week_links-pair', live(db.week_links), (r) => `${r.week_id}|${r.link_id}`);
 
+  // 7a2. Series: one live edge per (series, link), and never a self-edge —
+  // a series listed as its own part would recurse forever in the UI, so the
+  // writers refuse it and a converged database must not contain one.
+  dupCheck(v, 'series_links-pair', live(db.series_links), (r) => `${r.series_id}|${r.link_id}`);
+  for (const e of live(db.series_links)) {
+    if (e.series_id === e.link_id) {
+      v.push({ invariant: 'series-self-edge', detail: `link ${e.series_id} is its own part` });
+    }
+  }
+
   // 7a. Inbox: one live feed per URL, and one live item per (feed, guid).
   // Both are logical singletons stored under a random UUID, so divergence
   // here is the same class of bug as duplicate tags.

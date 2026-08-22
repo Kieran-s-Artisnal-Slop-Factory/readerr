@@ -140,6 +140,23 @@ const MIGRATIONS: Migration[] = [
       db.createObjectStore('feed_state', { keyPath: 'id' });
     }
   },
+  // v11 — series: `series_links` edges pointing a series link at its parts.
+  // Guarded because fresh installs already get the store from the v1 STORES
+  // loop; the updated_at index is created here too, since the v7 loop has
+  // already run for existing databases.
+  //
+  // `links.is_series` needs no migration: IndexedDB is schemaless per record,
+  // so the flag simply appears on rows that carry it and reads `undefined` on
+  // older ones (which `isSeries()` treats as false) — the same handling
+  // `priority` got.
+  (db) => {
+    if (!db.objectStoreNames.contains('series_links')) {
+      const store = db.createObjectStore('series_links', { keyPath: 'id' });
+      store.createIndex('series_id', 'series_id', { multiEntry: false });
+      store.createIndex('link_id', 'link_id', { multiEntry: false });
+      store.createIndex('updated_at', 'updated_at', { multiEntry: false });
+    }
+  },
 ];
 
 /**

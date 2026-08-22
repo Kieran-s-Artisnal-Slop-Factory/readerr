@@ -61,6 +61,8 @@ test.describe('links — every field, every value class', () => {
     { field: 'read_at', value: '2026-07-01T12:34:56.789Z' },
     { field: 'read_at', value: null }, // nullable
     { field: 'slushed_at', value: '2026-06-01T00:00:00.000Z' },
+    { field: 'is_series', value: true },
+    { field: 'is_series', value: false },
     { field: 'priority', value: 1 },
     { field: 'priority', value: 3 },
     { field: 'priority', value: null },
@@ -364,6 +366,48 @@ test('store:weeks closed_at nullable → value round-trips (closed week)', async
   });
 });
 
+test('store:series_links — membership and position round-trip', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  const seriesId = await seedParent(A, 'links', linkFixture({ title: 'A series', is_series: true }));
+  const partId = await seedParent(A, 'links', linkFixture({ title: 'Part 1' }));
+  const edge = {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    series_id: seriesId,
+    link_id: partId,
+    position: 3,
+  };
+  await A.repoPut('series_links', edge);
+  await propagate(deviceA, deviceB);
+
+  for (const [field, value] of Object.entries({
+    series_id: seriesId,
+    link_id: partId,
+    position: 3,
+  })) {
+    await expectFieldRoundTrip(backend, deviceB, {
+      store: 'series_links',
+      id: edge.id,
+      field,
+      value,
+    });
+  }
+  // The flag on the series link itself must survive as a real boolean.
+  await expectFieldRoundTrip(backend, deviceB, {
+    store: 'links',
+    id: seriesId,
+    field: 'is_series',
+    value: true,
+  });
+  assertInvariants((await hook(deviceB).rawDumpAll()) as Record<string, SyncRow[]>, 'series edge');
+});
+
 test('store:feeds + store:feed_items — every field + the status enum round-trip', async ({
   backend,
   deviceA,
@@ -511,6 +555,7 @@ test('coverage guard: every synced store appears in the field matrix', async () 
     'week_links',
     'feeds',
     'feed_items',
+    'series_links',
   ]);
   expect([...Object.keys(TABLES)].every((s) => covered.has(s))).toBe(true);
   expect(covered.size).toBe(Object.keys(TABLES).length);

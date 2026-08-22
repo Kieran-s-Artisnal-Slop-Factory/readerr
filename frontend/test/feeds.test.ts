@@ -139,11 +139,76 @@ describe('fetchFeed', () => {
     await expect(fetchFeed('https://example.com/rss/')).rejects.toThrow('HTTP 404');
   });
 
-  it('refuses in offline mode — the browser cannot read feeds itself', async () => {
+  it('falls back to the browser when the server has no /feed endpoint', async () => {
+    // The exact shape of the bug report: the app has the inbox, the running Go
+    // binary predates it. The browser tries for itself rather than giving up…
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        if (url.includes('/healthz')) return { ok: true, status: 200, json: async () => ({}) };
+        if (url.includes('/feed?url=')) return { ok: false, status: 404, json: async () => ({}) };
+        throw new TypeError('failed to fetch'); // …and CORS refuses it.
+      })
+    );
+
+    await expect(fetchFeed('https://example.com/rss/')).rejects.toThrow(
+      /wasn't allowed to read example\.com directly/
+    );
+    // It really did try the feed itself, and it explains both halves.
+    expect(calls).toContain('https://example.com/rss/');
+    await expect(fetchFeed('https://example.com/rss/')).rejects.toThrow(/older than this app/);
+  });
+
+  it('mentions there is no server at all when nothing answers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('server.test')) return { ok: false, status: 404, json: async () => ({}) };
+        throw new TypeError('failed to fetch');
+      })
+    );
+    await expect(fetchFeed('https://example.com/rss/')).rejects.toThrow(
+      /no sync server to fetch feeds for you/
+    );
+  });
+
+  it('goes straight to the browser in offline mode, never touching a server', async () => {
     localStorage.setItem('readerr-sync-mode', 'offline');
-    const fetchMock = stubFeedEndpoint({ ok: true, items: [] });
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        throw new TypeError('failed to fetch');
+      })
+    );
     await expect(fetchFeed('https://example.com/rss/')).rejects.toBeInstanceOf(FeedError);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(calls).toEqual(['https://example.com/rss/']);
+  });
+
+  it('does not retry in the browser when the server reached the feed and it failed', async () => {
+    // The server got there; the FEED is the problem. A browser retry would
+    // only replace a precise message with a vaguer one.
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        return { ok: true, status: 200, json: async () => ({ ok: false, error: 'the feed returned HTTP 410' }) };
+      })
+    );
+    await expect(fetchFeed('https://example.com/rss/')).rejects.toThrow('HTTP 410');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('reports a direct fetch that answers with an error status', async () => {
+    localStorage.setItem('readerr-sync-mode', 'offline');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, text: async () => '' })));
+    await expect(fetchFeed('https://example.com/rss/')).rejects.toThrow(
+      /HTTP 500 when this browser asked/
+    );
   });
 });
 

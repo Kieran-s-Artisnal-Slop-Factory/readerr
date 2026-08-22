@@ -5,6 +5,11 @@
    * gains a checkbox; without it the list renders exactly as before.
    * Select-all belongs to the host's ListToolbar, which can reach the whole
    * filtered list rather than only the rows on this page.
+   *
+   * The list also applies the series hiding rule (series.md §4): a part is
+   * not shown as a row of its own when its series is on the same page — the
+   * series row already holds it. A part whose series ISN'T here renders as
+   * the ordinary link it is.
    */
   import LinkRow from './LinkRow.svelte';
   import {
@@ -13,6 +18,7 @@
     selectOnClick,
     type SelectionAnchor,
   } from '../lib/services/rangeSelect';
+  import { partIdsOf } from '../lib/services/series';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
@@ -42,6 +48,17 @@
 
   const selectedSet = $derived(new Set(selectedIds));
 
+  // Part ids of the series present on this page. One indexed read per series
+  // row; empty (and free) for a page with no series on it at all.
+  let nestedIds = $state<Set<string>>(new Set());
+  $effect(() => {
+    const rows = links;
+    void partIdsOf(rows).then((ids) => (nestedIds = ids));
+  });
+
+  const visible = $derived(links.filter((l) => !nestedIds.has(l.id)));
+  const nestedCount = $derived(links.length - visible.length);
+
   // Shift+click extends from the last plainly-clicked row (rangeSelect.ts).
   let anchor = $state<SelectionAnchor>(NO_ANCHOR);
 
@@ -49,7 +66,7 @@
   function toggle(id: string, shiftKey = false): boolean {
     const result = selectOnClick(
       selectedIds,
-      links.map((l) => l.id),
+      visible.map((l) => l.id),
       id,
       shiftKey,
       anchor
@@ -70,7 +87,7 @@
     <span class="select-hint">Shift+click for a range</span>
   </div>
   <div class="list">
-    {#each links as link (link.id)}
+    {#each visible as link (link.id)}
       <div class="select-row" class:selected={selectedSet.has(link.id)}>
         <!--
           click, not change: only a MouseEvent carries shiftKey.
@@ -109,7 +126,7 @@
   </div>
 {:else}
   <div class="list">
-    {#each links as link (link.id)}
+    {#each visible as link (link.id)}
       <LinkRow
         {link}
         tags={tagsByLink.get(link.id) ?? []}
@@ -122,11 +139,26 @@
   </div>
 {/if}
 
+{#if nestedCount > 0}
+  <p class="nested-note">
+    {nestedCount}
+    {nestedCount === 1 ? 'link is' : 'links are'} shown inside
+    {nestedCount === 1 ? 'its' : 'their'} series above rather than on
+    {nestedCount === 1 ? 'its' : 'their'} own.
+  </p>
+{/if}
+
 <style>
   .empty {
     color: var(--text-muted-color);
     text-align: center;
     padding: var(--space-5) 0;
+  }
+
+  .nested-note {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
   }
 
   .list {

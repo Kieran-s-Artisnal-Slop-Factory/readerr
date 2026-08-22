@@ -5,9 +5,12 @@
  *   - `feeds` and `feed_items` are ordinary synced rows, so a subscription
  *     made on the laptop shows up on the phone and an item triaged on either
  *     is triaged everywhere.
- *   - Fetching goes through the backend's GET /feed (the browser cannot read
- *     cross-origin feeds), so the inbox is unavailable in offline mode. The
- *     items themselves are local, so READING the inbox works offline.
+ *   - Fetching prefers the backend's GET /feed (server-side, so no CORS
+ *     involved) and falls back to reading the feed IN THE BROWSER when there
+ *     is no usable server — offline mode, a static host, or a server too old
+ *     to have the endpoint. The browser path works for any site whose CORS
+ *     headers allow it, and says plainly when they don't. Everything else
+ *     about the inbox is local either way.
  *   - Fetch bookkeeping is per-device and LOCAL-ONLY (`feed_state`): the daily
  *     refresh must never write a synced row, or a background job on an idle
  *     device would clobber a rename made elsewhere under row-level LWW.
@@ -76,20 +79,57 @@ export class FeedError extends Error {}
  * add, and the reason (404, not XML, unreachable) is the whole diagnosis.
  */
 export async function fetchFeed(feedUrl: string): Promise<FetchedFeed> {
-  if (getSyncMode() === 'offline') {
-    throw new FeedError(
-      'Feeds need a sync server: the browser cannot read a feed from another site itself. Turn sync on in Settings to use the inbox.'
-    );
-  }
+  const viaServer = await serverFetch(feedUrl);
+  if (viaServer.feed) return viaServer.feed;
+  // No usable server: read the feed straight from the browser. This is the
+  // whole reason the inbox doesn't require a backend — but it is also where
+  // CORS bites, so a failure here names the backend as the fix.
+  return directFetch(feedUrl, viaServer.serverNote);
+}
+
+interface ServerAttempt {
+  /** The parsed feed, when the sync server answered. */
+  feed: FetchedFeed | null;
+  /**
+   * Why the server didn't answer, in a form worth showing the user if the
+   * direct attempt also fails — e.g. "the sync server has no /feed endpoint".
+   * Empty when there was no server to try in the first place.
+   */
+  serverNote: string;
+}
+
+/**
+ * Try the backend's /feed. Server-side fetching has no CORS problem and no
+ * per-site luck involved, so it is always preferred when there is a server.
+ *
+ * Every failure here is soft: it returns a note instead of throwing, because
+ * the browser can still try for itself.
+ */
+async function serverFetch(feedUrl: string): Promise<ServerAttempt> {
+  if (getSyncMode() === 'offline') return { feed: null, serverNote: '' };
+  const base = getSyncUrl();
   let res: Response;
   try {
-    res = await fetch(`${getSyncUrl()}/feed?url=${encodeURIComponent(feedUrl)}`);
+    res = await fetch(`${base}/feed?url=${encodeURIComponent(feedUrl)}`);
   } catch {
-    throw new FeedError('Cannot reach the sync server — it fetches feeds on your behalf.');
+    return {
+      feed: null,
+      serverNote: `the sync server at ${describeBase(base)} could not be reached`,
+    };
+  }
+  // 404 = no such endpoint. Overwhelmingly that means a server older than the
+  // app (the frontend updates on reload; the Go binary only when rebuilt), or
+  // no readerr backend at that URL at all.
+  if (res.status === 404) {
+    return { feed: null, serverNote: await describeMissingEndpoint(base) };
   }
   if (!res.ok) {
-    throw new FeedError(`The sync server returned ${res.status} for this feed.`);
+    return {
+      feed: null,
+      serverNote: `the sync server returned ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`,
+    };
   }
+
   const body = (await res.json()) as {
     ok: boolean;
     title?: string;
@@ -97,12 +137,80 @@ export async function fetchFeed(feedUrl: string): Promise<FetchedFeed> {
     items?: FetchedItem[];
     error?: string;
   };
+  // The server reached the feed and the feed itself is the problem (404, not
+  // XML, …). Trying again from the browser would only produce a worse message.
   if (!body.ok) throw new FeedError(body.error || 'The feed could not be read.');
   return {
-    title: (body.title ?? '').trim(),
-    siteUrl: (body.site_url ?? '').trim(),
-    items: body.items ?? [],
+    feed: {
+      title: (body.title ?? '').trim(),
+      siteUrl: (body.site_url ?? '').trim(),
+      items: body.items ?? [],
+    },
+    serverNote: '',
   };
+}
+
+/**
+ * Fetch and parse the feed in this browser.
+ *
+ * A thrown TypeError here is almost always CORS: the request went out and the
+ * response was refused to the page because the site sends no
+ * `Access-Control-Allow-Origin`. That is a rule of the web, not something
+ * readerr can work around — the only fix is a server fetching on your behalf,
+ * so the message says so, and carries along whatever went wrong with the
+ * server if one was configured.
+ */
+async function directFetch(feedUrl: string, serverNote: string): Promise<FetchedFeed> {
+  const because = serverNote ? ` (${serverNote})` : '';
+  let res: Response;
+  try {
+    // No Accept header on purpose. `accept` counts as CORS-safelisted only
+    // while its value avoids `,/;=` — which any real feed Accept string uses —
+    // so sending one turns this into a PREFLIGHTED request, and a static feed
+    // host that would happily serve the GET may not answer the OPTIONS at all.
+    // Feeds serve XML regardless of what we ask for.
+    res = await fetch(feedUrl);
+  } catch {
+    throw new FeedError(
+      `Your browser wasn't allowed to read ${hostOf(feedUrl)} directly — the site doesn't send the CORS header that would permit it${because}. ` +
+        'Feeds like this need a sync server to fetch them for you; set one up in Settings → Sync.'
+    );
+  }
+  if (!res.ok) {
+    throw new FeedError(`The feed returned HTTP ${res.status} when this browser asked for it.`);
+  }
+  const { parseFeedXml, FeedParseError } = await import('./feedParse');
+  try {
+    return parseFeedXml(await res.text(), feedUrl);
+  } catch (err) {
+    if (err instanceof FeedParseError) throw new FeedError(err.message);
+    throw new FeedError(`This browser could not parse that feed${because}.`);
+  }
+}
+
+/** How to name the sync target in an error the user has to act on. */
+function describeBase(base: string): string {
+  if (base) return base;
+  return typeof location !== 'undefined' ? location.origin : 'this site';
+}
+
+/**
+ * Explain a 404 on /feed. /healthz tells the two cases apart: it has existed
+ * since the first release, so a server that answers it but 404s /feed is
+ * simply older than the app, while one that answers neither isn't a readerr
+ * backend at that URL at all.
+ */
+async function describeMissingEndpoint(base: string): Promise<string> {
+  const where = describeBase(base);
+  let alive = false;
+  try {
+    alive = (await fetch(`${base}/healthz`)).ok;
+  } catch {
+    alive = false;
+  }
+  return alive
+    ? `the sync server at ${where} is running but has no /feed endpoint, so it is older than this app — rebuilding it would let it fetch feeds for you`
+    : `nothing answered at ${where}, so there is no sync server to fetch feeds for you`;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,12 +637,15 @@ export async function dueFeeds(feeds?: Feed[]): Promise<Feed[]> {
 
 /**
  * The once-a-day check, called when the inbox page opens. Skipped in test mode
- * (page loads must not write), in offline mode, and while the browser says it
- * is offline. Returns the results so the page can report what arrived.
+ * (page loads must not write) and while the browser reports no connectivity.
+ *
+ * Offline MODE is not skipped: that setting means "no sync server", not "no
+ * internet", and the browser can fetch feeds itself for any site whose CORS
+ * headers allow it. A site that doesn't is recorded as a per-feed error, the
+ * same as any other failure.
  */
 export async function maybeRefreshDueFeeds(feeds?: Feed[]): Promise<RefreshResult[]> {
   if (isTestMode()) return [];
-  if (getSyncMode() === 'offline') return [];
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return [];
   return refreshFeeds(await dueFeeds(feeds));
 }

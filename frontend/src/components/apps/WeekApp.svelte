@@ -28,6 +28,7 @@
     tagsForLink,
   } from '../../lib/services/links';
   import { effectiveTriage, type EffectiveTriage } from '../../lib/services/plans';
+  import { partIdsOf } from '../../lib/services/series';
   import {
     liveChecked,
     NO_ANCHOR,
@@ -101,15 +102,41 @@
   let drag = $state<{ section: SectionKey; index: number } | null>(null);
   let dragOver = $state<number | null>(null);
 
+  /**
+   * Parts of a series that is ALSO in this week (series.md §4). Ticking a part
+   * inside its series row adds that part to the week like any other read link,
+   * so without this the week shows the same reading twice: once nested in the
+   * series row and once as a row of its own. The part's state isn't hidden —
+   * it is the ✓ and the `2/5` on the series row.
+   */
+  let nestedPartIds = $state<Set<string>>(new Set());
+  $effect(() => {
+    const links = entries.map((e) => e.link);
+    void partIdsOf(links).then((ids) => (nestedPartIds = ids));
+  });
+  const notNested = (e: WeekEntry) => !nestedPartIds.has(e.link.id);
+  /**
+   * The week's entries as the page presents them: a part folded into its
+   * series row is not a row of its own, so it must not be counted as one
+   * either — the header, the quota and the notes line all read off this.
+   */
+  const visibleEntries = $derived(entries.filter(notNested));
+
   // Sections order by priority first (1 → 3), then the dragged position —
   // the sort is stable, so drag order still decides within a priority.
   const byPriority = (a: WeekEntry, b: WeekEntry) =>
     effectivePriority(a.link) - effectivePriority(b.link);
   const toRead = $derived(
-    entries.filter((e) => e.entry.kind === 'reading' && !e.entry.done_at).sort(byPriority)
+    entries
+      .filter((e) => e.entry.kind === 'reading' && !e.entry.done_at)
+      .filter(notNested)
+      .sort(byPriority)
   );
   const review = $derived(
-    entries.filter((e) => e.entry.kind === 'review' && !e.entry.done_at).sort(byPriority)
+    entries
+      .filter((e) => e.entry.kind === 'review' && !e.entry.done_at)
+      .filter(notNested)
+      .sort(byPriority)
   );
   /**
    * Done is a record of what happened, so it reads by *when* rather than by
@@ -127,6 +154,7 @@
   const done = $derived(
     entries
       .filter((e) => !!e.entry.done_at)
+      .filter(notNested)
       .filter((e) => matchesFlagFilters(e.link, doneFilters))
       .filter((e) => matchesSearch(e.link, tagsByLink.get(e.link.id) ?? [], doneSearch))
       .sort((a, b) => {
@@ -141,7 +169,7 @@
   );
 
   /** Unfiltered, for the "n of m" count when a search is narrowing it. */
-  const doneTotal = $derived(entries.filter((e) => !!e.entry.done_at).length);
+  const doneTotal = $derived(entries.filter((e) => !!e.entry.done_at).filter(notNested).length);
   const doneNarrowed = $derived(doneSearch.trim() !== '' || doneFilters.length > 0);
 
 
@@ -162,7 +190,7 @@
   }
 
   const quota = $derived(triage?.quota ?? null);
-  const underQuota = $derived(quota !== null ? Math.max(0, quota - entries.length) : 0);
+  const underQuota = $derived(quota !== null ? Math.max(0, quota - visibleEntries.length) : 0);
   const quotaSourceLabel = $derived(
     triage?.quotaSource === 'week'
       ? "this week's plan"
@@ -657,7 +685,7 @@
       <CaptureBox onAdded={() => loadWeek()} />
     </Card>
 
-    <Card title={`${focusStart === currentWeekStart() ? 'This week' : `Week of ${formatWeek(focusStart)}`} — ${done.length}/${entries.length} done`}>
+    <Card title={`${focusStart === currentWeekStart() ? 'This week' : `Week of ${formatWeek(focusStart)}`} — ${done.length}/${visibleEntries.length} done`}>
       <div class="week-nav">
         <button class="btn" onclick={() => navWeek(-1)}>← Previous</button>
         <span class="muted">
@@ -665,9 +693,9 @@
         </span>
         <button class="btn" onclick={() => navWeek(1)}>Next →</button>
       </div>
-      {#if entries.length > 0}
+      {#if visibleEntries.length > 0}
         <p class="stats">
-          Notes on {stats.linksWithNotes} of {entries.length} link{entries.length === 1 ? '' : 's'}
+          Notes on {stats.linksWithNotes} of {visibleEntries.length} link{visibleEntries.length === 1 ? '' : 's'}
           · {stats.excerpts} excerpt{stats.excerpts === 1 ? '' : 's'}
         </p>
       {/if}

@@ -23,6 +23,9 @@
     type HistoryEntry,
     type PendingWeekAssignment,
   } from '../../lib/services/weeks';
+  import SeriesParts from '../SeriesParts.svelte';
+  import { href } from '../../lib/paths';
+  import { isSeries, isSyntheticSeriesUrl, partsOf, seriesForLink } from '../../lib/services/series';
   import type { Excerpt, Link, Note } from '../../lib/db/types';
 
   let link = $state<Link | null>(null);
@@ -38,6 +41,8 @@
   // overwriting it on the next keystroke.
   let loaded = $state(false);
   let creatingNote = $state(false);
+  /** The series this link belongs to, if any — usually none. */
+  let memberOf = $state<{ series: Link; number: number; total: number }[]>([]);
   // Editing title/url is explicit (form + save) since it's rare.
   let editingMeta = $state(false);
   let editTitle = $state('');
@@ -61,8 +66,36 @@
       (a, b) => a.position - b.position
     );
     await refreshWeeks(id);
+    await refreshSeries(id);
     loaded = true;
   });
+
+  /**
+   * Delete the series container. Its edges go with it (a live edge pointing at
+   * a tombstoned link is a referential violation), the parts do not.
+   */
+  async function dropSeries() {
+    if (!link) return;
+    if (!confirm(`Delete the series “${link.title}”? Its parts stay in your library.`)) return;
+    const { deleteSeries } = await import('../../lib/services/series');
+    await deleteSeries(link);
+    location.href = href('/backlog/');
+  }
+
+  /** "Part 3 of Async Rust" — the other half of the series relationship. */
+  async function refreshSeries(linkId: string) {
+    const owners = await seriesForLink(linkId);
+    memberOf = await Promise.all(
+      owners.map(async (series) => {
+        const parts = await partsOf(series.id);
+        return {
+          series,
+          number: parts.findIndex((p) => p.link.id === linkId) + 1,
+          total: parts.length,
+        };
+      })
+    );
+  }
 
   const weekOptions = upcomingWeekOptions();
 
@@ -174,10 +207,35 @@
       {:else}
         <div class="header">
           <div class="header-main">
-            <a class="title" href={link.url} target="_blank" rel="noopener noreferrer">
-              {link.title}
-            </a>
-            <span class="domain">{domainOf(link.url)}</span>
+            <span class="title-line">
+              {#if isSeries(link) && isSyntheticSeriesUrl(link.url)}
+                <!-- A series with no overview page: the synthesised URL is not
+                     somewhere to go, so it isn't rendered as a link. -->
+                <span class="title">{link.title}</span>
+              {:else}
+                <a class="title" href={link.url} target="_blank" rel="noopener noreferrer">
+                  {link.title}
+                </a>
+              {/if}
+              {#if isSeries(link)}
+                <span class="series-badge">series</span>
+              {/if}
+            </span>
+            <span class="domain">
+              {#if isSeries(link)}
+                {isSyntheticSeriesUrl(link.url)
+                  ? 'no overview page — this page is the overview'
+                  : domainOf(link.url)}
+              {:else}
+                {domainOf(link.url)}
+              {/if}
+            </span>
+            {#each memberOf as owner (owner.series.id)}
+              <span class="part-of">
+                Part {owner.number} of {owner.total} —
+                <a href={href(`/link/?id=${owner.series.id}`)}>{owner.series.title}</a>
+              </span>
+            {/each}
           </div>
           <button class="btn" onclick={startEditMeta}>Edit</button>
         </div>
@@ -206,6 +264,19 @@
         </button>
       </div>
     </Card>
+
+    {#if isSeries(link)}
+      <Card title="Parts">
+        <SeriesParts series={link} />
+        <div class="series-danger">
+          <!-- The only "delete a link" path in the app, and deliberately so:
+               a series is a container the user made, and deleting it must not
+               take the parts (they are real captures) with it. -->
+          <button class="btn btn-danger" onclick={dropSeries}>Delete series</button>
+          <span class="hint">The parts stay in your library.</span>
+        </div>
+      </Card>
+    {/if}
 
     <Card title="Reading week">
       {#if pending.length === 0}
@@ -260,11 +331,16 @@
       </div>
     </Card>
 
-    <Card title="Notes">
+    <!-- A series' note IS its overview document: the description typed when
+         the series was created lands here, and everything a link's notes can
+         do (markdown, MD/HTML export) applies unchanged. -->
+    <Card title={isSeries(link) ? 'Overview' : 'Notes'}>
       {#if loaded}
         <MarkdownEditor
           value={note?.body_md ?? ''}
-          placeholder="Notes about this link…"
+          placeholder={isSeries(link)
+            ? 'What this series covers, why it is worth reading…'
+            : 'Notes about this link…'}
           exportName={link.title}
           onChange={saveNote}
         />
@@ -297,6 +373,38 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+  }
+
+  .title-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .series-badge {
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+  }
+
+  .part-of {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+
+  .series-danger {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
   }
 
   .empty {

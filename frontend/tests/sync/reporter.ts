@@ -20,6 +20,7 @@ const ALL_STORES = [
   'user_settings',
   'plans',
   'links',
+  'series_links',
   'tags',
   'tag_parents',
   'link_tags',

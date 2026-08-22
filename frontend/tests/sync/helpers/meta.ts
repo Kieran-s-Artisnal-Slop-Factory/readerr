@@ -24,6 +24,7 @@ export const TABLE_ORDER = [
   'user_settings',
   'plans',
   'links',
+  'series_links',
   'tags',
   'tag_parents',
   'link_tags',
@@ -73,10 +74,12 @@ export const TABLES: Record<string, TableMeta> = {
       'is_resource',
       'slushed_at',
       'priority',
+      'is_series',
     ],
     [],
-    ['title_fetched', 'favourite', 'is_resource']
+    ['title_fetched', 'favourite', 'is_resource', 'is_series']
   ),
+  series_links: t(['id', 'series_id', 'link_id', 'position']),
   tags: t(['id', 'name', 'notes_md']),
   tag_parents: t(['id', 'child_id', 'parent_id']),
   link_tags: t(['id', 'link_id', 'tag_id']),
@@ -132,6 +135,10 @@ export const FOREIGN_KEYS: Record<string, [string, string][]> = {
     ['link_id', 'links'],
   ],
   feed_items: [['feed_id', 'feeds']],
+  series_links: [
+    ['series_id', 'links'],
+    ['link_id', 'links'],
+  ],
 };
 
 /**

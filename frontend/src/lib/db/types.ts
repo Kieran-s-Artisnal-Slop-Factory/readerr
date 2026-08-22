@@ -99,6 +99,34 @@ export interface Link extends SyncFields {
   slushed_at: string | null;
   /** 1 (highest) to 3; null = never set, treated as 3 (effectivePriority). */
   priority: number | null;
+  /**
+   * This link IS a series: a folder of other links (its parts, via
+   * `series_links`) that still behaves like any other link — favourite it,
+   * tag it, schedule it into a week.
+   *
+   * Rows written before series existed carry `undefined` here rather than
+   * `false` (IndexedDB is schemaless per record, exactly as `priority` was
+   * added), so every reader goes through `isSeries()` in services/series.ts
+   * instead of trusting the field. On the wire an absent key gets the
+   * server's `is_series` default of 0.
+   */
+  is_series?: boolean;
+}
+
+/**
+ * One "this link is part N of that series" edge. Both endpoints are links.
+ *
+ * `position` is a hint, not an identity: two devices that append to the same
+ * series while apart both write the same number, and row-level LWW keeps both
+ * rows. Readers therefore sort by `(position, id)` — the id breaks the tie the
+ * same way on every device — and a reorder rewrites the whole run.
+ */
+export interface SeriesLink extends SyncFields {
+  /** The series link (`is_series` = true). */
+  series_id: string;
+  /** The part. */
+  link_id: string;
+  position: number;
 }
 
 export interface Tag extends SyncFields {
@@ -282,6 +310,8 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   excerpts: { indexes: [{ name: 'link_id' }] },
   resource_lists: { indexes: [] },
   resource_list_links: { indexes: [{ name: 'list_id' }, { name: 'link_id' }] },
+  // Both endpoints are links, so this store sits directly after them.
+  series_links: { indexes: [{ name: 'series_id' }, { name: 'link_id' }] },
   weeks: { indexes: [{ name: 'week_start' }] },
   week_links: { indexes: [{ name: 'week_id' }, { name: 'link_id' }] },
   feeds: { indexes: [{ name: 'feed_url' }] },

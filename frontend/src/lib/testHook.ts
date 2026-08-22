@@ -28,6 +28,14 @@ import { reconcileTags, reconcileTopics, toggleFavourite } from './services/link
 import { reconcileTagParents, setTagParents } from './services/tagTree';
 import { captureLinks } from './services/capture';
 import {
+  addPart,
+  createSeries,
+  deleteSeries,
+  partsOf,
+  reorderParts,
+  type NewSeries,
+} from './services/series';
+import {
   importItems,
   inboxEntries,
   reconcileFeeds,
@@ -130,6 +138,22 @@ export function installTestHook(): void {
       withHeals(() => triageItem(item, action, weekStart)),
     untriageItemNow: (item: FeedItem) => withHeals(() => untriageItem(item)),
     removeFeedNow: (feed: Feed) => withHeals(() => removeFeed(feed)),
+    // --- in-browser feed parsing (no backend). Pure: parses XML, writes
+    // nothing — the harness runs it in a REAL browser because DOMParser is a
+    // browser API that vitest's Node environment doesn't have.
+    parseFeedXmlNow: async (xml: string, baseUrl: string) => {
+      const { parseFeedXml } = await import('./services/feedParse');
+      return parseFeedXml(xml, baseUrl);
+    },
+    // --- series: the writes that touch synced rows (edges, the flagged
+    // link, and the capture pipeline creation runs through) ---
+    createSeriesNow: (input: NewSeries) => withHeals(() => createSeries(input)),
+    partsOfNow: (seriesId: string) => withHeals(() => partsOf(seriesId)),
+    addPartNow: (series: Link, link: Link, position?: number) =>
+      withHeals(() => addPart(series, link, position)),
+    reorderPartsNow: (seriesId: string, orderedLinkIds: string[]) =>
+      withHeals(() => reorderParts(seriesId, orderedLinkIds)),
+    deleteSeriesNow: (series: Link) => withHeals(() => deleteSeries(series)),
     // --- week lifecycle, invoked deliberately by tests ---
     ensureOpenWeekNow: () => withHeals(() => ensureOpenWeek()),
     autoCloseStaleWeeksNow: () => withHeals(() => autoCloseStaleWeeks()),

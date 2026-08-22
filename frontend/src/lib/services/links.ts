@@ -719,12 +719,16 @@ export function compareByOrder(
 export const FLAG_FILTERS = [
   { value: 'favourite', label: 'Favourites' },
   { value: 'resource', label: 'Resources' },
+  // Series are ordinary links, so without a filter the only way to find one is
+  // to recognise its title.
+  { value: 'series', label: 'Series' },
 ] as const;
 
 /** Does a link satisfy the active flag filters? */
 export function matchesFlagFilters(link: Link, filters: string[]): boolean {
   if (filters.includes('favourite') && !link.favourite) return false;
   if (filters.includes('resource') && !link.is_resource) return false;
+  if (filters.includes('series') && link.is_series !== true) return false;
   return true;
 }
 

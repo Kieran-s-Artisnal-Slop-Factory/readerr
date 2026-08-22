@@ -3,7 +3,14 @@
    * One backlog row: title (links out), domain, tag chips, flag toggles.
    * When onAssignmentsChange is provided, a # button expands inline
    * tag/topic pickers so links can be organized without leaving the list.
+   *
+   * A link flagged `is_series` renders as ONE row with a disclosure triangle
+   * and a progress count; expanding it lists its parts as ordinary rows
+   * (this component, rendering itself), each with its own ✓. Because every
+   * list in the app builds on this component, series behave the same in the
+   * reading week, the backlog, favourites, a tag page — everywhere.
    */
+  import Self from './LinkRow.svelte';
   import TagPicker from './TagPicker.svelte';
   import TopicPicker from './TopicPicker.svelte';
   import { href } from '../lib/paths';
@@ -15,6 +22,14 @@
     toggleResource,
   } from '../lib/services/links';
   import { currentWeekStart, pendingWeeksForLink, setLinkWeek, upcomingWeekOptions } from '../lib/services/weeks';
+  import {
+    isSeries,
+    isSyntheticSeriesUrl,
+    markSeriesRead,
+    partsOf,
+    progressOf,
+    type SeriesPart,
+  } from '../lib/services/series';
   import type { Link, Tag, Topic } from '../lib/db/types';
 
   let {
@@ -26,6 +41,7 @@
     showWeek = true,
     refNumber,
     readOnly = false,
+    nested = false,
   }: {
     link: Link;
     tags?: Tag[];
@@ -44,7 +60,52 @@
     /** Badge the week(s) the link is scheduled for — the Reading List turns
      *  this off since the week is the page's own context. */
     showWeek?: boolean;
+    /** This row IS a part, drawn inside its series. Parts don't expand (a
+     *  series can't contain a series in v1) and sit indented. */
+    nested?: boolean;
   } = $props();
+
+  // --- series ---------------------------------------------------------------
+  // A series row loads its parts up front: the count and the progress are what
+  // make the collapsed row worth reading. That's one indexed read plus a get
+  // per part, and only for rows that are actually series — never a table scan.
+  const series = $derived(isSeries(link) && !nested);
+  let parts = $state<SeriesPart[]>([]);
+  let expanded = $state(false);
+  /** Shown once the last part is ticked — an offer, never an automatic write. */
+  let offerComplete = $state(false);
+
+  $effect(() => {
+    if (!series) return;
+    const id = link.id;
+    void link.updated_at; // reload after an edit to the series row itself
+    void partsOf(id).then((rows) => (parts = rows));
+  });
+
+  const progress = $derived(progressOf(parts));
+
+  /**
+   * A part changed: update it in place (re-reading every part would throw away
+   * what we already know) and, if that completed the series, offer to close it.
+   * The series' own read state stays the user's decision — series.md §3.4.
+   *
+   * The change is also passed UP to the host list. A part is one of the host's
+   * own rows — merely hidden while its series is on screen — so a host that
+   * never heard about it would keep a stale copy and re-show the part as
+   * unread the moment the series left the list (marking the series read does
+   * exactly that on the backlog).
+   */
+  function onPartChange(updated: Link) {
+    parts = parts.map((p) => (p.link.id === updated.id ? { ...p, link: updated } : p));
+    if (!link.read_at && progressOf(parts).complete) offerComplete = true;
+    onChange(updated);
+  }
+
+  async function completeSeries() {
+    offerComplete = false;
+    const updated = await markSeriesRead(link);
+    if (updated) onChange(updated);
+  }
 
   // The link's pending week assignments, shown as 📅 chips in the meta row.
   let scheduledWeeks = $state<string[]>([]);
@@ -139,6 +200,16 @@
           {copied ? '✓' : `[^${refNumber}]`}
         </button>
       {/if}
+      {#if series}
+        <button
+          class="disclosure"
+          aria-expanded={expanded}
+          title={expanded ? 'Collapse the series' : `Show the ${parts.length} parts`}
+          onclick={() => (expanded = !expanded)}
+        >
+          {expanded ? '▾' : '▸'}
+        </button>
+      {/if}
       {#if editingTitle}
         <input
           class="title-input"
@@ -154,12 +225,26 @@
             }
           }}
         />
+      {:else if series && isSyntheticSeriesUrl(link.url)}
+        <!-- No overview page: the synthesised series: URL is not a destination. -->
+        <span class="title">{link.title}</span>
+        {#if !readOnly}
+          <button class="title-edit" title="Edit title" onclick={startTitleEdit}>✎</button>
+        {/if}
       {:else}
         <a class="title" href={link.url} target="_blank" rel="noopener noreferrer">
           {link.title}
         </a>
         {#if !readOnly}
           <button class="title-edit" title="Edit title" onclick={startTitleEdit}>✎</button>
+        {/if}
+      {/if}
+      {#if series}
+        <span class="series-badge" title="A series: one row holding its parts">series</span>
+        {#if parts.length > 0}
+          <span class="series-progress" title="Parts read">
+            {progress.read}/{progress.total}
+          </span>
         {/if}
       {/if}
     </span>
@@ -222,6 +307,31 @@
     <a class="icon-btn open" title="Notes & details" href={href(`/link/?id=${link.id}`)}>›</a>
   </div>
 </article>
+{#if series && offerComplete}
+  <div class="series-offer">
+    <span>That was the last part of “{link.title}”. Mark the whole series read?</span>
+    <span class="series-offer-actions">
+      <button class="btn" onclick={() => (offerComplete = false)}>Not yet</button>
+      <button class="btn btn-primary" onclick={completeSeries}>Mark read</button>
+    </span>
+  </div>
+{/if}
+{#if series && expanded}
+  {#if parts.length === 0}
+    <p class="series-empty">No parts yet — add them from the series' own page (the › button).</p>
+  {:else}
+    <div class="series-parts">
+      {#each parts as part (part.link.id)}
+        <div class="series-part">
+          <span class="series-part-number">{part.number}</span>
+          <div class="series-part-row">
+            <Self link={part.link} onChange={onPartChange} {showWeek} {readOnly} nested />
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+{/if}
 {#if labelsOpen && onAssignmentsChange}
   <div class="labels">
     <div class="labels-group">
@@ -251,6 +361,96 @@
 <style>
   .link-item {
     border-bottom: 1px solid var(--border-color);
+  }
+
+  /* --- series --------------------------------------------------------- */
+
+  .disclosure {
+    border: none;
+    background: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    padding: 0 var(--space-1) 0 0;
+    font-size: var(--font-size-base);
+    line-height: 1;
+  }
+
+  .disclosure:hover {
+    color: var(--color-primary-strong);
+  }
+
+  .series-badge {
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+  }
+
+  .series-progress {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .series-parts {
+    margin: 0 0 var(--space-2) var(--space-4);
+    border-left: 2px solid var(--border-color);
+    padding-left: var(--space-2);
+  }
+
+  .series-part {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .series-part-number {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    padding-top: var(--space-2);
+    min-width: 1.1rem;
+    text-align: right;
+  }
+
+  .series-part-row {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* The parts list owns its own separators; the nested rows shouldn't
+     double them up against the series row's border. */
+  .series-part:last-child .series-part-row :global(.link-item) {
+    border-bottom: none;
+  }
+
+  .series-empty {
+    margin: 0 0 var(--space-2) var(--space-5);
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .series-offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    background: var(--color-primary-soft);
+    font-size: var(--font-size-sm);
+  }
+
+  .series-offer-actions {
+    display: flex;
+    gap: var(--space-2);
   }
 
   .link-item:last-child {

@@ -72,6 +72,19 @@ type HookWindow = Window & {
     ): Promise<{ item: SyncRow | undefined; link: SyncRow | null }>;
     untriageItemNow(item: unknown): Promise<SyncRow | undefined>;
     removeFeedNow(feed: unknown): Promise<void>;
+    createSeriesNow(input: unknown): Promise<{ series: SyncRow; reused: number }>;
+    partsOfNow(seriesId: string): Promise<{ link: SyncRow; edge: SyncRow; number: number }[]>;
+    addPartNow(series: unknown, link: unknown, position?: number): Promise<SyncRow | null>;
+    reorderPartsNow(seriesId: string, orderedLinkIds: string[]): Promise<void>;
+    deleteSeriesNow(series: unknown): Promise<void>;
+    parseFeedXmlNow(
+      xml: string,
+      baseUrl: string
+    ): Promise<{
+      title: string;
+      siteUrl: string;
+      items: { guid: string; url: string; title: string; published_at: string; summary: string }[];
+    }>;
   };
 };
 
@@ -209,6 +222,34 @@ export function hook(target: Device | Page) {
       page.evaluate((i) => (window as unknown as HookWindow).__readerr.untriageItemNow(i), item),
     removeFeedNow: (feed: unknown) =>
       page.evaluate((f) => (window as unknown as HookWindow).__readerr.removeFeedNow(f), feed),
+    // --- series (services/series.ts) ---
+    createSeriesNow: (input: unknown) =>
+      page.evaluate((i) => (window as unknown as HookWindow).__readerr.createSeriesNow(i), input),
+    partsOfNow: (seriesId: string) =>
+      page.evaluate((s) => (window as unknown as HookWindow).__readerr.partsOfNow(s), seriesId),
+    addPartNow: (series: unknown, link: unknown, position?: number) =>
+      page.evaluate(
+        ([s, l, p]) =>
+          (window as unknown as HookWindow).__readerr.addPartNow(s, l, p as number | undefined),
+        [series, link, position] as const
+      ),
+    reorderPartsNow: (seriesId: string, orderedLinkIds: string[]) =>
+      page.evaluate(
+        ([s, ids]) =>
+          (window as unknown as HookWindow).__readerr.reorderPartsNow(
+            s as string,
+            ids as string[]
+          ),
+        [seriesId, orderedLinkIds] as const
+      ),
+    deleteSeriesNow: (series: unknown) =>
+      page.evaluate((s) => (window as unknown as HookWindow).__readerr.deleteSeriesNow(s), series),
+    /** The in-browser feed parser, run in a real browser (DOMParser). */
+    parseFeedXmlNow: (xml: string, baseUrl: string) =>
+      page.evaluate(
+        ([x, b]) => (window as unknown as HookWindow).__readerr.parseFeedXmlNow(x, b),
+        [xml, baseUrl] as const
+      ),
   };
 }
 
@@ -229,6 +270,7 @@ export function linkFixture(overrides: Record<string, unknown> = {}): Record<str
     is_resource: false,
     slushed_at: null,
     priority: null,
+    is_series: false,
     ...overrides,
   };
 }

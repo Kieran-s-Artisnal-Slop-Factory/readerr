@@ -12,6 +12,7 @@
   import LinkList from '../LinkList.svelte';
   import ListToolbar from '../ListToolbar.svelte';
   import Pagination from '../Pagination.svelte';
+  import SeriesModal from '../SeriesModal.svelte';
   import { all } from '../../lib/db/repo';
   import { retryMissingTitles } from '../../lib/services/capture';
   import {
@@ -113,6 +114,12 @@
 
   <Card title="Capture">
     <CaptureBox onAdded={() => refresh().then(() => retryMissingTitles().then(refresh))} />
+    <div class="capture-extras">
+      <!-- Multi-part writing doesn't paste as a flat list: it goes in as one
+           series that holds its parts (docs/dev/experiments & plans/series.md). -->
+      <SeriesModal onCreated={() => void refresh()} />
+      <span class="capture-hint">…or add a multi-part series as one link.</span>
+    </div>
   </Card>
 
   <Card title={`Backlog (${ordered.length.toLocaleString()})`}>
@@ -156,6 +163,20 @@
     color: var(--text-muted-color);
     text-align: center;
     padding: var(--space-5) 0;
+  }
+
+  .capture-extras {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .capture-hint {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
   }
 
   .onboard-hint {

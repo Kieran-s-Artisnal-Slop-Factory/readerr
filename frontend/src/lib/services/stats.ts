@@ -10,6 +10,7 @@
  */
 import { all } from '../db/repo';
 import { domainOf, linkTagAssignments } from './links';
+import { isSeries } from './series';
 import { getUserSettings } from './settings';
 import { getSyncMode, getSyncUrl } from '../sync';
 import type { Link, LinkTopic, Tag, Topic } from '../db/types';
@@ -25,10 +26,15 @@ export interface OriginStats {
 }
 
 export async function originStats(): Promise<OriginStats[]> {
-  const [links, linkTopics] = await Promise.all([
+  const [allLinks, linkTopics] = await Promise.all([
     all<Link>('links'),
     all<LinkTopic>('link_topics'),
   ]);
+  // A series is a container, not something captured from a domain — and one
+  // with no overview page carries a synthesised `series:` URL that would
+  // otherwise show up as its own bogus "origin". Its parts are counted
+  // normally; they are the actual reading.
+  const links = allLinks.filter((l) => !isSeries(l));
   const topicLinkIds = new Set(linkTopics.map((j) => j.link_id));
 
   const byOrigin = new Map<string, OriginStats>();
