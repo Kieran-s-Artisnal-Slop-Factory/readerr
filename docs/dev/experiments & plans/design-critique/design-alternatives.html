@@ -1,0 +1,1636 @@
+<title>Readerr Design Alternatives</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+
+<style>
+  /* Page chrome — deliberately cooler and flatter than readerr, so the
+     specimens read as the app and everything around them reads as review. */
+  :root {
+    --ink: #16211a;
+    --ink-soft: #5b6d61;
+    --paper: #f4f7f3;
+    --panel: #ffffff;
+    --rule: #d9e2da;
+    --accent: #2e7d43;
+    --tint: #e8f1ea;
+    --warn: #b45309;
+    --shadow: 0 1px 2px rgb(22 33 26 / 0.06), 0 8px 24px rgb(22 33 26 / 0.06);
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --ink: #e2ebe3;
+      --ink-soft: #92a697;
+      --paper: #0b120e;
+      --panel: #111a14;
+      --rule: #223029;
+      --accent: #b08557;
+      --tint: #1a2620;
+      --warn: #d9a441;
+      --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.35);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    --ink: #e2ebe3;
+    --ink-soft: #92a697;
+    --paper: #0b120e;
+    --panel: #111a14;
+    --rule: #223029;
+    --accent: #b08557;
+    --tint: #1a2620;
+    --warn: #d9a441;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 30px rgb(0 0 0 / 0.35);
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    line-height: 1.55;
+    margin: 0;
+    padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1rem, 4vw, 2rem) 6rem;
+  }
+
+  .wrap { max-width: 78rem; margin: 0 auto; display: flex; flex-direction: column; gap: 3rem; }
+
+  .masthead {
+    display: flex; flex-direction: column; gap: 0.6rem;
+    padding-bottom: 1.5rem; border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+  }
+
+  h1 { font-size: clamp(1.9rem, 4vw, 2.5rem); font-weight: 700; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+  .lede { max-width: 64ch; color: var(--ink-soft); margin: 0; }
+
+  .finding { display: flex; flex-direction: column; gap: 1rem; scroll-margin-top: 1rem; }
+
+  .finding-head { display: flex; flex-direction: column; gap: 0.3rem; max-width: 68ch; }
+
+  .finding-head h2 {
+    font-size: 1.25rem; font-weight: 600; margin: 0; letter-spacing: -0.01em;
+    display: flex; align-items: baseline; gap: 0.6rem;
+  }
+
+  .num {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    font-size: 0.8rem; color: var(--accent); border: 1px solid var(--rule);
+    border-radius: 4px; padding: 0.05rem 0.4rem;
+  }
+
+  .finding-head p { margin: 0; color: var(--ink-soft); }
+
+  .specimens { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; align-items: start; }
+
+  .spec {
+    border: 1px solid var(--rule); border-radius: 10px; background: var(--panel);
+    box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column;
+  }
+
+  .spec > header {
+    display: flex; align-items: baseline; gap: 0.5rem; padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--rule); background: var(--tint);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.75rem; color: var(--ink-soft);
+  }
+
+  .spec > header b { color: var(--ink); font-weight: 500; }
+  .spec.is-current > header { background: transparent; }
+  .spec.is-current > header b::after { content: ' · shipped'; color: var(--ink-soft); font-weight: 400; }
+
+  .stage { padding: 0.9rem; overflow-x: auto; }
+  .spec footer { padding: 0.6rem 0.8rem 0.8rem; color: var(--ink-soft); font-size: 0.85rem; border-top: 1px dashed var(--rule); }
+  .spec footer b { color: var(--ink); font-weight: 600; }
+
+  /* The app itself. Tokens are scoped to .readerr (see the second style
+     block), so these panels paint exactly as the running app does. */
+  .readerr {
+    font-family: var(--font-body); line-height: var(--line-height);
+    color: var(--text-color); background: var(--bg-color);
+    padding: 0.75rem; border-radius: 8px; color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .readerr { color-scheme: dark; } }
+  :root[data-theme='dark'] .readerr { color-scheme: dark; }
+  :root[data-theme='light'] .readerr { color-scheme: light; }
+
+  .note { color: var(--ink-soft); font-size: 0.9rem; margin: 0; max-width: 68ch; }
+  .note code, .finding-head code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.85em; background: var(--tint); padding: 0.1em 0.35em; border-radius: 4px; }
+
+  .toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.4rem 1.5rem; margin: 0; padding: 0; list-style: none; }
+  .toc a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); padding: 0.25rem 0; display: block; }
+  .toc a:hover { color: var(--accent); border-color: var(--accent); }
+  .toc span { color: var(--ink-soft); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.75rem; margin-right: 0.5rem; }
+
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<!-- readerr's own stylesheet, scoped to .readerr. -->
+<style>/*
+ * Workoutt theme — all configurable design tokens live here.
+ * Uses light-dark() so both themes are defined in one place;
+ * color-scheme on :root makes the browser honor the user preference.
+ */
+.readerr {
+  color-scheme: light dark;
+
+  /* Brand */
+  --color-primary: light-dark(#2e7d43, #b08557); /* crisp green in light, deep wood brown in dark */
+  --color-primary-strong: light-dark(#1d5e2f, #cfa878);
+  --color-primary-soft: light-dark(#e4f3e7, #33261a);
+  --color-on-primary: light-dark(#ffffff, #12100c);
+
+  /* Surfaces */
+  --bg-color: light-dark(#fafcf9, #0b1a12);
+  --surface-color: light-dark(#ffffff, #122519);
+  --surface-raised-color: light-dark(#ffffff, #183020);
+  --border-color: light-dark(#dbe7dc, #29402f);
+
+  /* Text */
+  --text-color: light-dark(#1b241d, #e4efe6);
+  --text-muted-color: light-dark(#5f7263, #93ab98);
+
+  /*
+   * Editor chrome — the text caret and the editor's own controls. The text
+   * colour stepped back 20%, so it stays as legible as the prose while
+   * still reading as UI rather than content.
+   *
+   * Derived on purpose, and deliberately NOT in theme.ts's editable token
+   * lists: it has to track whatever --text-color a custom theme sets. (The
+   * substitution is lazy, so the :root:root override a custom theme writes
+   * still wins here.)
+   */
+  --editor-chrome-color: color-mix(in srgb, var(--text-color) 80%, transparent);
+
+  /* Feedback */
+  --color-success: light-dark(#1a7f37, #4ade80);
+  --color-danger: light-dark(#c62828, #f87171);
+  --color-warning: light-dark(#b45309, #d9a441);
+
+  /* Typography */
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-size-sm: 0.85rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.2rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+  --line-height: 1.55;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.5rem;
+
+  /* Shape */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* Elevation */
+  --shadow-1: 0 1px 3px light-dark(rgb(36 31 26 / 0.08), rgb(0 0 0 / 0.4));
+  --shadow-2: 0 4px 16px light-dark(rgb(36 31 26 / 0.14), rgb(0 0 0 / 0.55));
+
+  /* Layout */
+  --page-max-width: 60rem;
+  --navbar-height: 3.5rem;
+}
+
+.readerr /* Minimal reset + base element styles. Tokens come from theme.css. */
+*, .readerr *::before, .readerr *::after {
+  box-sizing: border-box;
+}
+.readerr h1, .readerr h2, .readerr h3, .readerr h4 {
+  line-height: 1.2;
+  text-wrap: balance;
+}
+.readerr h1 {
+  font-size: var(--font-size-2xl);
+}
+.readerr h2 {
+  font-size: var(--font-size-xl);
+}
+.readerr h3 {
+  font-size: var(--font-size-lg);
+}
+.readerr p {
+  text-wrap: pretty;
+}
+.readerr a {
+  color: var(--color-primary-strong);
+}
+.readerr button, .readerr input, .readerr select, .readerr textarea {
+  font: inherit;
+  color: inherit;
+}
+.readerr input, .readerr select, .readerr textarea {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  width: 100%;
+}
+.readerr input:focus-visible, .readerr select:focus-visible, .readerr textarea:focus-visible, .readerr button:focus-visible, .readerr a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.readerr label {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted-color);
+  display: block;
+  margin-bottom: var(--space-1);
+}
+.readerr /* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-color);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--text-color);
+  font-weight: 600;
+}
+.readerr .btn:hover {
+  border-color: var(--color-primary);
+}
+.readerr .btn-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.readerr .btn-primary:hover {
+  background: var(--color-primary-strong);
+  border-color: var(--color-primary-strong);
+}
+.readerr .btn-danger {
+  color: var(--color-danger);
+}
+.readerr /* Page shell */
+main.page {
+  max-width: var(--page-max-width);
+  margin-inline: auto;
+  padding: var(--space-5) var(--space-4) calc(var(--space-6) * 2);
+}
+.readerr .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+}
+.readerr .muted {
+  color: var(--text-muted-color);
+}
+.readerr .stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.readerr .grid-2 {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+.readerr /* Section headings — matches the Card title treatment so pages feel consistent */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  color: var(--color-primary-strong);
+}
+.readerr .section-title::before {
+  content: '';
+  width: 4px;
+  height: 1.1em;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  flex-shrink: 0;
+}
+.readerr /* Data tables (exercises, .readerr templates, .readerr PR lists) */
+.table-wrap {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+  background: var(--surface-color);
+  box-shadow: var(--shadow-1);
+}
+.readerr .data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.readerr .data-table th {
+  text-align: left;
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted-color);
+  font-weight: 700;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+}
+.readerr .data-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+.readerr .data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.readerr .data-table tbody tr.clickable {
+  cursor: pointer;
+}
+.readerr .data-table tbody tr.clickable:hover td {
+  background: var(--color-primary-soft);
+}
+.readerr .data-table tr.detail-row td {
+  background: color-mix(in srgb, var(--surface-color) 60%, var(--bg-color));
+  padding: var(--space-3) var(--space-4);
+}
+.readerr .data-table thead {
+    display: none;
+  }
+.readerr .data-table, .readerr .data-table tbody, .readerr .data-table tr, .readerr .data-table td {
+    display: block;
+    width: 100%;
+  }
+.readerr .data-table tbody tr {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+  }
+.readerr .data-table tbody tr:last-child {
+    border-bottom: none;
+  }
+.readerr .data-table td {
+    border-bottom: none;
+    padding: var(--space-1) 0;
+  }
+.readerr .data-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted-color);
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+.readerr .data-table tr.detail-row {
+    background: color-mix(in srgb, var(--surface-color) 60%, var(--bg-color));
+  }
+.readerr .card {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-1);
+    padding: var(--space-4);
+  }
+.readerr .card-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 800;
+    color: var(--color-primary-strong);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: var(--space-3);
+  }
+.readerr .card-title::before {
+    content: '';
+    width: 4px;
+    height: 1.1em;
+    border-radius: var(--radius-full);
+    background: var(--color-primary);
+    flex-shrink: 0;
+  }
+.readerr .card-footer {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    gap: var(--space-2);
+    justify-content: flex-end;
+  }
+.readerr .link-item {
+    border-bottom: 1px solid var(--border-color);
+  }
+.readerr /* --- series --------------------------------------------------------- */
+
+  .disclosure {
+    border: none;
+    background: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    padding: 0 var(--space-1) 0 0;
+    font-size: var(--font-size-base);
+    line-height: 1;
+  }
+.readerr .disclosure:hover {
+    color: var(--color-primary-strong);
+  }
+.readerr .series-badge {
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+  }
+.readerr .series-progress {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-variant-numeric: tabular-nums;
+  }
+.readerr .series-parts {
+    margin: 0 0 var(--space-2) var(--space-4);
+    border-left: 2px solid var(--border-color);
+    padding-left: var(--space-2);
+  }
+.readerr .series-part {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+.readerr .series-part-number {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    padding-top: var(--space-2);
+    min-width: 1.1rem;
+    text-align: right;
+  }
+.readerr .series-part-row {
+    flex: 1;
+    min-width: 0;
+  }
+.readerr /* The parts list owns its own separators; the nested rows shouldn't
+     double them up against the series row's border. */
+  .series-part:last-child .series-part-row .link-item {
+    border-bottom: none;
+  }
+.readerr .series-empty {
+    margin: 0 0 var(--space-2) var(--space-5);
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+.readerr .series-offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    background: var(--color-primary-soft);
+    font-size: var(--font-size-sm);
+  }
+.readerr .series-offer-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+.readerr .link-item:last-child {
+    border-bottom: none;
+  }
+.readerr .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+.readerr .labels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: 0 var(--space-3) var(--space-3);
+  }
+.readerr .labels-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+.readerr .labels-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 600;
+  }
+.readerr .row.read .title {
+    color: var(--text-muted-color);
+  }
+.readerr /* The footnote number, .readerr set before the title like the citation it stands for. */
+  .ref-chip {
+    flex-shrink: 0;
+    align-self: baseline;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--font-size-sm);
+    padding: 0 var(--space-2);
+    cursor: pointer;
+    min-width: 3.5rem;
+  }
+.readerr .ref-chip:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+  }
+.readerr .ref-chip.copied {
+    border-style: solid;
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+  }
+.readerr .row-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+.readerr .title-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+.readerr .title {
+    color: var(--text-color);
+    font-weight: 600;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+.readerr .title-edit {
+    border: none;
+    background: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-sm);
+    flex-shrink: 0;
+    opacity: 0.6;
+  }
+.readerr .title-edit:hover {
+    color: var(--color-primary-strong);
+    opacity: 1;
+  }
+.readerr .title-input {
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-color);
+    font-weight: 600;
+    font-size: var(--font-size-base);
+  }
+.readerr .week-select {
+    max-width: 16rem;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-color);
+    font-size: var(--font-size-sm);
+  }
+.readerr .title:hover {
+    color: var(--color-primary-strong);
+    text-decoration: underline;
+  }
+.readerr .meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+.readerr .tag-chip {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    text-decoration: none;
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+.readerr .tag-chip:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+  }
+.readerr .topic-chip {
+    border-style: dashed;
+  }
+.readerr .week-chip {
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    color: var(--color-primary-strong);
+    background: var(--color-primary-soft);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+  }
+.readerr .prio-chip {
+    border: 1px solid var(--color-warning);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    color: var(--color-warning);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+.readerr .prio-chip.top {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+.readerr .row-actions {
+    display: flex;
+    gap: var(--space-1);
+    flex-shrink: 0;
+  }
+.readerr .icon-btn {
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    text-decoration: none;
+    font-size: var(--font-size-base);
+  }
+.readerr .icon-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+  }
+.readerr .icon-btn.active {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+  }
+.readerr .row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--space-2);
+    }
+.readerr .title-line {
+      align-items: baseline;
+    }
+.readerr .title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+.readerr .row-actions {
+      gap: var(--space-2);
+    }
+.readerr .icon-btn {
+      width: 2.25rem;
+      height: 2.25rem;
+    }
+.readerr .week-select {
+      max-width: none;
+    }
+.readerr .parts-card .hint {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-3);
+  }
+.readerr .parts-card .error {
+    color: var(--color-danger);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-2);
+  }
+.readerr .parts-card .parts {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+  }
+.readerr .parts-card .parts li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+.readerr .parts-card .parts li:last-child {
+    border-bottom: none;
+  }
+.readerr .parts-card .parts li.read .part-title {
+    text-decoration: line-through;
+    opacity: 0.65;
+  }
+.readerr .parts-card .number {
+    color: var(--text-muted-color);
+    font-variant-numeric: tabular-nums;
+    min-width: 1.2rem;
+    text-align: right;
+  }
+.readerr .parts-card .part-title {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-color);
+    font-weight: 600;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+.readerr .parts-card .part-title:hover {
+    color: var(--color-primary-strong);
+    text-decoration: underline;
+  }
+.readerr .parts-card .actions {
+    display: flex;
+    gap: var(--space-1);
+    flex-shrink: 0;
+  }
+.readerr .parts-card .add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+.readerr .parts-card .add input {
+    flex: 1;
+    min-width: 10rem;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-color);
+  }
+
+.readerr .week-nav { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3); }
+.readerr .week-nav .muted { color: var(--text-muted-color); font-size: var(--font-size-sm); }
+.readerr .stats { color: var(--text-muted-color); font-size: var(--font-size-sm); margin: 0 0 var(--space-3); }
+.readerr .adder { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+.readerr .adder input { flex: 1; min-width: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--surface-color); color: var(--text-color); }
+.readerr .entries { display: flex; flex-direction: column; }
+.readerr .entry { position: relative; display: flex; align-items: center; gap: var(--space-2); border-bottom: 1px solid var(--border-color); }
+.readerr .entry:last-child { border-bottom: none; }
+.readerr .entry-check { flex-shrink: 0; width: auto; margin: 0; align-self: center; }
+.readerr .handle { flex-shrink: 0; cursor: grab; color: var(--text-muted-color); font-size: var(--font-size-lg); padding: var(--space-1); user-select: none; }
+.readerr .entry-row { flex: 1; min-width: 0; }
+.readerr .entry-row .link-item { border-bottom: none; }
+.readerr .corner-remove { flex-shrink: 0; align-self: center; width: 1.9rem; height: 1.9rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-color); border-radius: var(--radius-full); background: var(--surface-raised-color); color: var(--color-danger); cursor: pointer; font-weight: 700; line-height: 1; }
+.readerr .header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.readerr .header-main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.readerr .header .title { font-size: var(--font-size-lg); font-weight: 700; color: var(--text-color); text-decoration: none; }
+.readerr .header .domain { font-size: var(--font-size-sm); color: var(--text-muted-color); }
+.readerr .flags { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.readerr .flag { border: 1px solid var(--border-color); border-radius: var(--radius-full); background: var(--surface-color); padding: var(--space-1) var(--space-3); font-size: var(--font-size-sm); font-weight: 600; cursor: pointer; color: var(--text-muted-color); }
+.readerr .series-danger { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-color); }
+.readerr .title-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); }
+
+.readerr .toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+.readerr .toolbar-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+.readerr .select-all {
+    width: auto;
+    margin: 0;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+.readerr .search {
+    flex: 1;
+    min-width: 11rem;
+  }
+.readerr .sort {
+    display: flex;
+    flex-shrink: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+.readerr .sort-btn {
+    border: none;
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+.readerr .sort-btn:hover {
+    color: var(--text-color);
+  }
+.readerr .sort-btn.active {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+  }
+.readerr .sort {
+      width: 100%;
+    }
+.readerr .sort-btn {
+      flex: 1;
+    }
+.readerr .chip-filter {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+.readerr .cf-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 600;
+  }
+.readerr .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+.readerr .chip {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    background: var(--surface-color);
+    padding: 0 var(--space-3);
+    font-size: var(--font-size-sm);
+    line-height: 1.9;
+    cursor: pointer;
+    color: var(--text-color);
+  }
+.readerr .chip:hover {
+    border-color: var(--color-primary);
+  }
+.readerr .chip.selected {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+    font-weight: 600;
+  }
+.readerr .chip.clear {
+    border-style: dashed;
+    color: var(--text-muted-color);
+  }
+.readerr .chip.clear:hover {
+    color: var(--color-danger);
+    border-color: var(--color-danger);
+  }
+.readerr .search {
+    position: relative;
+    display: flex;
+  }
+.readerr .search input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-2) var(--space-3);
+    padding-right: 2.2rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-color);
+  }
+.readerr .search input:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -1px;
+  }
+.readerr .clear {
+    position: absolute;
+    right: var(--space-2);
+    top: 50%;
+    transform: translateY(-50%);
+    border: none;
+    background: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    padding: var(--space-1);
+  }
+.readerr .clear:hover {
+    color: var(--color-danger);
+  }
+.readerr .empty {
+    color: var(--text-muted-color);
+    text-align: center;
+    padding: var(--space-5) 0;
+  }
+.readerr .nested-note {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+.readerr .list {
+    display: flex;
+    flex-direction: column;
+  }
+.readerr .select-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin: 0 0 var(--space-2);
+  }
+.readerr .select-hint {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+.readerr .row-check {
+    width: auto;
+    margin: 0;
+  }
+.readerr .select-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--border-color);
+  }
+.readerr .select-row:last-child {
+    border-bottom: none;
+  }
+.readerr .select-row.selected {
+    background: var(--color-primary-soft);
+  }
+.readerr .row-check {
+    flex-shrink: 0;
+    margin-left: var(--space-2);
+  }
+.readerr .row-link {
+    flex: 1;
+    min-width: 0;
+  }
+.readerr .row-link .link-item {
+    border-bottom: none;
+  }
+.readerr .stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+.readerr .hint {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    margin: 0 0 var(--space-3);
+  }
+.readerr .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+.readerr .totals {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+.readerr .empty {
+    color: var(--text-muted-color);
+    text-align: center;
+    padding: var(--space-5) 0;
+  }</style>
+
+<style>
+  /* ---- variant overrides -------------------------------------------------
+     Each alternative is the app's markup plus the smallest CSS that would
+     implement it, scoped to its own specimen. */
+
+  /* 1C / 2A — weight the actions instead of treating them equally. */
+  .v-weighted .row-actions .icon-btn { opacity: 0.45; }
+  .v-weighted .row-actions .icon-btn:first-child { opacity: 1; border-color: var(--color-primary); color: var(--color-primary-strong); font-weight: 700; }
+  .v-weighted .row-actions .icon-btn:nth-child(2) { opacity: 0.8; }
+  .v-weighted:hover .row-actions .icon-btn { opacity: 1; }
+
+  /* 1A — one primary, the rest revealed on hover/focus. */
+  .v-hover .row-actions .icon-btn:not(:first-child) { opacity: 0; transition: opacity 0.12s ease; }
+  .v-hover:hover .row-actions .icon-btn, .v-hover:focus-within .row-actions .icon-btn { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .v-hover .row-actions .icon-btn { transition: none; } }
+
+  /* 1B — primary pair + overflow. */
+  .v-overflow .row-actions .icon-btn.more { font-weight: 700; letter-spacing: 0.1em; }
+
+  /* 2B — icon plus micro-label. */
+  .v-labels .icon-btn { width: auto; padding: 0 var(--space-2); gap: 0.3rem; display: inline-flex; align-items: center; }
+  .v-labels .icon-btn .lbl { font-size: var(--font-size-sm); font-weight: 600; }
+
+  /* 3A — demote the card chrome. */
+  .v-quiet .card-title { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text-muted-color); font-size: var(--font-size-base); }
+  /* 3B — promote the content instead. */
+  .v-loud-content .title { font-size: var(--font-size-lg); font-weight: 700; }
+  /* 3C — heading outside the card. */
+  .v-outside .section-label { display: block; font-size: var(--font-size-sm); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted-color); margin-bottom: var(--space-2); font-weight: 700; }
+  .v-outside .card-title { display: none; }
+
+  /* 4 — density. */
+  .v-compact .row { padding-top: 2px; padding-bottom: 2px; }
+  .v-compact .meta { gap: var(--space-2); }
+  .v-compact .icon-btn { width: 1.5rem; height: 1.5rem; }
+  .v-roomy .row { padding-top: var(--space-3); padding-bottom: var(--space-3); }
+
+  /* 6 — feedback and undo. */
+  .toast {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+    background: var(--surface-raised-color); border: 1px solid var(--border-color);
+    border-left: 3px solid var(--color-primary);
+    border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
+    box-shadow: var(--shadow-2); font-size: var(--font-size-sm); color: var(--text-color);
+  }
+  .toast .undo { background: none; border: none; color: var(--color-primary-strong); font-weight: 700; cursor: pointer; font-family: inherit; font-size: inherit; }
+  .row.undoing { opacity: 0.55; }
+  .row.undoing .title { text-decoration: line-through; }
+  .inline-undo { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--text-muted-color); padding: 0 var(--space-2) var(--space-2); }
+
+  /* 7 — empty states. */
+  .empty-state { text-align: center; padding: var(--space-5) var(--space-3); color: var(--text-muted-color); }
+  .empty-state h3 { margin: 0 0 var(--space-1); color: var(--text-color); font-size: var(--font-size-base); }
+  .empty-state p { margin: 0 0 var(--space-3); font-size: var(--font-size-sm); }
+  .empty-suggest { display: flex; flex-direction: column; gap: var(--space-2); text-align: left; margin-top: var(--space-3); }
+  .empty-suggest .sug { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+
+  /* 8 — one-row toolbar. */
+  .v-onerow .toolbar-row { flex-wrap: nowrap; }
+  .v-onerow .chip-filter { margin-left: auto; }
+  .v-onerow .toolbar { flex-direction: row; align-items: center; gap: var(--space-3); }
+
+  /* 9 — mobile reflow. */
+  .phone { max-width: 22rem; border: 1px solid var(--border-color); border-radius: 12px; padding: var(--space-2); background: var(--bg-color); }
+  .v-reflow .row { flex-direction: column; align-items: stretch; gap: var(--space-1); }
+  .v-reflow .row-actions { justify-content: flex-start; }
+
+  /* 10 — shape as well as colour. */
+  .v-shape .chip[aria-pressed='true']::before { content: '✓ '; font-weight: 700; }
+  .v-shape .sort-btn.active { box-shadow: inset 0 -2px 0 var(--color-primary); }
+  .v-shape .icon-btn.neutral { color: var(--text-muted-color); }
+  .v-shape .icon-btn.neutral:hover { color: var(--color-danger); border-color: var(--color-danger); }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <span class="eyebrow">design critique · readerr v0.3.0</span>
+    <h1>Readerr Design Alternatives</h1>
+    <p class="lede">
+      Each finding from <code>professional-critique.md</code>, rendered three
+      ways: what ships today, and the alternatives worth weighing against it.
+      Every panel uses readerr's own stylesheet and markup, so what you see is
+      what the change would actually look like — including in your theme.
+    </p>
+  </header>
+
+  <nav>
+    <ul class="toc">
+      <li><a href="#f1"><span>01</span>Six identical row actions</a></li>
+      <li><a href="#f2"><span>02</span>Unlabelled icons</a></li>
+      <li><a href="#f3"><span>03</span>Chrome louder than content</a></li>
+      <li><a href="#f4"><span>04</span>One density for every job</a></li>
+      <li><a href="#f6"><span>06</span>Silent, unundoable changes</a></li>
+      <li><a href="#f7"><span>07</span>Empty states that don't act</a></li>
+      <li><a href="#f8"><span>08</span>The repeating toolbar</a></li>
+      <li><a href="#f9"><span>09</span>Rows on a phone</a></li>
+      <li><a href="#f10"><span>10</span>Colour doing shape's job</a></li>
+    </ul>
+  </nav>
+
+  <!-- ─────────────────────────────── 1 ─────────────────────────────── -->
+  <section class="finding" id="f1">
+    <div class="finding-head">
+      <h2><span class="num">01</span> Six identical row actions</h2>
+      <p>
+        <code>✓ ★ ⚒ # ›</code> share one size, weight and colour, so the row's
+        title competes with a wall of glyphs and the daily action (<code>✓</code>)
+        has no more presence than the yearly one.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b></header>
+        <div class="stage"><div class="readerr">
+          <div class="link-item"><article class="row"><div class="row-main">
+            <span class="title-line"><a class="title" href="#">The unreasonable effectiveness of SQLite</a> <button class="title-edit" title="Edit title">✎</button></span>
+            <div class="meta"><span class="domain">blog.example.com</span> <a class="tag-chip" href="#">databases</a></div>
+          </div><div class="row-actions">
+            <button class="icon-btn" title="Mark read">✓</button>
+            <button class="icon-btn" title="Favourite">★</button>
+            <button class="icon-btn" title="Mark as resource">⚒</button>
+            <button class="icon-btn" title="Tags &amp; topics">#</button>
+            <a class="icon-btn open" title="Notes &amp; details" href="#">›</a>
+          </div></article></div>
+        </div></div>
+        <footer>Everything equally loud. Scanning 100 rows means reading 500 glyphs.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> primary, rest on hover</header>
+        <div class="stage"><div class="readerr v-hover">
+          <div class="link-item"><article class="row"><div class="row-main">
+            <span class="title-line"><a class="title" href="#">The unreasonable effectiveness of SQLite</a> <button class="title-edit" title="Edit title">✎</button></span>
+            <div class="meta"><span class="domain">blog.example.com</span> <a class="tag-chip" href="#">databases</a></div>
+          </div><div class="row-actions">
+            <button class="icon-btn" title="Mark read">✓</button>
+            <button class="icon-btn" title="Favourite">★</button>
+            <button class="icon-btn" title="Mark as resource">⚒</button>
+            <button class="icon-btn" title="Tags &amp; topics">#</button>
+            <a class="icon-btn open" title="Notes &amp; details" href="#">›</a>
+          </div></article></div>
+        </div></div>
+        <footer><b>Hover the row.</b> Quietest list; needs a touch fallback (tap-to-reveal).</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> primary pair + overflow</header>
+        <div class="stage"><div class="readerr v-overflow">
+          <div class="link-item"><article class="row"><div class="row-main">
+            <span class="title-line"><a class="title" href="#">The unreasonable effectiveness of SQLite</a></span>
+            <div class="meta"><span class="domain">blog.example.com</span> <a class="tag-chip" href="#">databases</a></div>
+          </div><div class="row-actions">
+            <button class="icon-btn" title="Mark read">✓</button>
+            <button class="icon-btn" title="Favourite">★</button>
+            <button class="icon-btn more" title="More actions">⋯</button>
+          </div></article></div>
+        </div></div>
+        <footer>Best on phones. Costs a click for resource, labels and details.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>C</b> same six, weighted</header>
+        <div class="stage"><div class="readerr v-weighted">
+          <div class="link-item"><article class="row"><div class="row-main">
+            <span class="title-line"><a class="title" href="#">The unreasonable effectiveness of SQLite</a> <button class="title-edit" title="Edit title">✎</button></span>
+            <div class="meta"><span class="domain">blog.example.com</span> <a class="tag-chip" href="#">databases</a></div>
+          </div><div class="row-actions">
+            <button class="icon-btn" title="Mark read">✓</button>
+            <button class="icon-btn" title="Favourite">★</button>
+            <button class="icon-btn" title="Mark as resource">⚒</button>
+            <button class="icon-btn" title="Tags &amp; topics">#</button>
+            <a class="icon-btn open" title="Notes &amp; details" href="#">›</a>
+          </div></article></div>
+        </div></div>
+        <footer><b>Recommended first step.</b> Four CSS lines, no behaviour change, no muscle memory lost.</footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 2 ─────────────────────────────── -->
+  <section class="finding" id="f2">
+    <div class="finding-head">
+      <h2><span class="num">02</span> Unlabelled icons</h2>
+      <p>
+        Meaning lives in a <code>title</code> attribute: invisible on touch,
+        absent on keyboard focus, inconsistent in screen readers. <code>⚒</code>
+        for “resource” is not guessable by anyone.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b></header>
+        <div class="stage"><div class="readerr">
+          <div class="row-actions" style="justify-content:flex-start">
+            <button class="icon-btn" title="Mark read">✓</button>
+            <button class="icon-btn" title="Favourite">★</button>
+            <button class="icon-btn" title="Mark as resource">⚒</button>
+            <button class="icon-btn" title="Tags &amp; topics">#</button>
+            <a class="icon-btn open" title="Notes &amp; details" href="#">›</a>
+          </div>
+        </div></div>
+        <footer>A screen reader announces “button”, then a glyph. Nothing else.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> aria-label + desktop text</header>
+        <div class="stage"><div class="readerr v-labels">
+          <div class="row-actions" style="justify-content:flex-start">
+            <button class="icon-btn" aria-label="Mark read">✓ <span class="lbl">Read</span></button>
+            <button class="icon-btn" aria-label="Favourite">★ <span class="lbl">Save</span></button>
+            <button class="icon-btn" aria-label="Mark as resource">⚒ <span class="lbl">Tool</span></button>
+            <button class="icon-btn" aria-label="Tags and topics"># <span class="lbl">Label</span></button>
+            <a class="icon-btn open" aria-label="Open notes and details" href="#">›</a>
+          </div>
+        </div></div>
+        <footer><b>Recommended.</b> Labels only where there's room; <code>aria-label</code> everywhere.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> label always, icon second</header>
+        <div class="stage"><div class="readerr">
+          <div class="row-actions" style="justify-content:flex-start">
+            <button class="btn">Read</button>
+            <button class="btn">Save</button>
+            <button class="btn">Tool</button>
+            <button class="btn">Label</button>
+            <a class="btn" href="#">Open</a>
+          </div>
+        </div></div>
+        <footer>Unambiguous, but the row gets wide — only viable with a density control.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>C</b> keep icons, add a legend</header>
+        <div class="stage"><div class="readerr">
+          <p class="hint" style="margin:0 0 var(--space-2)">✓ read · ★ favourite · ⚒ resource · # labels · › details</p>
+          <div class="row-actions" style="justify-content:flex-start">
+            <button class="icon-btn" title="Mark read">✓</button>
+            <button class="icon-btn" title="Favourite">★</button>
+            <button class="icon-btn" title="Mark as resource">⚒</button>
+            <button class="icon-btn" title="Tags &amp; topics">#</button>
+            <a class="icon-btn open" title="Notes &amp; details" href="#">›</a>
+          </div>
+        </div></div>
+        <footer>Explains the system instead of fixing it, and still fails a screen reader.</footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 3 ─────────────────────────────── -->
+  <section class="finding" id="f3">
+    <div class="finding-head">
+      <h2><span class="num">03</span> Chrome louder than content</h2>
+      <p>
+        <code>.card-title</code> is uppercase, 800-weight, letter-spaced and
+        accent-coloured; the link titles inside are 600 in body colour at the
+        same size. The label out-shouts the thing it labels.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b></header>
+        <div class="stage"><div class="readerr">
+          <section class="card"><h2 class="card-title">Backlog (1,881)</h2><div class="card-body">
+            <div class="link-item"><article class="row"><div class="row-main">
+              <span class="title-line"><a class="title" href="#">A tour of Go 1.25 generics</a></span>
+              <div class="meta"><span class="domain">go.dev</span></div>
+            </div></article></div>
+          </div></section>
+        </div></div>
+        <footer>Reads as: <b>BACKLOG</b>, then a title.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> demote the chrome</header>
+        <div class="stage"><div class="readerr v-quiet">
+          <section class="card"><h2 class="card-title">Backlog (1,881)</h2><div class="card-body">
+            <div class="link-item"><article class="row"><div class="row-main">
+              <span class="title-line"><a class="title" href="#">A tour of Go 1.25 generics</a></span>
+              <div class="meta"><span class="domain">go.dev</span></div>
+            </div></article></div>
+          </div></section>
+        </div></div>
+        <footer><b>Recommended.</b> Four declarations; the accent bar still marks the card.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> promote the content</header>
+        <div class="stage"><div class="readerr v-loud-content">
+          <section class="card"><h2 class="card-title">Backlog (1,881)</h2><div class="card-body">
+            <div class="link-item"><article class="row"><div class="row-main">
+              <span class="title-line"><a class="title" href="#">A tour of Go 1.25 generics</a></span>
+              <div class="meta"><span class="domain">go.dev</span></div>
+            </div></article></div>
+          </div></section>
+        </div></div>
+        <footer>Fixes the ratio, but every row grows — worse at 1,881 links.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>C</b> heading outside the card</header>
+        <div class="stage"><div class="readerr v-outside">
+          <span class="section-label">Backlog · 1,881</span>
+          <section class="card"><h2 class="card-title">Backlog</h2><div class="card-body">
+            <div class="link-item"><article class="row"><div class="row-main">
+              <span class="title-line"><a class="title" href="#">A tour of Go 1.25 generics</a></span>
+              <div class="meta"><span class="domain">go.dev</span></div>
+            </div></article></div>
+          </div></section>
+        </div></div>
+        <footer>Cleanest at a glance; loses the coloured accent that ties cards together.</footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 4 ─────────────────────────────── -->
+  <section class="finding" id="f4">
+    <div class="finding-head">
+      <h2><span class="num">04</span> One density for every job</h2>
+      <p>
+        The same row padding serves a five-item reading week and a 900-item
+        slush. Triage wants rows you can scan; reading wants rows you can rest on.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b> one setting</header>
+        <div class="stage"><div class="readerr">
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">Rust's Result type, revisited</a></span><div class="meta"><span class="domain">example.dev</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">A tour of Go 1.25 generics</a></span><div class="meta"><span class="domain">go.dev</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">Why SQLite is fine, actually</a></span><div class="meta"><span class="domain">blog.example.com</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+        </div></div>
+        <footer>~11 rows per laptop screen.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> compact (toggle)</header>
+        <div class="stage"><div class="readerr v-compact">
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">Rust's Result type, revisited</a></span><div class="meta"><span class="domain">example.dev</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">A tour of Go 1.25 generics</a></span><div class="meta"><span class="domain">go.dev</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">Why SQLite is fine, actually</a></span><div class="meta"><span class="domain">blog.example.com</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+        </div></div>
+        <footer>~40% more rows per screen. Right default for Slush and the Backlog.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> roomy (reading week)</header>
+        <div class="stage"><div class="readerr v-roomy">
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">Rust's Result type, revisited</a></span><div class="meta"><span class="domain">example.dev</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">A tour of Go 1.25 generics</a></span><div class="meta"><span class="domain">go.dev</span></div></div><div class="row-actions"><button class="icon-btn">✓</button><button class="icon-btn">★</button></div></article></div>
+        </div></div>
+        <footer>Five things you chose to read deserve the space. <b>Per-surface defaults beat a global setting.</b></footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 6 ─────────────────────────────── -->
+  <section class="finding" id="f6">
+    <div class="finding-head">
+      <h2><span class="num">06</span> Silent changes, no undo</h2>
+      <p>
+        Ticking, ignoring, removing and unsubscribing all happen instantly and
+        invisibly; the destructive ones use <code>confirm()</code>, which can't
+        be styled and can't be undone either.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b></header>
+        <div class="stage"><div class="readerr">
+          <div class="link-item"><article class="row"><div class="row-main"><span class="title-line"><a class="title" href="#">Ignored: “Bot Preference Sync”</a></span><div class="meta"><span class="domain">the row simply disappears</span></div></div><div class="row-actions"><button class="icon-btn">✓</button></div></article></div>
+          <p class="hint" style="margin:var(--space-2) 0 0">…and for deletes: a browser <code>confirm()</code> dialog.</p>
+        </div></div>
+        <footer>No confirmation of what happened, and no way back but doing it in reverse.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> toast with undo</header>
+        <div class="stage"><div class="readerr">
+          <div class="toast"><span>Ignored 12 items from The Daily WTF.</span> <button class="undo">Undo</button></div>
+          <p class="hint" style="margin:var(--space-2) 0 0">Six seconds, then it's gone. Every action here is a soft delete or a status flip, so undo is a one-liner.</p>
+        </div></div>
+        <footer><b>Recommended.</b> Replaces every <code>confirm()</code> except “Delete series”.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> the row undoes itself</header>
+        <div class="stage"><div class="readerr">
+          <div class="link-item"><article class="row undoing"><div class="row-main"><span class="title-line"><a class="title" href="#">Say it once: introducing Bot Preference Sync</a></span><div class="meta"><span class="domain">blog.cloudflare.com</span></div></div><div class="row-actions"><button class="btn">Undo</button></div></article>
+            <div class="inline-undo">Ignored · disappears in 5s</div>
+          </div>
+        </div></div>
+        <footer>No new component, but the list jumps as rows finally leave.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>C</b> keep confirm, only for real</header>
+        <div class="stage"><div class="readerr">
+          <div class="card" style="border:1px solid var(--color-danger)"><div class="card-body">
+            <p class="hint" style="margin:0 0 var(--space-2)"><b>Delete the series “Async Rust”?</b> Its five parts stay in your library.</p>
+            <div class="row-actions" style="justify-content:flex-end"><button class="btn">Cancel</button><button class="btn btn-danger">Delete series</button></div>
+          </div></div>
+        </div></div>
+        <footer>Right for the one genuinely irreversible action; wrong as the answer everywhere else.</footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 7 ─────────────────────────────── -->
+  <section class="finding" id="f7">
+    <div class="finding-head">
+      <h2><span class="num">07</span> Empty states that describe the void</h2>
+      <p>
+        “No tags yet.” is accurate and useless: the action that would create one
+        lives on a different page, and the empty state doesn't say so.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b></header>
+        <div class="stage"><div class="readerr">
+          <section class="card"><h2 class="card-title">Tags (0)</h2><div class="card-body">
+            <p class="empty" style="color:var(--text-muted-color);text-align:center;padding:var(--space-5) 0">No tags yet.</p>
+          </div></section>
+        </div></div>
+        <footer>A dead end on the page a new user is most likely to open first.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> empty state = the action</header>
+        <div class="stage"><div class="readerr">
+          <section class="card"><h2 class="card-title">Tags (0)</h2><div class="card-body">
+            <div class="empty-state">
+              <h3>No tags yet</h3>
+              <p>Tags appear when you label a link — from the capture box, or the <code>#</code> button on any row.</p>
+              <a class="btn btn-primary" href="#">Open the backlog</a>
+            </div>
+          </div></section>
+        </div></div>
+        <footer><b>Recommended.</b> One heading, one sentence, one way out.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> seeded suggestions (inbox only)</header>
+        <div class="stage"><div class="readerr">
+          <section class="card"><h2 class="card-title">Feeds (0)</h2><div class="card-body">
+            <div class="empty-state">
+              <h3>No feeds yet</h3>
+              <p>Subscribe to a site and its new posts land here for triage.</p>
+              <div class="empty-suggest">
+                <span class="sug">blog.cloudflare.com <button class="btn">Add</button></span>
+                <span class="sug">thedailywtf.com <button class="btn">Add</button></span>
+              </div>
+            </div>
+          </div></section>
+        </div></div>
+        <footer>Lowers the bar where the first step is hardest — finding a feed URL.</footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 8 ─────────────────────────────── -->
+  <section class="finding" id="f8">
+    <div class="finding-head">
+      <h2><span class="num">08</span> The toolbar repeats, and forgets</h2>
+      <p>
+        Search, sort and filters appear on eight surfaces, take two rows on
+        desktop, and reset on every navigation.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b> two rows</header>
+        <div class="stage"><div class="readerr">
+          <div class="toolbar"><div class="toolbar-row">
+            <div class="search"><input type="search" placeholder="Search by title, URL, or tag…"></div>
+            <div class="sort" role="group" aria-label="Sort order"><button class="sort-btn active">Newest captured</button> <button class="sort-btn">Oldest captured</button></div>
+          </div>
+          <div class="chip-filter" role="group" aria-label="Filter"><div class="chips"><button class="chip" aria-pressed="false">Favourites</button><button class="chip" aria-pressed="false">Resources</button><button class="chip" aria-pressed="false">Series</button></div></div></div>
+        </div></div>
+        <footer>Two rows of chrome above every list, every time.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> one row, chips right</header>
+        <div class="stage"><div class="readerr v-onerow">
+          <div class="toolbar"><div class="toolbar-row">
+            <div class="search"><input type="search" placeholder="Search…"></div>
+            <div class="sort" role="group" aria-label="Sort order"><button class="sort-btn active">Newest</button> <button class="sort-btn">Oldest</button></div>
+            <div class="chip-filter" role="group" aria-label="Filter"><div class="chips"><button class="chip" aria-pressed="false">★</button><button class="chip" aria-pressed="false">⚒</button><button class="chip" aria-pressed="false">Series</button></div></div>
+          </div></div>
+        </div></div>
+        <footer>Wraps back to two rows under 48rem. Shorter labels do most of the work.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> remembered, and said so</header>
+        <div class="stage"><div class="readerr">
+          <div class="toolbar"><div class="toolbar-row">
+            <div class="search"><input type="search" placeholder="Search…"></div>
+            <div class="sort" role="group" aria-label="Sort order"><button class="sort-btn">Newest</button> <button class="sort-btn active">Oldest</button></div>
+          </div>
+          <p class="hint" style="margin:var(--space-1) 0 0">Sorted oldest first · remembered for this list</p></div>
+        </div></div>
+        <footer><b>Recommended with A.</b> Sort and density are per-device preferences, like the theme.</footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 9 ─────────────────────────────── -->
+  <section class="finding" id="f9">
+    <div class="finding-head">
+      <h2><span class="num">09</span> Rows on a phone</h2>
+      <p>
+        Below <code>48rem</code> the layout stacks, but the row keeps its
+        six-icon cluster beside a title squeezed into what's left.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b> 375px</header>
+        <div class="stage"><div class="readerr phone">
+          <div class="link-item"><article class="row"><div class="row-main">
+            <span class="title-line"><a class="title" href="#">A revisit of remote Spectre attacks on Cloudflare Workers</a></span>
+            <div class="meta"><span class="domain">blog.cloudflare.com</span></div>
+          </div><div class="row-actions">
+            <button class="icon-btn">✓</button><button class="icon-btn">★</button><button class="icon-btn">⚒</button><button class="icon-btn">#</button><a class="icon-btn open" href="#">›</a>
+          </div></article></div>
+        </div></div>
+        <footer>Title wraps to four lines beside the buttons.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> reflow to two lines</header>
+        <div class="stage"><div class="readerr phone v-reflow">
+          <div class="link-item"><article class="row"><div class="row-main">
+            <span class="title-line"><a class="title" href="#">A revisit of remote Spectre attacks on Cloudflare Workers</a></span>
+            <div class="meta"><span class="domain">blog.cloudflare.com</span></div>
+          </div><div class="row-actions">
+            <button class="icon-btn">✓</button><button class="icon-btn">★</button><button class="icon-btn">⚒</button><button class="icon-btn">#</button><a class="icon-btn open" href="#">›</a>
+          </div></article></div>
+        </div></div>
+        <footer><b>Recommended.</b> One <code>flex-direction</code> at one breakpoint; full-width title, actions below.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> two actions + overflow</header>
+        <div class="stage"><div class="readerr phone">
+          <div class="link-item"><article class="row"><div class="row-main">
+            <span class="title-line"><a class="title" href="#">A revisit of remote Spectre attacks on Cloudflare Workers</a></span>
+            <div class="meta"><span class="domain">blog.cloudflare.com</span></div>
+          </div><div class="row-actions">
+            <button class="icon-btn">✓</button><button class="icon-btn more">⋯</button>
+          </div></article></div>
+        </div></div>
+        <footer>Keeps one line; hides the two labels behind a menu.</footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────── 10 ────────────────────────────── -->
+  <section class="finding" id="f10">
+    <div class="finding-head">
+      <h2><span class="num">10</span> Colour doing shape's job</h2>
+      <p>
+        The accent marks selection, activity, importance, series-ness and the
+        primary CTA — five jobs, one hue — while <code>--color-danger</code>
+        marks both “delete forever” and “take out of this week”.
+      </p>
+    </div>
+    <div class="specimens">
+      <div class="spec is-current">
+        <header><b>Current</b></header>
+        <div class="stage"><div class="readerr">
+          <div class="chip-filter"><div class="chips"><button class="chip" aria-pressed="true">Favourites</button><button class="chip" aria-pressed="false">Resources</button></div></div>
+          <div class="sort" role="group" style="margin:var(--space-2) 0"><button class="sort-btn active">Newest</button> <button class="sort-btn">Oldest</button></div>
+          <div class="row-actions" style="justify-content:flex-start"><button class="icon-btn active">✓</button> <button class="corner-remove" title="Remove from this week">✕</button> <button class="btn btn-danger">Delete</button></div>
+        </div></div>
+        <footer>Selected, active and “this is a series” all read identically; ✕ and Delete both read as danger.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>A</b> shape carries state</header>
+        <div class="stage"><div class="readerr v-shape">
+          <div class="chip-filter"><div class="chips"><button class="chip" aria-pressed="true">Favourites</button><button class="chip" aria-pressed="false">Resources</button></div></div>
+          <div class="sort" role="group" style="margin:var(--space-2) 0"><button class="sort-btn active">Newest</button> <button class="sort-btn">Oldest</button></div>
+          <div class="row-actions" style="justify-content:flex-start"><button class="icon-btn active">✓</button> <button class="corner-remove neutral icon-btn" title="Remove from this week">✕</button> <button class="btn btn-danger">Delete</button></div>
+        </div></div>
+        <footer><b>Recommended.</b> A tick on selected chips, an underline on active sort, ✕ neutral until hover.</footer>
+      </div>
+
+      <div class="spec">
+        <header><b>B</b> greyscale test</header>
+        <div class="stage"><div class="readerr" style="filter:grayscale(1)">
+          <div class="chip-filter"><div class="chips"><button class="chip" aria-pressed="true">Favourites</button><button class="chip" aria-pressed="false">Resources</button></div></div>
+          <div class="sort" role="group" style="margin:var(--space-2) 0"><button class="sort-btn active">Newest</button> <button class="sort-btn">Oldest</button></div>
+          <div class="row-actions" style="justify-content:flex-start"><button class="icon-btn active">✓</button> <button class="corner-remove" title="Remove from this week">✕</button> <button class="btn btn-danger">Delete</button></div>
+        </div></div>
+        <footer>The current design in greyscale: selection state is nearly invisible, and ✕ stops being a warning.</footer>
+      </div>
+    </div>
+  </section>
+
+  <section class="finding">
+    <div class="finding-head">
+      <h2>Order of work</h2>
+      <p class="note">
+        <b>1.</b> Accessibility defects first — §02 labels and the dialog
+        behaviour (Esc, focus trap, scroll lock) from the written critique.
+        <b>2.</b> One stylesheet pass: §01 C, §03 A, §10 A — biggest visible
+        gain per line changed. <b>3.</b> §06 toast + undo, which retires every
+        <code>confirm()</code> worth retiring. <b>4.</b> §08, §04, §09 as
+        comfort work.
+      </p>
+    </div>
+  </section>
+</div>

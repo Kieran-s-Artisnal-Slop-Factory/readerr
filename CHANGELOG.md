@@ -52,6 +52,16 @@
 
 ## Bug Fixes
 
+- **A server older than the app no longer erases the app's newest fields.**
+  Pushing a row to a backend that predates one of its columns stored the row
+  without that column and handed it straight back, and the client applied the
+  short copy over its own — so a series created against a not-yet-rebuilt
+  v0.2.0 backend lost `is_series` on the device that made it and silently
+  became an ordinary link. Incoming rows are now merged over the local row
+  rather than replacing it: every field the server sends still wins (explicit
+  nulls included), and only fields it never sent survive. Found while
+  rehearsing the v0.3.0 upgrade against a real database and a real
+  pre-v0.3.0 binary; see [docs/dev/sync.md](docs/dev/sync.md#version-skew-an-incoming-row-is-merged-not-swapped-in).
 - A part of a series no longer shows up twice in the reading week. Ticking a
   part inside its series row adds that part to the week like any other read
   link, so the week listed it again under Done; parts of a series that is
@@ -71,6 +81,19 @@
 - **Backlog** and **Favourites** moved into the nav's **Collections** menu —
   they are collections of links like Tags, Topics and Resources, and the top
   row now holds Reading List, Inbox and Stats.
+- Two adversarial design reviews of the shipped UI live in
+  [docs/dev/experiments & plans/design-critique/](docs/dev/experiments%20&%20plans/design-critique/):
+  a first-time user's read of what the interface fails to explain
+  (`laymen-critique.md`), a UI/UX review of hierarchy, affordance, feedback and
+  accessibility (`professional-critique.md`), and `design-alternatives.html`,
+  which renders each finding as the shipped implementation plus two or three
+  alternatives using the app's own stylesheet.
+- The migration path is now tested rather than assumed: `backend/migrate_test.go`
+  proves an upgraded database ends up with the same columns, defaults and
+  indexes as a freshly created one (and that existing rows keep their values
+  while gaining `is_series = 0`), and `frontend/test/migration.test.ts` upgrades
+  a populated v9 IndexedDB to the current version and checks every store,
+  index and row survives.
 - The `/series-demo/` prototype has been deleted now that the real feature
   exists — the plan it came from carries a "what actually happened" section
   instead. Trimmed with it: a handful of exports in the series and feed

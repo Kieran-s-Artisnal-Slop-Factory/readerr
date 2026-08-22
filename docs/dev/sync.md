@@ -220,6 +220,33 @@ array fields (e.g. `focus_tag_ids`) travel as JSON arrays and are stored as
 JSON text — the `boolCols`/`jsonCols` sets in sync.go's `tables` map drive
 the conversion both ways (`toDBValue`/`fromDBValue`).
 
+### Version skew: an incoming row is MERGED, not swapped in
+
+Both ends are version-tolerant, in three different ways:
+
+| Skew | What happens |
+|---|---|
+| Server has a **table** the client doesn't | the client skips it (`if (!(store in STORES)) continue`) |
+| Client has a **table** the server doesn't | the server ignores it — push walks its OWN `tableOrder`, so the rows stay dirty client-side (`server_seq` null) and land once the server is rebuilt |
+| Client has a **column** the server doesn't | the server stores the row without it, and serves it back short |
+
+That last one used to lose data. The server's response is authoritative for
+the row, so a wholesale `put` of the returned row **erased** the column on the
+device that had just created it: a v0.3.0 client pushing a series to a v0.2.0
+backend got `is_series` back as `undefined`, and the series quietly became an
+ordinary link. Nothing failed; the flag was simply gone.
+
+So the client **merges** an incoming row over the local one
+(`mergeIncoming` in [sync.ts](../../frontend/src/lib/sync.ts)) everywhere it
+applies server state — the pull, the conflict adoption, and the archived-link
+branches of both. Every key the server sends still wins, explicit nulls
+included (or clearing a field on another device would stop propagating); only
+keys the server omits keep their local value. LWW is unchanged: the merge
+happens *after* the `updated_at` comparison decides the incoming row wins.
+
+Covered by [test/versionSkew.test.ts](../../frontend/test/versionSkew.test.ts),
+which drives a fake backend built from an explicit column list.
+
 ## A full sync, end to end
 
 ```mermaid

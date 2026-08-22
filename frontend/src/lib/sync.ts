@@ -107,6 +107,26 @@ function describeNetworkError(phase: string, err: unknown): string {
   return 'Cannot reach the sync server — check the server URL and that the server is running.';
 }
 
+/**
+ * Apply a server row over the local one WITHOUT dropping columns the server
+ * never sent.
+ *
+ * A server older than the app doesn't know the app's newest columns, so it
+ * stores a pushed row without them and serves it back short. A wholesale
+ * `put` of that row then ERASES the field on the device that just created it
+ * — a v0.3.0 client pushing a series to a v0.2.0 backend watched `is_series`
+ * come straight back undefined, and the series silently became an ordinary
+ * link. The window is small (rebuild the backend and it closes) but the loss
+ * is silent, and every future column would inherit the same hazard.
+ *
+ * Merging fixes it without weakening last-write-wins: every key the server
+ * DOES send still wins, explicit nulls included — only keys absent from the
+ * response keep their local value.
+ */
+function mergeIncoming<T extends SyncFields>(local: T | undefined, incoming: T): T {
+  return local ? { ...local, ...incoming } : incoming;
+}
+
 /** Probe a server URL ( /healthz ) with the same error mapping as sync. */
 export async function testConnection(url: string): Promise<{ ok: boolean; message: string }> {
   const base = url.trim().replace(/\/+$/, '');
@@ -515,13 +535,15 @@ async function doSync(): Promise<SyncResult> {
           if (hasArchive && store === 'links') {
             const cold = (await db.get('archived_links', row.id)) as SyncFields | undefined;
             if (cold) {
-              if (row.updated_at >= cold.updated_at) await db.put('archived_links', row);
+              if (row.updated_at >= cold.updated_at) {
+                await db.put('archived_links', mergeIncoming(cold, row));
+              }
               continue;
             }
           }
           const local = (await db.get(store, row.id)) as SyncFields | undefined;
           if (!local || row.updated_at >= local.updated_at) {
-            await db.put(store, row);
+            await db.put(store, mergeIncoming(local, row));
           }
         }
       }
@@ -580,7 +602,7 @@ async function doSync(): Promise<SyncResult> {
             const archived = (await db.get('archived_links', row.id)) as SyncFields | undefined;
             if (archived) {
               if (row.updated_at >= archived.updated_at) {
-                await db.put('archived_links', row);
+                await db.put('archived_links', mergeIncoming(archived, row));
                 pulled++;
               }
               continue; // never re-insert an archived link into the hot store
@@ -588,9 +610,10 @@ async function doSync(): Promise<SyncResult> {
           }
           const local = (await db.get(store, row.id)) as SyncFields | undefined;
           // LWW: apply unless we hold something strictly newer (which the next
-          // push will send).
+          // push will send). Merged, not replaced, so a server that predates a
+          // column can't erase it (mergeIncoming).
           if (!local || row.updated_at >= local.updated_at) {
-            await db.put(store, row);
+            await db.put(store, mergeIncoming(local, row));
             pulled++;
           }
         }
