@@ -54,6 +54,7 @@ erDiagram
     links ||--o{ link_topics : ""
     topics ||--o{ link_topics : ""
     links ||--o{ resource_list_links : ""
+    links ||--o{ series_links : "a series holds its parts"
     resource_lists ||--o{ resource_list_links : ""
     weeks ||--o{ week_links : ""
     links ||--o{ week_links : ""
@@ -91,6 +92,12 @@ erDiagram
         bool is_resource
         text slushed_at "in the slush archive"
         int priority "1..3; null = unset = 3"
+        bool is_series "this link IS a folder of links"
+    }
+    series_links {
+        text series_id "the link with is_series = 1"
+        text link_id "the part"
+        int position "1..n; a hint, ties break on id"
     }
     notes { text body_md }
     excerpts { text content_md
@@ -232,6 +239,25 @@ Design decisions embedded here:
   When adding a synced table that's "one row per natural key", make identity
   deterministic from that key (a fixed id, or a min-id reconcile) — never rely
   on a random UUID plus a local-only "ensure".
+- **A series IS a link.** `is_series` flags it, and `series_links` names its
+  parts — both endpoints are links. The alternative (a `series` table of its
+  own) would have needed its own favourite/priority/read columns, its own
+  tag and topic junctions, its own note relationship, and a second shape for
+  `week_links` to accept — six new pieces of LWW surface instead of one
+  junction the engine already knows how to heal. A series with no overview
+  page carries a synthesised `series:<uuid>` URL, because `links.url` is NOT
+  NULL and is capture's dedupe key; readers render that as plain text rather
+  than a link, and `originStats` skips series entirely. Added in schema
+  **v20**; see [experiments & plans/series.md](experiments%20&%20plans/series.md).
+- **`series_links.position` is a hint, not an identity.** Two devices that
+  append to the same series while apart both write the same number, and
+  row-level LWW keeps both rows. Every reader therefore sorts by
+  `(position, id)` — the id breaks the tie the same way everywhere — and a
+  reorder rewrites the whole run so the common case converges back to a clean
+  1..n. Progress (`2/5`) is likewise computed from the parts' `read_at` and
+  never stored: a counter is one more field for LWW to lose. The series' own
+  `read_at` and a part's mean different things, so finishing the parts only
+  ever *offers* to close the series.
 - **A feed's fetch bookkeeping is deliberately NOT a synced column.** When
   each device last checked a feed, and how it went, lives in the local-only
   `feed_state` store, not on the `feeds` row. Under row-level LWW a
@@ -283,7 +309,7 @@ Design decisions embedded here:
 
 `STORES` in types.ts defines one object store per SQL table (keyPath `id`)
 plus its indexes; migration v1 creates them all, later migrations add stores
-and indexes append-only. Current version: **10**.
+and indexes append-only. Current version: **11**.
 
 | Store | Indexes | Notes |
 |---|---|---|
@@ -298,6 +324,7 @@ and indexes append-only. Current version: **10**.
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
 | `weeks` | `week_start`, `updated_at` | one *open* week per Monday; `reconcileOpenWeeks` collapses duplicates and re-points `week_links` |
 | `week_links` | `week_id`, `link_id`, `updated_at` | |
+| `series_links` | `series_id`, `link_id`, `updated_at` | one live edge per (series, link); self-edges are dropped on read so a cycle can't recurse in the UI |
 | `feeds` | `feed_url`, `updated_at` | one per normalized feed URL; `reconcileFeeds` collapses duplicates and re-points their items |
 | `feed_items` | `feed_id`, `guid`, `updated_at` | one live row per (feed, guid); the `guid` index is what keeps a refresh from re-reading the store per item |
 
@@ -359,8 +386,12 @@ flowchart LR
 - Server-only: the `sync_state` table (the global `last_seq` counter) and
   `idx_*_seq` indexes for pull.
 
-Migration counters as of this writing: SQLite `user_version` **19** (the
-inbox's `feeds` / `feed_items` tables are the latest), IDB version **10**.
+Migration counters as of this writing: SQLite `user_version` **20**
+(`links.is_series` + the `series_links` table are the latest), IDB version
+**11**. `is_series` itself needed no IDB migration, for the same reason
+`priority` didn't: IndexedDB is schemaless per record, so the flag appears on
+rows that carry it and reads `undefined` on older ones (which `isSeries()`
+treats as false).
 Fresh installs
 skip migrations — SQLite executes `schema.sql` wholesale, IDB creates the
 current `STORES` map in v1 — so both migration chains only run for

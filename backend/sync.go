@@ -56,6 +56,9 @@ var tableOrder = []string{
 	"user_settings",
 	"plans",
 	"links",
+	// After links: both endpoints of a series edge are links, so the parents
+	// land before the edge.
+	"series_links",
 	"tags",
 	// After tags, so both endpoints of an edge land before the edge itself.
 	"tag_parents",
@@ -95,9 +98,13 @@ var tables = map[string]tableMeta{
 	},
 	"links": {
 		columns: cols("id", "url", "title", "title_fetched", "added_at",
-			"read_at", "favourite", "is_resource", "slushed_at", "priority"),
-		boolCols: set("title_fetched", "favourite", "is_resource"),
-		defaults: map[string]any{"title_fetched": 0, "favourite": 0, "is_resource": 0},
+			"read_at", "favourite", "is_resource", "slushed_at", "priority", "is_series"),
+		boolCols: set("title_fetched", "favourite", "is_resource", "is_series"),
+		defaults: map[string]any{"title_fetched": 0, "favourite": 0, "is_resource": 0, "is_series": 0},
+	},
+	"series_links": {
+		columns:  cols("id", "series_id", "link_id", "position"),
+		defaults: map[string]any{"position": 0},
 	},
 	"tags": {
 		columns:  cols("id", "name", "notes_md"),

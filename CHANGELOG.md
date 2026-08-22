@@ -17,6 +17,32 @@
   [docs/user/inbox.md](docs/user/inbox.md).
 - The tags page gained a **search box** — it filters by name, and flattens the
   nesting while searching, since a match's parent may not itself match.
+- **Series**: multi-part writing (part 1, part 2, …) is now one link that holds
+  the others. **Add series** on the Backlog takes a title, description,
+  overview URL, tags/topics and the parts — each with its position, URL, title,
+  reading week and its own labels — and captures the lot in one pass (a part
+  you already had joins the series instead of being saved twice). Because a
+  series *is* a link, it can be favourited, tagged, prioritised, annotated and
+  scheduled into a reading week as **one row, not five**. In every list it
+  shows with a ▸ triangle and a `2/5` progress count; expanding it reveals the
+  parts, each with its own ✓, and ticking the last one *offers* to mark the
+  series read rather than deciding for you. A part is never listed twice — it
+  sits inside its series when both are on screen. The series' own page manages
+  membership: add by URL, reorder with ↑/↓, remove a part, or delete the series
+  (its parts stay). A series' page is the ordinary link page — Overview
+  document, excerpts, tags, topics, reading week and history all work exactly
+  as they do for a link, because a series *is* one — and lists gained a
+  **Series** filter so they're easy to find. Design and build notes:
+  [series.md](docs/dev/experiments%20&%20plans/series.md).
+- **The inbox no longer needs a backend.** With a sync server, feeds are
+  fetched server-side as before; without one — offline mode, a static host, or
+  a server too old to have `/feed` — the browser fetches and parses the feed
+  itself (RSS 2.0, Atom and RSS 1.0/RDF, matching the backend's parser case
+  for case). Sites that refuse cross-origin reads say so in plain terms
+  ("your browser wasn't allowed to read example.com directly — the site
+  doesn't send the CORS header that would permit it"), naming a sync server as
+  the fix rather than leaving a bare status code. The daily check runs in
+  offline mode too: that setting means "no server", not "no internet".
 - Stats gained a **Tag distribution** card: every tag's slice of the library,
   as a share of all tag assignments (adds up to 100%) *and* as a percentage of
   all links (adds up to more, since links carry several tags), plus how much of
@@ -24,15 +50,38 @@
 
 ## Bug Fixes
 
+- A part of a series no longer shows up twice in the reading week. Ticking a
+  part inside its series row adds that part to the week like any other read
+  link, so the week listed it again under Done; parts of a series that is
+  itself in the week are now folded into that one row (and the week's counts
+  follow what's on screen).
+- The inbox's "sync server returned 404" now explains itself. A 404 on `/feed`
+  is almost never about the feed: the endpoint ships with v0.3.0, so a server
+  that answers `/healthz` but 404s `/feed` is simply older than the app and
+  needs rebuilding — which the message now says, naming the URL it tried. A
+  404 with no `/healthz` at all reports the sync URL as wrong instead.
+- The service worker no longer caches `/feed` responses, which would have let
+  a manual refresh replay the items it had already imported and call it a
+  success.
+
 ## Other
 
 - **Backlog** and **Favourites** moved into the nav's **Collections** menu —
   they are collections of links like Tags, Topics and Resources, and the top
   row now holds Reading List, Inbox and Stats.
-- A design plan for handling multi-part **series** (part 1, part 2, …) is in
-  [docs/dev/experiments & plans/series.md](docs/dev/experiments%20&%20plans/series.md),
-  with an interactive prototype of its UI at `/series-demo/` — an unlisted page
-  that stores its state in localStorage and never touches the database.
+- The series prototype at `/series-demo/` is superseded by the real feature and
+  can be deleted; the plan it came from now carries a "what actually happened"
+  section covering the three places the design changed on the way in.
+- Series are excluded from the Stats **origins** table and the variability
+  score — a series is a container, not something captured from a domain, and
+  its parts are already counted.
+- Series coverage across all three legs: unit tests for ordering, membership,
+  deletion and creation; a multi-device Playwright spec (two devices appending
+  at the same position still agreeing on the order, the same part added twice
+  collapsing to one edge, a reorder propagating, a created series arriving as
+  one week entry with its parts intact, and deletion leaving no dangling
+  edges); plus `series_links` in the field matrix, the invariants
+  (pair-uniqueness and no self-edges) and the store-coverage list.
 - New backend endpoint `GET /feed?url=` parses RSS 2.0, Atom, and RSS 1.0/RDF
   into normalized JSON (with tolerant parsing, Latin-1 handling, and dates
   normalized to UTC), alongside the existing `GET /title`.

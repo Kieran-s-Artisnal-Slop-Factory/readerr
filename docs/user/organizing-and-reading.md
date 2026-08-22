@@ -182,6 +182,49 @@ buttons include the references:
   (`[^1]: [Title](url)`), so the citations work as footnotes in Obsidian or
   anything else that speaks GitHub-flavoured markdown.
 
+## Series (part 1, part 2, part 3…)
+
+Some writing comes in parts. A **series** keeps them together: it is one link
+that holds the others.
+
+Add one from the **Backlog** with the **Add series** button under the capture
+box. You give it a title, an optional description and overview URL, tags and
+topics — then the parts, each with its position, URL, title, reading week, and
+its own tags if you want them. Parts you'd already saved join the series
+instead of being captured a second time.
+
+Afterwards it behaves like any other link, because it **is** one:
+
+- favourite it, tag it, give it a priority, write notes on it;
+- schedule it into a reading week — as **one row**, not five;
+- find it in search and in your lists.
+
+In any list it shows as a single row with a **▸** triangle and a progress
+count like `2/5`. Expand it to see the parts, each with its own **✓** so you
+can tick them off as you read. When the last one is ticked, readerr *asks*
+whether to mark the whole series read rather than deciding for you — the
+series' own ✓ means "I'm done with this", which isn't always the same thing.
+
+A part is never shown twice: while its series is on the page, it lives inside
+it rather than as a row of its own (the list says so underneath).
+
+### The series' overview page
+
+The **›** button opens it. It is the ordinary link page, so everything a link
+has, a series has:
+
+- an **Overview** document (the description you typed lands here) with the
+  same markdown editor and MD/HTML exports as any link's notes;
+- **excerpts**, for quotations that belong to the series as a whole;
+- **tags** and **topics**, its **reading week**, and its **history**;
+- and a **Parts** card on top: add a part by URL, reorder with **↑ ↓**, remove
+  one, or delete the series.
+
+**Deleting a series keeps its parts** — they're links you captured, and only
+the container goes.
+
+To find your series later, tick the **Series** filter in any list's toolbar.
+
 ## Favourites and resources
 
 - **★ Favourite** marks the good stuff (Collections → Favourites). Favouriting
@@ -267,6 +310,10 @@ nav once archival mode is enabled.
 and **history**: when you set up, your longest daily capture streak, biggest
 bulk paste, and weekly/monthly/yearly/lifetime averages for links read,
 favourites, resources, and topics.
+
+Series are left out of the origins table and the variability score: a series
+is a container, not something you captured from a domain, and its parts are
+already counted.
 
 **Tag distribution** is the same question asked of your tags: how the library
 divides across them. Two percentages, because with multi-tagging there are two

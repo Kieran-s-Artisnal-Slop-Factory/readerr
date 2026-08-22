@@ -7,10 +7,11 @@ A series behaves like a folder: it contains the links that make it up. It is
 also usable **as a link itself** — favourite it, drop it into a reading week,
 tag it, write notes on it, and see it in a reading list.
 
-This is a design plan, not shipped code. There is a working **demo page** at
-`/series-demo/` ([SeriesDemoApp.svelte](../../../frontend/src/components/apps/SeriesDemoApp.svelte))
-that implements the UI described in §5 against local demo state — no database,
-no sync — so the interaction can be judged before any of §2 is built.
+**Status: phases 1–3 are built** (schema v20 / IDB v11, `services/series.ts`,
+series rows in every list, the Add-series modal, and the Parts editor on a
+series' own page). §9 records what changed on the way in. The original
+prototype at `/series-demo/` is superseded and safe to delete — it kept its
+state in localStorage and never touched the database.
 
 Like every design here, it is written to fit the app's grain: local-first,
 offline-first, and — the constraint that dominates every decision below —
@@ -286,3 +287,48 @@ real bool, not `1`).
 
 Each phase is shippable on its own; phase 1 with no UI is invisible, and phase
 2 degrades to "series look like ordinary links" if the rest never lands.
+
+## 9. Build notes — what actually happened
+
+Phases 1–3 shipped together. The plan survived contact mostly intact; these
+are the places it didn't, and why.
+
+- **The overview URL went with option 2** (§2.2): blank synthesises
+  `series:<uuid>`. `isSyntheticSeriesUrl()` is what the UI checks before
+  rendering a title as a hyperlink, and `originStats` skips series rows
+  outright rather than grouping them into a bogus `series:` origin.
+- **The expansion lives in `LinkRow`, which renders itself for the parts.**
+  That was not obvious up front: putting it in `LinkList` would have missed
+  the reading week, which builds its rows from `LinkRow` directly for
+  drag-and-drop. One component means series behave identically in the week,
+  the backlog, favourites, a tag page and a resource list.
+- **The hiding rule (§4) is applied in `LinkList` only.** In a reading *week*,
+  a part with its own `week_links` entry is a deliberate scheduling decision
+  carrying its own done state, and hiding that row would hide the state with
+  it. So the week shows what you scheduled; every other list nests parts under
+  their series and says how many it folded away.
+- **A part's edge merge keeps the LOWEST position** and carries the group's
+  freshest `updated_at`. The timestamp detail is not cosmetic: `putReconciled`
+  deliberately doesn't restamp, so a fold that kept the survivor's own older
+  timestamp loses to the server's copy of that same row under LWW and undoes
+  itself on the next pull. (The inbox hit exactly this, and the harness caught
+  it as a 1-in-2 flake — see the `feed_items` merge.)
+- **Deleting a series is the app's only link-delete path**, deliberately: the
+  container is something the user assembled, while the parts are real
+  captures. It tombstones the edges first, because a live edge naming a
+  tombstoned link is precisely the referential violation the harness fails on.
+- **The week hides nested parts after all.** The first cut left the reading
+  week alone (a part with its own entry was assumed deliberate). In practice
+  ticking a part *inside* its series creates that entry as a side effect —
+  `toggleRead` files every read link into the current week — so the week
+  listed the same reading twice. Parts of a series that is itself in the week
+  are now folded into its row, and the week's counts follow the rows on
+  screen.
+- **The overview page is the link page.** A series needed notes, excerpts,
+  tags and a week; it had all of them the moment `is_series` became a column
+  on `links`. The only additions were presentation: a `series` badge, the
+  Notes card retitled **Overview**, the Parts card above the fold, and a
+  **Series** filter in the list toolbars so a series can be found again.
+- **Not built yet (phase 4):** `!series=[name]` in the capture DSL, series in
+  the markdown/HTML exports and in the seeder, and drag-to-reorder (the Parts
+  editor uses ↑/↓ buttons, which reuse the same whole-run rewrite).

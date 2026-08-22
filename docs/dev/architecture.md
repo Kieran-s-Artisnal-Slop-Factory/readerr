@@ -128,14 +128,31 @@ have inline capture boxes).
 | `/backlog` | `BacklogApp` | capture + unread triage queue, bulk operations |
 | `/inbox` | `InboxApp` | subscribed RSS/Atom feeds and item triage (this week / backlog / ignore) |
 | `/favourites`, `/resources`, `/slush`, `/archive` | respective apps | filtered link listings |
-| `/link?id=` | `LinkApp` | per-link notes, excerpts, labels, history |
+| `/link?id=` | `LinkApp` | per-link notes, excerpts, labels, history; for a series, its **Parts** (order/add/remove) |
 | `/tags`, `/tag?id=`, `/topics`, `/topic?id=` | respective apps | label indexes + documents |
 | `/resource-list?id=` | `ResourceListApp` | list membership + exports |
 | `/plan`, `/upcoming` | `PlanApp`, `UpcomingApp` | triage automation + week calendar |
 | `/stats` | `StatsApp` | origin/history/storage statistics |
 | `/settings` | `SettingsApp` | theme, sync, backups, archival, danger zone |
 | `/onboarding` | `OnboardingApp` | first-launch walkthrough (`?page=N` deep-links) |
-| `/series-demo` | `SeriesDemoApp` | **prototype, not in the nav** — the UI half of [experiments & plans/series.md](experiments%20&%20plans/series.md); localStorage only, never touches the database |
+| `/series-demo` | `SeriesDemoApp` | **superseded prototype, not in the nav** — the design sketch the shipped series feature came from; localStorage only, never touches the database, and safe to delete |
+
+### Two feed parsers, on purpose
+
+The backend is optional, so the inbox has to work without it. `fetchFeed`
+([services/feeds.ts](../../frontend/src/lib/services/feeds.ts)) prefers the
+server's `/feed` (no CORS involved, works for every feed) and falls back to
+fetching and parsing **in the browser**
+([services/feedParse.ts](../../frontend/src/lib/services/feedParse.ts)) when
+there is no usable server — offline mode, a static host, or a server too old
+to have the endpoint. The browser path only works for sites whose CORS
+headers allow it, and says so precisely when they don't.
+
+The two parsers are deliberate mirrors — same dialects, same field
+precedence, same caps — and are held together by running the same cases
+against both: [backend/feed_test.go](../../backend/feed_test.go) and
+[tests/sync/feed-parse.spec.ts](../../frontend/tests/sync/feed-parse.spec.ts)
+(a real browser, because DOMParser is not a Node API).
 
 ### Layering
 
@@ -305,7 +322,8 @@ source):
 | change paste/capture behavior | `services/capture.ts` (+ `captureDsl.ts` for the DSL) |
 | change the weekly flow | `services/weeks.ts`, `apps/WeekApp.svelte` |
 | touch tags or tag nesting | `services/tagTree.ts`, the tag reads in `services/links.ts` + [tagging.md](tagging.md) |
-| touch feeds or the inbox | `services/feeds.ts`, `apps/InboxApp.svelte`, `backend/feed.go` + [user/inbox.md](../user/inbox.md) |
+| touch feeds or the inbox | `services/feeds.ts` (which server/browser path runs), `services/feedParse.ts` (the in-browser parser), `apps/InboxApp.svelte`, `backend/feed.go` + [user/inbox.md](../user/inbox.md) |
+| touch series | `services/series.ts`, the series block in `LinkRow.svelte`, `SeriesModal.svelte` / `SeriesParts.svelte` + [experiments & plans/series.md](experiments%20&%20plans/series.md) |
 | touch sync | `lib/sync.ts` + `backend/sync.go` + [sync.md](sync.md) |
 | add a settings knob | `types.ts` UserSettings → `services/settings.ts` pick → `SettingsApp.svelte` → schema/migration/sync map |
 | adjust theming | `lib/theme.ts` + `styles/theme.css` |

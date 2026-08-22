@@ -70,12 +70,34 @@ CREATE TABLE links (
     slushed_at    TEXT,                      -- phase 2: set when week-close archives it
     priority      INTEGER                    -- 1 (highest) to 3; NULL = never set = 3
                   CHECK (priority IN (1, 2, 3)),
+    is_series     INTEGER NOT NULL DEFAULT 0,-- bool: this link is a series of other links
     updated_at    TEXT NOT NULL,
     deleted_at    TEXT,
     server_seq    INTEGER
 );
 CREATE INDEX idx_links_url ON links (url);
 CREATE INDEX idx_links_added_at ON links (added_at);
+
+-- Series membership: "link is part N of series". BOTH sides are links — a
+-- series is an ordinary link carrying is_series = 1, so everything that works
+-- on a link (favourite, tags, notes, a reading week) works on a series with
+-- no second code path. Structurally identical to resource_list_links, and
+-- healed by the same pair-dedupe.
+--
+-- `position` is a HINT, not an identity: two devices can both write position 4
+-- while apart, so every reader sorts by (position, id) and converges without
+-- coordinating.
+CREATE TABLE series_links (
+    id         TEXT PRIMARY KEY,
+    series_id  TEXT NOT NULL REFERENCES links (id),  -- the link with is_series = 1
+    link_id    TEXT NOT NULL REFERENCES links (id),  -- the part
+    position   INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_series_links_series ON series_links (series_id);
+CREATE INDEX idx_series_links_link ON series_links (link_id);
 
 CREATE TABLE tags (
     id         TEXT PRIMARY KEY,
@@ -278,3 +300,4 @@ CREATE INDEX idx_weeks_seq ON weeks (server_seq);
 CREATE INDEX idx_week_links_seq ON week_links (server_seq);
 CREATE INDEX idx_feeds_seq ON feeds (server_seq);
 CREATE INDEX idx_feed_items_seq ON feed_items (server_seq);
+CREATE INDEX idx_series_links_seq ON series_links (server_seq);

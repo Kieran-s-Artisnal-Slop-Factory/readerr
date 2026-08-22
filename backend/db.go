@@ -211,6 +211,25 @@ CREATE INDEX idx_feed_items_feed ON feed_items (feed_id);
 CREATE INDEX idx_feed_items_guid ON feed_items (guid);
 CREATE INDEX idx_feed_items_seq ON feed_items (server_seq);
 `,
+	// v19 → v20: series. A series is an ordinary link flagged is_series, with
+	// one series_links edge per member — so a series is favouritable,
+	// taggable, and schedulable with no new machinery. Additive: with no
+	// flagged links and no edges the behaviour is unchanged.
+	`
+ALTER TABLE links ADD COLUMN is_series INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE series_links (
+    id         TEXT PRIMARY KEY,
+    series_id  TEXT NOT NULL REFERENCES links (id),
+    link_id    TEXT NOT NULL REFERENCES links (id),
+    position   INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_series_links_series ON series_links (series_id);
+CREATE INDEX idx_series_links_link ON series_links (link_id);
+CREATE INDEX idx_series_links_seq ON series_links (server_seq);
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

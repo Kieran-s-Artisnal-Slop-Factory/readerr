@@ -67,11 +67,32 @@ laptop and the phone has the feed; ignore something on the phone and it's gone
 from the laptop's inbox too. If both devices happen to fetch the same feed
 before syncing, you still see each item once.
 
-**Feeds need a sync server.** Your browser isn't allowed to read another
-site's feed directly (that's a browser security rule, not a readerr choice), so
-the sync server fetches feeds on your behalf. In offline mode the Inbox still
-opens and existing items can still be triaged — you just can't add or refresh
-a feed until sync is on. See [Sync & backups](sync-and-backups.md).
+## With and without a sync server
+
+The sync server is optional in readerr, and so it is here.
+
+- **With one**, feeds are fetched by the server. That works for every feed,
+  because the restriction below is a browser rule and a server isn't a
+  browser.
+- **Without one** — offline mode, or a readerr hosted as a static site — your
+  browser fetches the feed itself. That works for any site that permits it.
+
+The catch is **CORS**. A site chooses whether pages on other domains may read
+its files, and most feeds simply don't say yes. When one refuses, the inbox
+tells you plainly:
+
+> Your browser wasn't allowed to read *example.com* directly — the site
+> doesn't send the CORS header that would permit it. Feeds like this need a
+> sync server to fetch them for you.
+
+Nothing is broken and nothing you can change on that site will help; a
+[sync server](sync-and-backups.md) is the fix, and it fetches any feed.
+
+If a sync server *is* configured but can't be reached — or is older than the
+app and has no `/feed` endpoint — readerr quietly tries the browser route
+before giving up, and says which part failed. A server that answers but has no
+`/feed` is simply a version behind: rebuild it
+(`docker compose up --build`, or `go build` + restart).
 
 ## Gotchas
 
