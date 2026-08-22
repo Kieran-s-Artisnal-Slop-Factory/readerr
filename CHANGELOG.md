@@ -1,3 +1,12 @@
+# 0.3.0 (Unreleased)
+
+## Features
+
+## Bug Fixes
+
+## Other
+
+
 # 0.2.0 August 13th 2026
 
 ## Features
