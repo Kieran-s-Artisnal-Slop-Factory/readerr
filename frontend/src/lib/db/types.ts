@@ -196,6 +196,66 @@ export interface WeekLink extends SyncFields {
   outcome: WeekLinkOutcome | null;
 }
 
+// ===== Inbox: subscribed feeds and the items they produce =====
+
+/**
+ * A subscribed RSS/Atom feed.
+ *
+ * Fetch bookkeeping — when this device last checked the feed and how it went
+ * — is deliberately NOT here. It lives in the local-only `feed_state` store
+ * (services/feeds.ts), so the daily background refresh never writes to a
+ * synced row: a background write carries the whole row under a fresh
+ * updated_at, and would clobber a rename made on another device under
+ * row-level LWW.
+ */
+export interface Feed extends SyncFields {
+  /** The feed's own <title> when subscribed; user-editable afterwards. */
+  title: string;
+  /** The RSS/Atom URL that gets polled. */
+  feed_url: string;
+  /** The human site the feed belongs to; '' when the feed didn't say. */
+  site_url: string;
+  /** UTC ISO 8601 subscription time. */
+  added_at: string;
+  /**
+   * Items published before this are never imported — the "pull the last N
+   * days" choice made when subscribing, kept so a later refresh can't drag in
+   * the back catalogue the initial import deliberately skipped.
+   */
+  since_at: string;
+  /** Kept, but never fetched. */
+  paused: boolean;
+}
+
+/** Triage state of an inbox item: untriaged, saved as a link, or dismissed. */
+export type FeedItemStatus = 'new' | 'added' | 'ignored';
+
+/**
+ * One entry from a feed. Logically a singleton per (feed_id, guid) but stored
+ * under a random UUID, so two devices importing the same entry mint separate
+ * rows — collapsed on read by the same pair-dedupe as link_tags.
+ *
+ * Tombstoned items are remembered on purpose: the import checks guids
+ * INCLUDING tombstones, so an item deleted (or a feed's whole back catalogue
+ * pruned) never reappears on the next fetch.
+ */
+export interface FeedItem extends SyncFields {
+  feed_id: string;
+  /** The feed's own id for this entry (<guid>/<id>), else the item URL. */
+  guid: string;
+  url: string;
+  title: string;
+  /** UTC ISO 8601; null when the feed supplied no parseable date. */
+  published_at: string | null;
+  /** UTC ISO 8601 — when this install first imported the item. */
+  fetched_at: string;
+  /** Plain-text blurb from the feed, truncated by the backend. */
+  summary: string;
+  status: FeedItemStatus;
+  /** UTC ISO 8601; null while status is 'new'. */
+  triaged_at: string | null;
+}
+
 /**
  * IndexedDB object store definitions. Store names match SQL table names;
  * every store uses keyPath 'id'. Indexes mirror the SQL indexes. Boolean
@@ -224,6 +284,10 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   resource_list_links: { indexes: [{ name: 'list_id' }, { name: 'link_id' }] },
   weeks: { indexes: [{ name: 'week_start' }] },
   week_links: { indexes: [{ name: 'week_id' }, { name: 'link_id' }] },
+  feeds: { indexes: [{ name: 'feed_url' }] },
+  // 'guid' is indexed so importing a fetch can ask "do I already have this
+  // entry?" per item instead of reading the whole store each refresh.
+  feed_items: { indexes: [{ name: 'feed_id' }, { name: 'guid' }] },
 };
 
 export type StoreName = keyof typeof STORES;

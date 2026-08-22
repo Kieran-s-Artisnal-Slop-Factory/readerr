@@ -51,6 +51,10 @@ const UNCACHEABLE = [
   /\/backup$/,
   /\/push\//,
   /\/title$/,
+  // The inbox's feed fetch: a cached response would hand "Refresh" the items
+  // it already imported and report success — the same silent-staleness
+  // problem as /sync/pull, one level up.
+  /\/feed$/,
   /\/dbsize$/,
 ];
 

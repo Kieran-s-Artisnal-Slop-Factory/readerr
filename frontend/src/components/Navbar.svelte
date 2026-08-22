@@ -45,8 +45,7 @@
 
   const links = [
     { href: href('/'), label: 'Reading List' },
-    { href: href('/backlog/'), label: 'Backlog' },
-    { href: href('/favourites/'), label: 'Favourites' },
+    { href: href('/inbox/'), label: 'Inbox' },
     { href: href('/stats/'), label: 'Stats' },
   ];
 
@@ -55,7 +54,11 @@
     { href: href('/upcoming/'), label: 'Upcoming weeks' },
   ];
 
+  // Backlog and Favourites live here too: they are collections of links, not
+  // destinations of their own, and the top row stays short enough to breathe.
   const collections = $derived([
+    { href: href('/backlog/'), label: 'Backlog' },
+    { href: href('/favourites/'), label: 'Favourites' },
     { href: href('/tags/'), label: 'Tags' },
     { href: href('/topics/'), label: 'Topics' },
     { href: href('/resources/'), label: 'Resources' },

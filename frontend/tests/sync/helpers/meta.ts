@@ -35,6 +35,8 @@ export const TABLE_ORDER = [
   'resource_list_links',
   'weeks',
   'week_links',
+  'feeds',
+  'feed_items',
 ] as const;
 
 export const TABLES: Record<string, TableMeta> = {
@@ -86,6 +88,23 @@ export const TABLES: Record<string, TableMeta> = {
   resource_list_links: t(['id', 'list_id', 'link_id', 'position']),
   weeks: t(['id', 'week_start', 'closed_at']),
   week_links: t(['id', 'week_id', 'link_id', 'position', 'kind', 'done_at', 'outcome']),
+  feeds: t(
+    ['id', 'title', 'feed_url', 'site_url', 'added_at', 'since_at', 'paused'],
+    [],
+    ['paused']
+  ),
+  feed_items: t([
+    'id',
+    'feed_id',
+    'guid',
+    'url',
+    'title',
+    'published_at',
+    'fetched_at',
+    'summary',
+    'status',
+    'triaged_at',
+  ]),
 };
 
 /** child store → [column, parent store] pairs (referential integrity). */
@@ -112,6 +131,7 @@ export const FOREIGN_KEYS: Record<string, [string, string][]> = {
     ['week_id', 'weeks'],
     ['link_id', 'links'],
   ],
+  feed_items: [['feed_id', 'feeds']],
 };
 
 /**

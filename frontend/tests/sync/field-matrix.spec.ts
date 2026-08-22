@@ -364,6 +364,121 @@ test('store:weeks closed_at nullable → value round-trips (closed week)', async
   });
 });
 
+test('store:feeds + store:feed_items — every field + the status enum round-trip', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  const feedId = await seedParent(A, 'feeds', {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    title: 'The Cloudflare Blog',
+    feed_url: 'https://blog.cloudflare.com/rss/',
+    site_url: 'https://blog.cloudflare.com/',
+    added_at: '2026-08-01T00:00:00.000Z',
+    since_at: '2026-07-02T00:00:00.000Z',
+    paused: true,
+  });
+  const item = {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    feed_id: feedId,
+    guid: 'tag:blog.cloudflare.com,2026:post-1',
+    url: 'https://blog.cloudflare.com/making-http-faster/',
+    title: 'Making HTTP faster — “quotes”, 🦀, and all',
+    published_at: '2026-08-18T13:00:00.000Z',
+    fetched_at: '2026-08-19T08:00:00.000Z',
+    summary: 'A post about speed & more.',
+    status: 'ignored',
+    triaged_at: '2026-08-19T09:00:00.000Z',
+  };
+  await A.repoPut('feed_items', item);
+  await propagate(deviceA, deviceB);
+
+  for (const [field, value] of Object.entries({
+    title: 'The Cloudflare Blog',
+    feed_url: 'https://blog.cloudflare.com/rss/',
+    site_url: 'https://blog.cloudflare.com/',
+    added_at: '2026-08-01T00:00:00.000Z',
+    since_at: '2026-07-02T00:00:00.000Z',
+    paused: true, // bool on the wire, not 1
+  })) {
+    await expectFieldRoundTrip(backend, deviceB, { store: 'feeds', id: feedId, field, value });
+  }
+  for (const [field, value] of Object.entries(item)) {
+    if (['id', 'updated_at', 'deleted_at', 'server_seq'].includes(field)) continue;
+    await expectFieldRoundTrip(backend, deviceB, {
+      store: 'feed_items',
+      id: item.id,
+      field,
+      value,
+    });
+  }
+  assertInvariants((await hook(deviceB).rawDumpAll()) as Record<string, SyncRow[]>, 'feeds field');
+});
+
+test('store:feed_items nullable date + untriaged state survive as null', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  const feedId = await seedParent(A, 'feeds', {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    title: 'Undated feed',
+    feed_url: 'https://undated.test/feed',
+    site_url: '',
+    added_at: iso(),
+    since_at: iso(),
+    paused: false,
+  });
+  const item = {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    feed_id: feedId,
+    guid: 'no-date',
+    url: 'https://undated.test/a',
+    title: '',
+    published_at: null,
+    fetched_at: iso(),
+    summary: '',
+    status: 'new',
+    triaged_at: null,
+  };
+  await A.repoPut('feed_items', item);
+  await propagate(deviceA, deviceB);
+  for (const [field, value] of Object.entries({
+    published_at: null,
+    triaged_at: null,
+    title: '', // empty string, not null
+    summary: '',
+    status: 'new',
+  })) {
+    await expectFieldRoundTrip(backend, deviceB, {
+      store: 'feed_items',
+      id: item.id,
+      field,
+      value,
+    });
+  }
+  await expectFieldRoundTrip(backend, deviceB, {
+    store: 'feeds',
+    id: feedId,
+    field: 'site_url',
+    value: '',
+  });
+});
+
 test('tombstone delete hides the row on the other device', async ({ deviceA, deviceB }) => {
   const A = hook(deviceA);
   const B = hook(deviceB);
@@ -394,6 +509,8 @@ test('coverage guard: every synced store appears in the field matrix', async () 
     'resource_list_links',
     'weeks',
     'week_links',
+    'feeds',
+    'feed_items',
   ]);
   expect([...Object.keys(TABLES)].every((s) => covered.has(s))).toBe(true);
   expect(covered.size).toBe(Object.keys(TABLES).length);

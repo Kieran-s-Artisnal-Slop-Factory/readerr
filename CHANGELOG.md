@@ -2,9 +2,47 @@
 
 ## Features
 
+- New **Inbox** tab: subscribe to RSS/Atom feeds and triage what they bring in.
+  Each item is one of three things — **→ the reading week**, **→ Backlog**, or
+  **Ignore** — and items already in your library never appear at all. Feeds are
+  checked once a day per device when you open the page, with manual **Refresh**
+  per feed and **Refresh all**; feeds can be renamed, paused, or removed
+  (removing one takes its untriaged items, not the links you saved). Adding a
+  feed asks how much history to pull in (default 30 days, "nothing" for
+  new-posts-only), and that window is remembered so later refreshes never drag
+  in the back catalogue. Subscriptions and triage decisions sync across
+  devices; the **Added** / **Ignored** views keep a "back to inbox" undo.
+  Fetching goes through the backend (browsers can't read another site's feed),
+  so the inbox is read-only in offline mode. Documented in
+  [docs/user/inbox.md](docs/user/inbox.md).
+- The tags page gained a **search box** — it filters by name, and flattens the
+  nesting while searching, since a match's parent may not itself match.
+- Stats gained a **Tag distribution** card: every tag's slice of the library,
+  as a share of all tag assignments (adds up to 100%) *and* as a percentage of
+  all links (adds up to more, since links carry several tags), plus how much of
+  the library is tagged at all.
+
 ## Bug Fixes
 
 ## Other
+
+- **Backlog** and **Favourites** moved into the nav's **Collections** menu —
+  they are collections of links like Tags, Topics and Resources, and the top
+  row now holds Reading List, Inbox and Stats.
+- A design plan for handling multi-part **series** (part 1, part 2, …) is in
+  [docs/dev/experiments & plans/series.md](docs/dev/experiments%20&%20plans/series.md),
+  with an interactive prototype of its UI at `/series-demo/` — an unlisted page
+  that stores its state in localStorage and never touches the database.
+- New backend endpoint `GET /feed?url=` parses RSS 2.0, Atom, and RSS 1.0/RDF
+  into normalized JSON (with tolerant parsing, Latin-1 handling, and dates
+  normalized to UTC), alongside the existing `GET /title`.
+- Test coverage for the inbox on all three legs: Go tests for the feed parser
+  and endpoint, vitest for import/triage/convergence rules, and a
+  multi-device Playwright spec (duplicate subscriptions folding onto one feed,
+  the same entry imported on two devices keeping its triaged state, triage
+  propagating with its link and week entry, and unsubscribing leaving no
+  orphaned items). The harness's field matrix, invariants, and store-coverage
+  list now cover `feeds` and `feed_items`.
 
 
 # 0.2.0 August 13th 2026

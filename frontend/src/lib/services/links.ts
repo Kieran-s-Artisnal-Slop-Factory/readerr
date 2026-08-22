@@ -467,10 +467,18 @@ export async function unassignTopic(linkId: string, topicId: string): Promise<vo
   }
 }
 
+/**
+ * Every live (link, tag) assignment, one row per pair — the deduped view the
+ * counting readers share, so the tags index and the stats page can never
+ * disagree about how many links a tag carries.
+ */
+export async function linkTagAssignments(): Promise<LinkTag[]> {
+  return dedupeLinkTags(await all<LinkTag>('link_tags'));
+}
+
 /** Live-link count per tag id, direct assignments only (no hierarchy). */
 export async function tagLinkCounts(): Promise<Map<string, number>> {
-  const joins = await dedupeLinkTags(await all<LinkTag>('link_tags'));
-  return countBy(joins, (j) => j.tag_id);
+  return countBy(await linkTagAssignments(), (j) => j.tag_id);
 }
 
 /**

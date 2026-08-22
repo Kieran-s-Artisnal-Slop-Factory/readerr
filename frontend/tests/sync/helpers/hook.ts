@@ -62,6 +62,16 @@ type HookWindow = Window & {
     closeWeekNow(weekId: string): Promise<unknown>;
     setEntryDoneNow(entry: unknown, done: boolean): Promise<SyncRow>;
     toggleFavouriteNow(link: unknown): Promise<SyncRow>;
+    importFeedItemsNow(feed: unknown, entries: unknown[]): Promise<{ imported: number; outsideWindow: number }>;
+    reconcileFeedsNow(): Promise<SyncRow[]>;
+    inboxEntriesNow(status?: string): Promise<{ item: SyncRow; feed: SyncRow }[]>;
+    triageItemNow(
+      item: unknown,
+      action: string,
+      weekStart?: string | null
+    ): Promise<{ item: SyncRow | undefined; link: SyncRow | null }>;
+    untriageItemNow(item: unknown): Promise<SyncRow | undefined>;
+    removeFeedNow(feed: unknown): Promise<void>;
   };
 };
 
@@ -173,6 +183,32 @@ export function hook(target: Device | Page) {
         (l) => (window as unknown as HookWindow).__readerr.toggleFavouriteNow(l),
         link
       ),
+    // --- inbox (services/feeds.ts). Fetching stays out of the harness: these
+    // drive the parts that write synced rows, with entries supplied directly.
+    importFeedItemsNow: (feed: unknown, entries: unknown[]) =>
+      page.evaluate(
+        ([f, e]) =>
+          (window as unknown as HookWindow).__readerr.importFeedItemsNow(f, e as unknown[]),
+        [feed, entries] as const
+      ),
+    reconcileFeedsNow: () =>
+      page.evaluate(() => (window as unknown as HookWindow).__readerr.reconcileFeedsNow()),
+    inboxEntriesNow: (status?: string) =>
+      page.evaluate((s) => (window as unknown as HookWindow).__readerr.inboxEntriesNow(s), status),
+    triageItemNow: (item: unknown, action: string, weekStart?: string | null) =>
+      page.evaluate(
+        ([i, a, w]) =>
+          (window as unknown as HookWindow).__readerr.triageItemNow(
+            i,
+            a as string,
+            w as string | null | undefined
+          ),
+        [item, action, weekStart] as const
+      ),
+    untriageItemNow: (item: unknown) =>
+      page.evaluate((i) => (window as unknown as HookWindow).__readerr.untriageItemNow(i), item),
+    removeFeedNow: (feed: unknown) =>
+      page.evaluate((f) => (window as unknown as HookWindow).__readerr.removeFeedNow(f), feed),
   };
 }
 

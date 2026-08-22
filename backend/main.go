@@ -6,9 +6,9 @@
 // GET /sync/stats and POST /sync/reset (the Settings sync card), GET
 // /healthz, GET /backup (sqlite file), GET /dbsize (on-disk size for the
 // stats page), plus optional static serving of the built frontend so
-// everything runs on one origin. GET /title is the one deliberate extension
-// beyond sync: it fetches a page title server-side because browsers can't
-// (CORS).
+// everything runs on one origin. GET /title and GET /feed are the
+// two deliberate extensions beyond sync: they fetch a page title and an
+// RSS/Atom feed server-side because the browser can't (CORS).
 package main
 
 import (
@@ -92,6 +92,7 @@ func main() {
 	mux.HandleFunc("POST /sync/reset", srv.handleSyncReset)
 	mux.HandleFunc("GET /backup", srv.handleBackup)
 	mux.HandleFunc("GET /title", srv.handleTitle)
+	mux.HandleFunc("GET /feed", srv.handleFeed)
 	// On-disk database size (main file + WAL), for the client's stats page.
 	mux.HandleFunc("GET /dbsize", func(w http.ResponseWriter, r *http.Request) {
 		var total int64

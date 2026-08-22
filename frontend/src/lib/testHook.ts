@@ -27,11 +27,21 @@ import { getNote } from './services/notes';
 import { reconcileTags, reconcileTopics, toggleFavourite } from './services/links';
 import { reconcileTagParents, setTagParents } from './services/tagTree';
 import { captureLinks } from './services/capture';
+import {
+  importItems,
+  inboxEntries,
+  reconcileFeeds,
+  removeFeed,
+  triageItem,
+  untriageItem,
+  type FetchedItem,
+  type TriageAction,
+} from './services/feeds';
 import { importData, exportData, wipeLocalData } from './db/export';
 import { seedDataset, type SeedOptions } from './db/seed';
 import { archiveNow, unarchive, listArchived } from './services/archive';
 import { resetLocalSyncState } from './sync';
-import type { Link, Week, WeekLink } from './db/types';
+import type { Feed, FeedItem, FeedItemStatus, Link, Week, WeekLink } from './db/types';
 
 async function rawDump(store: string): Promise<unknown[]> {
   return (await getDB()).getAll(store);
@@ -108,6 +118,18 @@ export function installTestHook(): void {
     reconcileTagParentsNow: () => withHeals(() => reconcileTagParents()),
     setTagParentsNow: (childId: string, parentIds: string[]) =>
       withHeals(() => setTagParents(childId, parentIds)),
+    // --- the inbox. Fetching is deliberately NOT hooked: it needs a live
+    // remote feed, and the parse/fetch legs are covered by the backend's Go
+    // tests and the vitest suite. What the harness drives here is everything
+    // that touches synced rows — import, reconcile, triage, unsubscribe.
+    importFeedItemsNow: (feed: Feed, entries: FetchedItem[]) =>
+      withHeals(() => importItems(feed, entries)),
+    reconcileFeedsNow: () => withHeals(() => reconcileFeeds()),
+    inboxEntriesNow: (status?: FeedItemStatus) => withHeals(() => inboxEntries(status)),
+    triageItemNow: (item: FeedItem, action: TriageAction, weekStart?: string | null) =>
+      withHeals(() => triageItem(item, action, weekStart)),
+    untriageItemNow: (item: FeedItem) => withHeals(() => untriageItem(item)),
+    removeFeedNow: (feed: Feed) => withHeals(() => removeFeed(feed)),
     // --- week lifecycle, invoked deliberately by tests ---
     ensureOpenWeekNow: () => withHeals(() => ensureOpenWeek()),
     autoCloseStaleWeeksNow: () => withHeals(() => autoCloseStaleWeeks()),

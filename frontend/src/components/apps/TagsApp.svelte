@@ -9,6 +9,7 @@
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
+  import SearchInput from '../SearchInput.svelte';
   import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
   import { reconcileTags, tagCounts, type TagCount } from '../../lib/services/links';
   import { parentMap, reconcileTagParents } from '../../lib/services/tagTree';
@@ -29,6 +30,19 @@
   let renamingId = $state<string | null>(null);
   let renameValue = $state('');
   let nested = $state(true);
+  let search = $state('');
+
+  /**
+   * Name search. A filtered list can't be a tree — a match's parent may not
+   * match — so searching flattens the rows and drops the indentation rather
+   * than leaving orphaned children indented under nothing.
+   */
+  const searching = $derived(search.trim() !== '');
+  const visible = $derived(
+    searching
+      ? rows.filter((r) => r.tag.name.toLowerCase().includes(search.trim().toLowerCase()))
+      : rows
+  );
 
   const tagCount = (id: string): TagCount => counts.get(id) ?? { direct: 0, total: 0 };
 
@@ -121,7 +135,7 @@
   }
 </script>
 
-<Card title={`Tags (${rows.length})`}>
+<Card title={`Tags (${visible.length}${searching ? ` of ${rows.length}` : ''})`}>
   <form
     class="create"
     onsubmit={(e) => {
@@ -133,20 +147,29 @@
     <button type="submit" class="btn btn-primary" disabled={!newName.trim()}>Create</button>
   </form>
 
+  <div class="search-row">
+    <SearchInput bind:value={search} placeholder="Search tags…" />
+  </div>
+
   {#if loading}
     <p class="empty">Loading…</p>
   {:else if rows.length === 0}
     <p class="empty">No tags yet.</p>
+  {:else if visible.length === 0}
+    <p class="empty">No tags match “{search.trim()}”.</p>
   {:else}
     <div class="list-head">
-      <label class="nest-toggle">
-        <input type="checkbox" bind:checked={nested} />
+      <label class="nest-toggle" class:disabled={searching}>
+        <input type="checkbox" bind:checked={nested} disabled={searching} />
         Show nesting
+        {#if searching}
+          <span class="muted-inline">(off while searching)</span>
+        {/if}
       </label>
     </div>
     <ul class="tag-list">
-      {#each rows as row (row.tag.id)}
-        <li style={nested ? `padding-left: calc(${row.depth} * var(--space-4))` : ''}>
+      {#each visible as row (row.tag.id)}
+        <li style={nested && !searching ? `padding-left: calc(${row.depth} * var(--space-4))` : ''}>
           {#if renamingId === row.tag.id}
             <form
               class="rename"
@@ -170,7 +193,7 @@
                 </span>
               {/if}
             </span>
-            {#if nested && row.alsoUnder.length > 0}
+            {#if nested && !searching && row.alsoUnder.length > 0}
               <span class="also">
                 also under
                 {#each row.alsoUnder as p (p.id)}
@@ -212,6 +235,10 @@
     border-radius: var(--radius-md);
     background: var(--surface-color);
     color: var(--text-color);
+  }
+
+  .search-row {
+    margin-bottom: var(--space-3);
   }
 
   .empty {
@@ -270,6 +297,15 @@
     gap: var(--space-2);
     font-size: var(--font-size-sm);
     color: var(--text-muted-color);
+  }
+
+  .nest-toggle.disabled {
+    opacity: 0.6;
+  }
+
+  .muted-inline {
+    color: var(--text-muted-color);
+    opacity: 0.8;
   }
 
   .also {

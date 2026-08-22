@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import InboxApp from '../components/apps/InboxApp.svelte';
+---
+
+<Layout title="Inbox" hasCapture={false}>
+  <InboxApp client:only="svelte" />
+</Layout>

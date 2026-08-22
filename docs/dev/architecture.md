@@ -126,6 +126,7 @@ have inline capture boxes).
 |---|---|---|
 | `/` (and `/week` alias) | `WeekApp` | Reading List: capture, weekly entries, prev/next week, close week |
 | `/backlog` | `BacklogApp` | capture + unread triage queue, bulk operations |
+| `/inbox` | `InboxApp` | subscribed RSS/Atom feeds and item triage (this week / backlog / ignore) |
 | `/favourites`, `/resources`, `/slush`, `/archive` | respective apps | filtered link listings |
 | `/link?id=` | `LinkApp` | per-link notes, excerpts, labels, history |
 | `/tags`, `/tag?id=`, `/topics`, `/topic?id=` | respective apps | label indexes + documents |
@@ -134,6 +135,7 @@ have inline capture boxes).
 | `/stats` | `StatsApp` | origin/history/storage statistics |
 | `/settings` | `SettingsApp` | theme, sync, backups, archival, danger zone |
 | `/onboarding` | `OnboardingApp` | first-launch walkthrough (`?page=N` deep-links) |
+| `/series-demo` | `SeriesDemoApp` | **prototype, not in the nav** — the UI half of [experiments & plans/series.md](experiments%20&%20plans/series.md); localStorage only, never touches the database |
 
 ### Layering
 
@@ -216,9 +218,10 @@ stay forever.
 
 ## Backend
 
-Four files — plus their tests (`sync_test.go`, `title_test.go`) and a small
-`cmd/dbdump` inspection CLI — stdlib only, no auth (single-user LAN posture
-— see the CORS and SSRF comments in the source):
+Five files — plus their tests (`sync_test.go`, `title_test.go`,
+`feed_test.go`) and a small `cmd/dbdump` inspection CLI — stdlib only, no
+auth (single-user LAN posture — see the CORS and SSRF comments in the
+source):
 
 - **[main.go](../../backend/main.go)** — route table, permissive CORS, gzip
   middleware on `/sync/pull`, `STATIC_DIR` file serving so one origin can
@@ -237,6 +240,16 @@ Four files — plus their tests (`sync_test.go`, `title_test.go`) and a small
   og regexes carry one capture group per quote style (and both attribute
   orders), and titles are truncated by runes, not bytes, so a multi-byte
   character never splits into a mangled replacement rune.
+- **[feed.go](../../backend/feed.go)** — `GET /feed?url=`: fetches an
+  RSS/Atom/RDF feed server-side (same CORS reason as `/title`) and returns
+  normalized JSON items — guid, URL, title, UTC RFC3339 date, plain-text
+  summary. One struct set covers all three dialects; parsing is
+  non-strict (real feeds carry undeclared entities), Latin-1 declared
+  charsets are decoded without pulling in `golang.org/x/text`, and a dead or
+  unparseable feed answers `200 {"ok":false,"error":…}` so the client can
+  show the reason and retry. The endpoint is **stateless** — the inbox's
+  rows, scheduling, and triage all live client-side in
+  [services/feeds.ts](../../frontend/src/lib/services/feeds.ts).
 - **[db.go](../../backend/db.go)** — opens SQLite (WAL, busy timeout), applies
   [schema.sql](../../backend/sql/schema.sql) wholesale on fresh databases, and
   steps `PRAGMA user_version` through the append-only `migrations` array
@@ -255,8 +268,9 @@ Four files — plus their tests (`sync_test.go`, `title_test.go`) and a small
   [data-model.md](data-model.md).
 - **Local-only stores** (IDB stores with no SQL twin, excluded from
   `STORES`): `sync_meta` (cursors), `archived_links` (cold storage),
-  `sync_log` (diagnostics), `label_usage` (chip-recency cache). See
-  [data-model.md](data-model.md).
+  `sync_log` (diagnostics), `label_usage` (chip-recency cache), `feed_state`
+  (per-device feed fetch bookkeeping — kept local so a background refresh
+  never writes a synced row). See [data-model.md](data-model.md).
 - **Base-path awareness.** Every app-absolute URL goes through `href()` in
   [paths.ts](../../frontend/src/lib/paths.ts) so the app works hosted at `/` or
   under a sub-path.
@@ -272,7 +286,7 @@ Four files — plus their tests (`sync_test.go`, `title_test.go`) and a small
 - **Tests:** `cd frontend && npm test` — vitest over `frontend/test/`, using
   `fake-indexeddb` for data-layer tests and JSON fixtures in
   `test/fixtures/` for backup round-trips. Backend: `go vet ./... && go
-  test ./...` (`sync_test.go`, `title_test.go`).
+  test ./...` (`sync_test.go`, `title_test.go`, `feed_test.go`).
 - **Sync harness:** `cd frontend && npm run test:sync` — the Playwright
   multi-device suite under `frontend/tests/sync/` (real browsers against a
   real backend, sabotage + oracle specs, coverage-enforcing reporter). Design
@@ -291,6 +305,7 @@ Four files — plus their tests (`sync_test.go`, `title_test.go`) and a small
 | change paste/capture behavior | `services/capture.ts` (+ `captureDsl.ts` for the DSL) |
 | change the weekly flow | `services/weeks.ts`, `apps/WeekApp.svelte` |
 | touch tags or tag nesting | `services/tagTree.ts`, the tag reads in `services/links.ts` + [tagging.md](tagging.md) |
+| touch feeds or the inbox | `services/feeds.ts`, `apps/InboxApp.svelte`, `backend/feed.go` + [user/inbox.md](../user/inbox.md) |
 | touch sync | `lib/sync.ts` + `backend/sync.go` + [sync.md](sync.md) |
 | add a settings knob | `types.ts` UserSettings → `services/settings.ts` pick → `SettingsApp.svelte` → schema/migration/sync map |
 | adjust theming | `lib/theme.ts` + `styles/theme.css` |

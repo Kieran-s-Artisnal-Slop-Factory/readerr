@@ -9,10 +9,10 @@
  * set); the numbers describe the live library.
  */
 import { all } from '../db/repo';
-import { domainOf } from './links';
+import { domainOf, linkTagAssignments } from './links';
 import { getUserSettings } from './settings';
 import { getSyncMode, getSyncUrl } from '../sync';
-import type { Link, LinkTopic, Topic } from '../db/types';
+import type { Link, LinkTopic, Tag, Topic } from '../db/types';
 
 export interface OriginStats {
   origin: string;
@@ -96,6 +96,92 @@ export function variability(
     topLinks,
     otherLinks,
     totalLinks,
+  };
+}
+
+/** One tag's slice of the library, for the tag distribution card. */
+export interface TagShare {
+  tagId: string;
+  name: string;
+  /** Live links carrying this tag directly (nesting is not rolled up). */
+  links: number;
+  /** Share of all tag assignments, 0–100. These sum to 100. */
+  shareOfAssignments: number;
+  /** Share of the whole library, 0–100. These sum to MORE than 100 when
+   * links carry several tags — which is why the two are reported apart. */
+  shareOfLinks: number;
+}
+
+export interface TagDistribution {
+  rows: TagShare[];
+  /** (link, tag) pairs across the library — the denominator of the shares. */
+  totalAssignments: number;
+  totalLinks: number;
+  taggedLinks: number;
+  untaggedLinks: number;
+  /** Live tags that no link carries; they hold a 0% row each. */
+  unusedTags: number;
+}
+
+/**
+ * How the library divides across tags. A link can carry several tags, so
+ * "percentage" is ambiguous — both readings are computed:
+ *
+ *   - shareOfAssignments treats each (link, tag) pair as one unit, so the
+ *     column is a true distribution summing to 100%;
+ *   - shareOfLinks answers "what fraction of my library is tagged X", which
+ *     is what people usually mean, and deliberately sums past 100%.
+ *
+ * Counts are DIRECT assignments only — no descendant roll-up — so every link
+ * contributes to exactly the tags it carries and the distribution stays a
+ * partition. Archived links live in their own store and aren't counted,
+ * matching the rest of this page.
+ */
+export async function tagDistribution(): Promise<TagDistribution> {
+  const [tags, joins, links] = await Promise.all([
+    all<Tag>('tags'),
+    // Deduped (link, tag) pairs — same view the tags index counts from, so a
+    // duplicate join synced in from another device can't inflate a share.
+    linkTagAssignments(),
+    all<Link>('links'),
+  ]);
+
+  const liveLinkIds = new Set(links.map((l) => l.id));
+  // A join whose link was deleted elsewhere but whose tombstone hasn't
+  // arrived yet would otherwise count toward a tag's share.
+  const live = joins.filter((j) => liveLinkIds.has(j.link_id));
+
+  const linksByTag = new Map<string, Set<string>>();
+  const taggedLinkIds = new Set<string>();
+  for (const j of live) {
+    taggedLinkIds.add(j.link_id);
+    const set = linksByTag.get(j.tag_id);
+    if (set) set.add(j.link_id);
+    else linksByTag.set(j.tag_id, new Set([j.link_id]));
+  }
+
+  const totalAssignments = [...linksByTag.values()].reduce((n, set) => n + set.size, 0);
+  const totalLinks = links.length;
+
+  const rows: TagShare[] = tags.map((tag) => {
+    const count = linksByTag.get(tag.id)?.size ?? 0;
+    return {
+      tagId: tag.id,
+      name: tag.name,
+      links: count,
+      shareOfAssignments: totalAssignments === 0 ? 0 : (count / totalAssignments) * 100,
+      shareOfLinks: totalLinks === 0 ? 0 : (count / totalLinks) * 100,
+    };
+  });
+  rows.sort((a, b) => b.links - a.links || a.name.localeCompare(b.name));
+
+  return {
+    rows,
+    totalAssignments,
+    totalLinks,
+    taggedLinks: taggedLinkIds.size,
+    untaggedLinks: totalLinks - taggedLinkIds.size,
+    unusedTags: rows.filter((r) => r.links === 0).length,
   };
 }
 

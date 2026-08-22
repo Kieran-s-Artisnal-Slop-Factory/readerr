@@ -68,6 +68,8 @@ var tableOrder = []string{
 	"resource_list_links",
 	"weeks",
 	"week_links",
+	"feeds",
+	"feed_items",
 }
 
 var tables = map[string]tableMeta{
@@ -137,6 +139,16 @@ var tables = map[string]tableMeta{
 	"week_links": {
 		columns:  cols("id", "week_id", "link_id", "position", "kind", "done_at", "outcome"),
 		defaults: map[string]any{"position": 0, "kind": "reading"},
+	},
+	"feeds": {
+		columns:  cols("id", "title", "feed_url", "site_url", "added_at", "since_at", "paused"),
+		boolCols: set("paused"),
+		defaults: map[string]any{"title": "", "site_url": "", "paused": 0},
+	},
+	"feed_items": {
+		columns: cols("id", "feed_id", "guid", "url", "title", "published_at",
+			"fetched_at", "summary", "status", "triaged_at"),
+		defaults: map[string]any{"title": "", "summary": "", "status": "new"},
 	},
 }
 

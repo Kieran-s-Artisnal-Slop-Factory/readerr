@@ -9,17 +9,29 @@
     historyStats,
     originStats,
     storageStats,
+    tagDistribution,
     variability,
     type HistoryStats,
     type OriginStats,
     type StorageStats,
+    type TagDistribution,
   } from '../../lib/services/stats';
+  import { href } from '../../lib/paths';
+
+  /** Tag rows shown before the "show all" toggle — the head of a long tail. */
+  const TAG_ROWS_SHOWN = 25;
 
   let rows = $state<OriginStats[]>([]);
   let search = $state('');
   let loading = $state(true);
   let history = $state<HistoryStats | null>(null);
   let storage = $state<StorageStats | null>(null);
+  let tags = $state<TagDistribution | null>(null);
+  let tagSearch = $state('');
+  /** Long tails are the norm; the card opens on the head of the list. */
+  let tagLimit = $state(TAG_ROWS_SHOWN);
+  /** Tags nothing carries are noise in a distribution — hidden by default. */
+  let hideUnusedTags = $state(true);
   /**
    * One-off domains are the bulk of the table for most libraries and say
    * nothing about where your reading comes from, so they start hidden.
@@ -62,8 +74,18 @@
     )
   );
 
+  /** Tag rows the search leaves — what the "x of y" count describes. */
+  const tagMatching = $derived(
+    (tags?.rows ?? [])
+      .filter((r) => !hideUnusedTags || r.links > 0)
+      .filter((r) => r.name.toLowerCase().includes(tagSearch.trim().toLowerCase()))
+  );
+  const tagVisible = $derived(tagMatching.slice(0, tagLimit));
+  /** The bar scale: the biggest visible share is a full-width bar. */
+  const tagPeak = $derived(Math.max(0, ...tagMatching.map((r) => r.shareOfAssignments)));
+
   onMount(async () => {
-    [rows, history] = await Promise.all([originStats(), historyStats()]);
+    [rows, history, tags] = await Promise.all([originStats(), historyStats(), tagDistribution()]);
     loading = false;
     // Storage last — the server round-trip shouldn't hold up the page.
     storage = await storageStats();
@@ -201,6 +223,101 @@
           them.
         {/if}
       </p>
+    {/if}
+  {/if}
+</Card>
+
+<Card title={`Tag distribution (${tagMatching.length.toLocaleString()})`}>
+  <p class="hint">
+    How your library divides across tags. The <strong>share</strong> counts each
+    (link, tag) pairing once, so it adds up to 100%; <strong>of library</strong>
+    is the fraction of all links carrying that tag, which adds up to more than
+    100% when links carry several tags. Nested tags aren't rolled up — each link
+    counts for exactly the tags it carries.
+  </p>
+  {#if loading || !tags}
+    <p class="empty">Loading…</p>
+  {:else if tags.totalAssignments === 0}
+    <p class="empty">
+      {tags.totalLinks === 0 ? 'No links yet.' : 'No links are tagged yet.'}
+    </p>
+  {:else}
+    <ul class="fact-list">
+      <li>
+        <span class="fact-label">Tagged links</span>
+        <span>
+          {tags.taggedLinks.toLocaleString()} of {tags.totalLinks.toLocaleString()}
+          <span class="muted-inline">
+            ({((tags.taggedLinks / tags.totalLinks) * 100).toFixed(1)}% — {tags.untaggedLinks.toLocaleString()}
+            untagged)
+          </span>
+        </span>
+      </li>
+      <li>
+        <span class="fact-label">Tag assignments</span>
+        <span>
+          {tags.totalAssignments.toLocaleString()}
+          <span class="muted-inline">
+            ({(tags.totalAssignments / Math.max(1, tags.taggedLinks)).toFixed(1)} per tagged link)
+          </span>
+        </span>
+      </li>
+    </ul>
+    <div class="search-row">
+      <SearchInput bind:value={tagSearch} placeholder="Filter tags…" />
+    </div>
+    <label class="toggle">
+      <input type="checkbox" bind:checked={hideUnusedTags} />
+      Hide tags with no links
+      {#if hideUnusedTags && tags.unusedTags > 0}
+        <span class="muted-inline">({tags.unusedTags.toLocaleString()} hidden)</span>
+      {/if}
+    </label>
+    {#if tagMatching.length === 0}
+      <p class="empty">No tags match.</p>
+    {:else}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="origin">Tag</th>
+              <th>Links</th>
+              <th>Share</th>
+              <th>Of library</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each tagVisible as row (row.tagId)}
+              <tr>
+                <td class="origin">
+                  <a class="tag-link" href={href(`/tag/?id=${row.tagId}`)}>{row.name}</a>
+                </td>
+                <td>{row.links.toLocaleString()}</td>
+                <td>
+                  <span class="share">
+                    <span
+                      class="share-bar"
+                      style={`width: ${tagPeak === 0 ? 0 : (row.shareOfAssignments / tagPeak) * 100}%`}
+                    ></span>
+                    <span class="share-value">{row.shareOfAssignments.toFixed(1)}%</span>
+                  </span>
+                </td>
+                <td>{row.shareOfLinks.toFixed(1)}%</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      {#if tagMatching.length > tagVisible.length}
+        <p class="hint" style="margin: var(--space-2) 0 0;">
+          Showing the top {tagVisible.length.toLocaleString()} of {tagMatching.length.toLocaleString()}.
+          <button class="btn" onclick={() => (tagLimit = Number.MAX_SAFE_INTEGER)}>Show all</button>
+        </p>
+      {:else if tagLimit > TAG_ROWS_SHOWN && tagMatching.length > TAG_ROWS_SHOWN}
+        <p class="hint" style="margin: var(--space-2) 0 0;">
+          <button class="btn" onclick={() => (tagLimit = TAG_ROWS_SHOWN)}>Show fewer</button>
+        </p>
+      {/if}
     {/if}
   {/if}
 </Card>
@@ -375,6 +492,42 @@
 
   .table-wrap {
     overflow-x: auto;
+  }
+
+  .tag-link {
+    color: var(--text-color);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .tag-link:hover {
+    color: var(--color-primary-strong);
+    text-decoration: underline;
+  }
+
+  /* The bar sits behind its own percentage so the column stays one cell wide. */
+  .share {
+    position: relative;
+    display: inline-flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-width: 7rem;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-primary-soft);
+    overflow: hidden;
+  }
+
+  .share-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--color-primary);
+    opacity: 0.35;
+  }
+
+  .share-value {
+    position: relative;
+    font-variant-numeric: tabular-nums;
   }
 
   table {

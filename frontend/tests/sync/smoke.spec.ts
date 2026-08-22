@@ -87,9 +87,10 @@ test('device A syncs a link to the server and device B converges field-exact', a
 
 test('week page and backlog load without writing in test mode', async ({ backend, deviceA }) => {
   const A = hook(deviceA);
-  // Visit the two write-heaviest pages (week auto-close/ensure, backlog
-  // title retry) and assert the database stayed empty.
-  for (const path of ['/week/', '/backlog/', '/settings/', '/tags/']) {
+  // Visit the write-heaviest pages (week auto-close/ensure, backlog title
+  // retry, the inbox's once-a-day feed check and its reconcile-on-read) and
+  // assert the database stayed empty.
+  for (const path of ['/week/', '/backlog/', '/settings/', '/tags/', '/inbox/']) {
     await deviceA.page.goto(`${backend.baseUrl}${path}`);
     await deviceA.page.waitForFunction(
       () => !!(window as unknown as { __readerr?: unknown }).__readerr

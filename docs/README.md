@@ -11,6 +11,7 @@ and **how to run your own sync server**.
 - [User guide index](user/README.md)
 - [Getting started](user/getting-started.md)
 - [Capturing links](user/capturing-links.md)
+- [The Inbox](user/inbox.md) — subscribing to RSS/Atom feeds and triaging what arrives
 - [Organizing & reading](user/organizing-and-reading.md)
 - [Tagging](user/tagging.md) — tags, and nesting them under parent tags
 - [Sync & backups](user/sync-and-backups.md) — includes deploying a backend

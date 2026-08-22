@@ -31,6 +31,8 @@ const ALL_STORES = [
   'resource_list_links',
   'weeks',
   'week_links',
+  'feeds',
+  'feed_items',
 ];
 const SABOTAGE_TOTAL = 12;
 

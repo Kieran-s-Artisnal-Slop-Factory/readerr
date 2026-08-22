@@ -9,8 +9,13 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getDB } from '../src/lib/db/db';
 import { STORES } from '../src/lib/db/types';
-import { originStats, variability, type OriginStats } from '../src/lib/services/stats';
-import type { Link, LinkTopic } from '../src/lib/db/types';
+import {
+  originStats,
+  tagDistribution,
+  variability,
+  type OriginStats,
+} from '../src/lib/services/stats';
+import type { Link, LinkTag, LinkTopic, Tag } from '../src/lib/db/types';
 
 const NOW = '2026-01-01T00:00:00.000Z';
 
@@ -29,6 +34,22 @@ function link(id: string, url: string, over: Partial<Link> = {}): Link {
     is_resource: false,
     slushed_at: null,
     priority: null,
+    ...over,
+  };
+}
+
+function tag(id: string, name: string): Tag {
+  return { id, updated_at: NOW, deleted_at: null, server_seq: 1, name, notes_md: '' };
+}
+
+function linkTag(id: string, linkId: string, tagId: string, over: Partial<LinkTag> = {}): LinkTag {
+  return {
+    id,
+    updated_at: NOW,
+    deleted_at: null,
+    server_seq: 1,
+    link_id: linkId,
+    tag_id: tagId,
     ...over,
   };
 }
@@ -147,5 +168,79 @@ describe('variability', () => {
     for (let i = 0; i < 2; i++) await db.put('links', link(`g${i}`, `https://go.dev/${i}`));
     const v = variability(await originStats(), 1);
     expect(v.score).toBeCloseTo(20);
+  });
+});
+
+describe('tagDistribution', () => {
+  it('splits assignments and library share, ranking by link count', async () => {
+    const db = await getDB();
+    // 4 links; go=3, rust=1, and one link carries both.
+    for (const id of ['a', 'b', 'c', 'd']) await db.put('links', link(id, `https://x.dev/${id}`));
+    await db.put('tags', tag('t-go', 'go'));
+    await db.put('tags', tag('t-rust', 'rust'));
+    await db.put('link_tags', linkTag('j1', 'a', 't-go'));
+    await db.put('link_tags', linkTag('j2', 'b', 't-go'));
+    await db.put('link_tags', linkTag('j3', 'c', 't-go'));
+    await db.put('link_tags', linkTag('j4', 'c', 't-rust'));
+
+    const dist = await tagDistribution();
+    expect(dist.rows.map((r) => [r.name, r.links])).toEqual([
+      ['go', 3],
+      ['rust', 1],
+    ]);
+    // Shares over assignments sum to 100 …
+    expect(dist.totalAssignments).toBe(4);
+    expect(dist.rows[0].shareOfAssignments).toBeCloseTo(75);
+    expect(dist.rows[1].shareOfAssignments).toBeCloseTo(25);
+    expect(dist.rows.reduce((n, r) => n + r.shareOfAssignments, 0)).toBeCloseTo(100);
+    // … while library share is per link, and deliberately need not.
+    expect(dist.rows[0].shareOfLinks).toBeCloseTo(75);
+    expect(dist.rows[1].shareOfLinks).toBeCloseTo(25);
+    // 'd' carries nothing.
+    expect(dist.taggedLinks).toBe(3);
+    expect(dist.untaggedLinks).toBe(1);
+    expect(dist.unusedTags).toBe(0);
+  });
+
+  it('counts a duplicated (link, tag) pair once', async () => {
+    const db = await getDB();
+    await db.put('links', link('a', 'https://x.dev/a'));
+    await db.put('tags', tag('t-go', 'go'));
+    // Two devices each minted a join row for the same pair.
+    await db.put('link_tags', linkTag('j1', 'a', 't-go'));
+    await db.put('link_tags', linkTag('j2', 'a', 't-go'));
+
+    const dist = await tagDistribution();
+    expect(dist.totalAssignments).toBe(1);
+    expect(dist.rows[0].links).toBe(1);
+    expect(dist.rows[0].shareOfAssignments).toBeCloseTo(100);
+  });
+
+  it('ignores tombstoned joins and joins whose link is gone', async () => {
+    const db = await getDB();
+    await db.put('links', link('a', 'https://x.dev/a'));
+    await db.put('tags', tag('t-go', 'go'));
+    await db.put('tags', tag('t-old', 'old'));
+    await db.put('link_tags', linkTag('j1', 'a', 't-go'));
+    await db.put('link_tags', linkTag('j2', 'a', 't-old', { deleted_at: NOW }));
+    // A join pointing at a link this device has already tombstoned.
+    await db.put('link_tags', linkTag('j3', 'gone', 't-old'));
+
+    const dist = await tagDistribution();
+    expect(dist.totalAssignments).toBe(1);
+    expect(dist.rows.find((r) => r.name === 'old')!.links).toBe(0);
+    expect(dist.unusedTags).toBe(1);
+  });
+
+  it('is all zeroes rather than NaN on an empty library', async () => {
+    const dist = await tagDistribution();
+    expect(dist).toMatchObject({
+      rows: [],
+      totalAssignments: 0,
+      totalLinks: 0,
+      taggedLinks: 0,
+      untaggedLinks: 0,
+      unusedTags: 0,
+    });
   });
 });

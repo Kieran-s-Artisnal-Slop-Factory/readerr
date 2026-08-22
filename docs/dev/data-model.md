@@ -57,6 +57,7 @@ erDiagram
     resource_lists ||--o{ resource_list_links : ""
     weeks ||--o{ week_links : ""
     links ||--o{ week_links : ""
+    feeds ||--o{ feed_items : "inbox"
 
     user_settings {
         text name "display name, null = unset"
@@ -108,6 +109,24 @@ erDiagram
         text kind "reading | review"
         text done_at "entry-level completion"
         text outcome "read | rolled | slushed, null while open"
+    }
+    feeds {
+        text title "the feed's own title, user-editable"
+        text feed_url "the RSS/Atom URL polled"
+        text site_url "the human site, '' if unknown"
+        text added_at
+        text since_at "items older than this are never imported"
+        bool paused "kept, never fetched"
+    }
+    feed_items {
+        text guid "feed-supplied id, else the URL"
+        text url
+        text title
+        text published_at "null = the feed gave no date"
+        text fetched_at "when this install first saw it"
+        text summary "plain-text blurb"
+        text status "new | added | ignored"
+        text triaged_at "null while new"
     }
 ```
 
@@ -213,6 +232,21 @@ Design decisions embedded here:
   When adding a synced table that's "one row per natural key", make identity
   deterministic from that key (a fixed id, or a min-id reconcile) — never rely
   on a random UUID plus a local-only "ensure".
+- **A feed's fetch bookkeeping is deliberately NOT a synced column.** When
+  each device last checked a feed, and how it went, lives in the local-only
+  `feed_state` store, not on the `feeds` row. Under row-level LWW a
+  background write carries the *whole* row: a daily refresh on an idle laptop
+  would push a stale copy of `title` under a fresh `updated_at` and undo a
+  rename made on the phone. Nothing in the refresh path writes a synced row
+  unless it has genuinely new items to import. Added in schema **v19**.
+- **`feed_items` is keyed by `(feed_id, guid)` and remembers tombstones.**
+  The pair is the item's logical identity, so duplicate rows minted by two
+  devices collapse through the same `dedupePairs` the junction tables use —
+  with a merge that keeps the most *decided* triage state (`added` beats
+  `ignored` beats `new`) and carries the group's freshest `updated_at`, so a
+  fold can't be pulled back to `new` by the server's older copy. The import
+  checks guids **including tombstoned rows**: without that, deleting an item
+  would simply make the next fetch bring it back.
 - **`priority` is nullable, and `null` means 3.** Lists sort priority-first
   (1 highest); leaving it unset is the common case, so the column is nullable
   rather than `DEFAULT 3` — that keeps pre-priority rows and older backups
@@ -249,7 +283,7 @@ Design decisions embedded here:
 
 `STORES` in types.ts defines one object store per SQL table (keyPath `id`)
 plus its indexes; migration v1 creates them all, later migrations add stores
-and indexes append-only. Current version: **9**.
+and indexes append-only. Current version: **10**.
 
 | Store | Indexes | Notes |
 |---|---|---|
@@ -264,6 +298,8 @@ and indexes append-only. Current version: **9**.
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
 | `weeks` | `week_start`, `updated_at` | one *open* week per Monday; `reconcileOpenWeeks` collapses duplicates and re-points `week_links` |
 | `week_links` | `week_id`, `link_id`, `updated_at` | |
+| `feeds` | `feed_url`, `updated_at` | one per normalized feed URL; `reconcileFeeds` collapses duplicates and re-points their items |
+| `feed_items` | `feed_id`, `guid`, `updated_at` | one live row per (feed, guid); the `guid` index is what keeps a refresh from re-reading the store per item |
 
 The `updated_at` index on every synced store (migration v7) powers the
 dirty-tracked sync push — see [sync.md](sync.md).
@@ -283,6 +319,7 @@ paged cursors instead of scanning — see [performance.md](performance.md).
 | `archived_links` | v5 | yearly archival: cold slushed links hard-moved out of `links` so hot paths deserialize fewer rows; **included** in full backups (`LOCAL_STORES` in db.ts) |
 | `sync_log` | v6 | sync history diagnostics; excluded from backups |
 | `label_usage` | v9 | chip-recency cache for the capture box (last-use per tag/topic id); derived data — excluded from backups, wiped on full restore and rebuilt by a one-time backfill (`labelUsageMap` in links.ts) |
+| `feed_state` | v10 | per-device feed bookkeeping: when this device last checked each feed, whether it worked, and what it imported. Local by design (see the feeds note above), derived, and excluded from backups — a restored backup just means every feed is due a check |
 
 `archived_links` is the deliberate exception to "everything syncs": archiving
 hard-deletes from `links` for a real perf win while the *server* keeps the
@@ -322,8 +359,8 @@ flowchart LR
 - Server-only: the `sync_state` table (the global `last_seq` counter) and
   `idx_*_seq` indexes for pull.
 
-Migration counters as of this writing: SQLite `user_version` **18** (the
-`user_settings.strip_extra_params` column is the latest), IDB version **9**.
+Migration counters as of this writing: SQLite `user_version` **19** (the
+inbox's `feeds` / `feed_items` tables are the latest), IDB version **10**.
 Fresh installs
 skip migrations — SQLite executes `schema.sql` wholesale, IDB creates the
 current `STORES` map in v1 — so both migration chains only run for

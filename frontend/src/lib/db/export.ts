@@ -160,7 +160,15 @@ export async function wipeLocalData(): Promise<void> {
   const db = await getDB();
   // label_usage is a derived local cache (chip recency) — wiped so the
   // backfill rebuilds it from whatever data replaces the wiped stores.
-  const names = [...Object.keys(STORES), ...LOCAL_STORES, 'sync_meta', 'label_usage'];
+  // feed_state is the same kind of thing for feeds (when each was last
+  // checked): wiped, so the incoming feeds are simply all due a check.
+  const names = [
+    ...Object.keys(STORES),
+    ...LOCAL_STORES,
+    'sync_meta',
+    'label_usage',
+    'feed_state',
+  ];
   const tx = db.transaction(names, 'readwrite');
   for (const name of names) tx.objectStore(name).clear();
   await tx.done;

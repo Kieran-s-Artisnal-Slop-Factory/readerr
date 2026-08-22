@@ -18,6 +18,23 @@ import { FOREIGN_KEYS } from './meta';
 
 export type Db = Record<string, SyncRow[]>;
 
+/**
+ * The harness's own copy of the feed-URL identity (services/feeds.ts has the
+ * app's). Independent on purpose, like the rest of meta.ts: if the app's
+ * notion of "the same feed" drifts, that shows up here as a failure rather
+ * than being inherited.
+ */
+function normalizeFeedUrl(raw: string): string {
+  try {
+    const u = new URL(raw.trim());
+    u.hash = '';
+    const s = u.toString();
+    return s.endsWith('/') ? s.slice(0, -1) : s;
+  } catch {
+    return raw.trim().toLowerCase().replace(/\/+$/, '');
+  }
+}
+
 const live = (rows: SyncRow[] = []): SyncRow[] => rows.filter((r) => !r.deleted_at);
 
 export interface InvariantViolation {
@@ -76,6 +93,12 @@ export function checkInvariants(db: Db): InvariantViolation[] {
 
   // 7. One live week_link per (week, link).
   dupCheck(v, 'week_links-pair', live(db.week_links), (r) => `${r.week_id}|${r.link_id}`);
+
+  // 7a. Inbox: one live feed per URL, and one live item per (feed, guid).
+  // Both are logical singletons stored under a random UUID, so divergence
+  // here is the same class of bug as duplicate tags.
+  dupCheck(v, 'feed-per-url', live(db.feeds), (r) => normalizeFeedUrl(r.feed_url as string));
+  dupCheck(v, 'feed_items-pair', live(db.feed_items), (r) => `${r.feed_id}|${r.guid}`);
 
   // 7b. Tag nesting: one live edge per (child, parent), no self-edges, and no
   // cycles. Acyclicity can't be enforced at write time across devices (two

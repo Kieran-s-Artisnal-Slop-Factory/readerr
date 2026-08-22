@@ -13,6 +13,7 @@ New here? Start with **[Getting started](getting-started.md)**.
 |---|---|
 | [Getting started](getting-started.md) | the first five minutes: capture, the Reading List, the Backlog |
 | [Capturing links](capturing-links.md) | paste formats, the `!options` shortcuts, priorities, resource lists, auto-titles |
+| [The Inbox](inbox.md) | subscribing to RSS/Atom feeds, the daily check, and triaging what arrives |
 | [Organizing & reading](organizing-and-reading.md) | weekly flow, plans, tags/topics, favourites, resources, bulk edits, archiving |
 | [Tagging](tagging.md) | tagging links, and nesting tags under parent tags |
 | [Sync & backups](sync-and-backups.md) | multiple devices, the per-device sync switch, backups, and **how to run your own sync server** |
@@ -21,8 +22,10 @@ New here? Start with **[Getting started](getting-started.md)**.
 ## The 30-second tour
 
 - The **Reading List** (the home page) is what you're reading *this week*.
-- The **Backlog** is everything waiting — paste links here (or with the **＋**
-  button in the corner from any page).
+- The **Backlog** (under **Collections**) is everything waiting — paste links
+  here (or with the **＋** button in the corner from any page).
+- The **Inbox** is what your subscribed feeds brought in, waiting for a yes or
+  no.
 - Read a link, mark it done, and at week's end **close the week**: what you
   wrote about is kept, the rest is set aside.
 - **Tags** and **topics** organize things; **favourites** and **resources**

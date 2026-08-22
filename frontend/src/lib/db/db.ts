@@ -109,6 +109,37 @@ const MIGRATIONS: Migration[] = [
       links.createIndex('priority_added', ['priority', 'added_at'], { multiEntry: false });
     }
   },
+  // v10 — the inbox: subscribed feeds (`feeds`) and the entries they produce
+  // (`feed_items`), both synced. Guarded because fresh installs already get
+  // them from the v1 STORES loop; their updated_at indexes are created here
+  // too, since the v7 loop has already run for existing databases and will
+  // not revisit a store added later.
+  //
+  // `feed_state` is LOCAL-ONLY and deliberately outside STORES: per-device
+  // fetch bookkeeping (last checked, last result) that must never travel, so
+  // the daily refresh writes nothing that syncs. Derived, like label_usage,
+  // so it isn't in LOCAL_STORES (backups) either — a restored backup simply
+  // re-checks every feed once.
+  (db, tx) => {
+    if (!db.objectStoreNames.contains('feeds')) {
+      const feeds = db.createObjectStore('feeds', { keyPath: 'id' });
+      feeds.createIndex('feed_url', 'feed_url', { multiEntry: false });
+      feeds.createIndex('updated_at', 'updated_at', { multiEntry: false });
+    } else if (!tx.objectStore('feeds').indexNames.contains('feed_url')) {
+      tx.objectStore('feeds').createIndex('feed_url', 'feed_url', { multiEntry: false });
+    }
+    if (!db.objectStoreNames.contains('feed_items')) {
+      const items = db.createObjectStore('feed_items', { keyPath: 'id' });
+      items.createIndex('feed_id', 'feed_id', { multiEntry: false });
+      items.createIndex('guid', 'guid', { multiEntry: false });
+      items.createIndex('updated_at', 'updated_at', { multiEntry: false });
+    } else if (!tx.objectStore('feed_items').indexNames.contains('guid')) {
+      tx.objectStore('feed_items').createIndex('guid', 'guid', { multiEntry: false });
+    }
+    if (!db.objectStoreNames.contains('feed_state')) {
+      db.createObjectStore('feed_state', { keyPath: 'id' });
+    }
+  },
 ];
 
 /**

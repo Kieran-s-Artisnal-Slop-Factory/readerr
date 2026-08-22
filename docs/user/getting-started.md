@@ -76,4 +76,6 @@ link handling (URL cleaning, auto-titles, the default capture week, tag-chip
 ordering); sync configuration, including a per-device on/off switch; backups
 and exports; storage; archival; and demo data to try things out, with options
 to shape what gets generated. The nav's **Plans** and **Collections** menus
-hold automation, upcoming weeks, tags, topics, resources, and the slush.
+hold automation, upcoming weeks, the backlog, favourites, tags, topics,
+resources, and the slush. **Inbox** sits in the top row: subscribe to a site's
+RSS feed and triage what it brings in — see [The Inbox](inbox.md).

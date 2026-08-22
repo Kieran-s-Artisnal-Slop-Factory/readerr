@@ -173,6 +173,44 @@ CREATE INDEX idx_tag_parents_seq ON tag_parents (server_seq);
 	`
 ALTER TABLE user_settings ADD COLUMN strip_extra_params TEXT NOT NULL DEFAULT '[]';
 `,
+	// v18 → v19: the inbox — subscribed feeds and the items they produce.
+	// Additive: with no feeds the behaviour is unchanged. Fetch bookkeeping
+	// is local-only on the client and deliberately absent here.
+	`
+CREATE TABLE feeds (
+    id         TEXT PRIMARY KEY,
+    title      TEXT NOT NULL DEFAULT '',
+    feed_url   TEXT NOT NULL,
+    site_url   TEXT NOT NULL DEFAULT '',
+    added_at   TEXT NOT NULL,
+    since_at   TEXT NOT NULL,
+    paused     INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_feeds_url ON feeds (feed_url);
+CREATE INDEX idx_feeds_seq ON feeds (server_seq);
+CREATE TABLE feed_items (
+    id           TEXT PRIMARY KEY,
+    feed_id      TEXT NOT NULL REFERENCES feeds (id),
+    guid         TEXT NOT NULL,
+    url          TEXT NOT NULL,
+    title        TEXT NOT NULL DEFAULT '',
+    published_at TEXT,
+    fetched_at   TEXT NOT NULL,
+    summary      TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'new'
+                 CHECK (status IN ('new', 'added', 'ignored')),
+    triaged_at   TEXT,
+    updated_at   TEXT NOT NULL,
+    deleted_at   TEXT,
+    server_seq   INTEGER
+);
+CREATE INDEX idx_feed_items_feed ON feed_items (feed_id);
+CREATE INDEX idx_feed_items_guid ON feed_items (guid);
+CREATE INDEX idx_feed_items_seq ON feed_items (server_seq);
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

@@ -184,8 +184,8 @@ buttons include the references:
 
 ## Favourites and resources
 
-- **★ Favourite** marks the good stuff (Favourites in the nav). Favouriting a
-  link also rescues it from the Slush.
+- **★ Favourite** marks the good stuff (Collections → Favourites). Favouriting
+  a link also rescues it from the Slush.
 - **⚒ Resource** marks tools, apps, and references that aren't really
   "articles to read." They live under Collections → Resources.
 
@@ -267,6 +267,14 @@ nav once archival mode is enabled.
 and **history**: when you set up, your longest daily capture streak, biggest
 bulk paste, and weekly/monthly/yearly/lifetime averages for links read,
 favourites, resources, and topics.
+
+**Tag distribution** is the same question asked of your tags: how the library
+divides across them. Two percentages, because with multi-tagging there are two
+honest answers — **share** counts each (link, tag) pairing once and therefore
+adds up to 100%, while **of library** is the fraction of *all* your links
+carrying that tag and adds up to more than 100% when links carry several tags.
+The card also says how much of the library is tagged at all. Nested tags are
+not rolled up here: each link counts for exactly the tags it carries.
 
 **Variability** is the one-number version of the origins table: the share of
 your links captured from anywhere *other* than your biggest domains. If you

@@ -213,6 +213,54 @@ CREATE TABLE week_links (
 CREATE INDEX idx_week_links_week ON week_links (week_id);
 CREATE INDEX idx_week_links_link ON week_links (link_id);
 
+-- ===== Inbox: subscribed RSS/Atom feeds and the items they produce =====
+
+-- One subscribed feed. Fetch bookkeeping (when it was last checked, and how
+-- it went) is deliberately NOT here: it is per-device, local-only state in
+-- the client's `feed_state` store, so a background refresh never writes to a
+-- synced row and can never clobber a rename made on another device.
+CREATE TABLE feeds (
+    id         TEXT PRIMARY KEY,
+    title      TEXT NOT NULL DEFAULT '',   -- the feed's <title>, user-editable
+    feed_url   TEXT NOT NULL,              -- the RSS/Atom URL that gets polled
+    site_url   TEXT NOT NULL DEFAULT '',   -- the human site the feed belongs to
+    added_at   TEXT NOT NULL,              -- UTC ISO 8601 subscription time
+    -- Items published before this are never imported. Set from the "pull the
+    -- last N days" choice when the feed is added, so a later refresh can't
+    -- drag in the back catalogue the initial import deliberately skipped.
+    since_at   TEXT NOT NULL,
+    paused     INTEGER NOT NULL DEFAULT 0, -- bool: kept, but never fetched
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_feeds_url ON feeds (feed_url);
+
+-- One entry from a feed, awaiting triage. Logically keyed by (feed_id, guid)
+-- but stored under a random UUID, so two devices importing the same entry
+-- mint separate rows — the client collapses them the same way it collapses
+-- link_tags pairs. Tombstoned items are remembered on purpose: the guid check
+-- on import counts them, so an ignored item never comes back on the next
+-- fetch.
+CREATE TABLE feed_items (
+    id           TEXT PRIMARY KEY,
+    feed_id      TEXT NOT NULL REFERENCES feeds (id),
+    guid         TEXT NOT NULL,              -- feed-supplied id, else the URL
+    url          TEXT NOT NULL,
+    title        TEXT NOT NULL DEFAULT '',
+    published_at TEXT,                       -- NULL = the feed gave no date
+    fetched_at   TEXT NOT NULL,              -- when this install first saw it
+    summary      TEXT NOT NULL DEFAULT '',   -- plain-text blurb from the feed
+    status       TEXT NOT NULL DEFAULT 'new' -- triage state
+                 CHECK (status IN ('new', 'added', 'ignored')),
+    triaged_at   TEXT,                       -- NULL while status = 'new'
+    updated_at   TEXT NOT NULL,
+    deleted_at   TEXT,
+    server_seq   INTEGER
+);
+CREATE INDEX idx_feed_items_feed ON feed_items (feed_id);
+CREATE INDEX idx_feed_items_guid ON feed_items (guid);
+
 -- Sync pull filters on server_seq per table; index it so pulls aren't full scans.
 CREATE INDEX idx_user_settings_seq ON user_settings (server_seq);
 CREATE INDEX idx_plans_seq ON plans (server_seq);
@@ -228,3 +276,5 @@ CREATE INDEX idx_resource_lists_seq ON resource_lists (server_seq);
 CREATE INDEX idx_resource_list_links_seq ON resource_list_links (server_seq);
 CREATE INDEX idx_weeks_seq ON weeks (server_seq);
 CREATE INDEX idx_week_links_seq ON week_links (server_seq);
+CREATE INDEX idx_feeds_seq ON feeds (server_seq);
+CREATE INDEX idx_feed_items_seq ON feed_items (server_seq);

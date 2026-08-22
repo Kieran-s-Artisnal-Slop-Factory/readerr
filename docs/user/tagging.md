@@ -21,7 +21,9 @@ case-insensitively, so `Rust` and `rust` are the same tag.
 
 **Collections → Tags** lists every tag with its link count, and lets you
 create, rename and delete. Deleting a tag never deletes links — they just lose
-that one label.
+that one label. The **search box** filters the list by name; while you're
+searching the list goes flat, since a match's parent tag may not itself
+match.
 
 ## Nesting tags
 
