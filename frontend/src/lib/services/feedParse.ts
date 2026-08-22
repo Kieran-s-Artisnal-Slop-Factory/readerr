@@ -66,7 +66,7 @@ const ENTITY_RE = /&([a-zA-Z][a-zA-Z0-9]*);/g;
  * don't recognise into a literal ampersand — so a stray `&foo;` degrades to
  * visible text instead of failing the whole parse.
  */
-export function repairEntities(xml: string): string {
+function repairEntities(xml: string): string {
   return xml.replace(ENTITY_RE, (match, name: string) => {
     if (XML_BUILTINS.has(name)) return match;
     const numeric = NAMED_ENTITIES[name];
@@ -154,7 +154,7 @@ function absolutize(link: string, baseUrl: string): string {
  * RFC 822/1123 (RSS) and ISO 8601 (Atom, dc:date), which is every shape the
  * Go layout list handles.
  */
-export function parseFeedDate(raw: string): string {
+function parseFeedDate(raw: string): string {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) return '';
   const ms = Date.parse(trimmed);

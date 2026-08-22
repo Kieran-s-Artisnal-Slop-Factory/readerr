@@ -156,6 +156,48 @@ export async function partIdsOf(links: Link[]): Promise<Set<string>> {
   return ids;
 }
 
+export interface SeriesSummary {
+  series: Link;
+  parts: SeriesPart[];
+  progress: SeriesProgress;
+}
+
+/**
+ * Every series with its parts, for the Collections → Series index.
+ *
+ * Two whole-store reads and an in-memory join, rather than partsOf() per
+ * series: `links` has to be read anyway (there is no index for "is a series"
+ * — IndexedDB can't key on a boolean), and reading `series_links` once turns
+ * what would be an indexed read plus a get per part into zero extra reads.
+ * The links read is the same one the Backlog and Favourites pages already do.
+ */
+export async function listSeries(): Promise<SeriesSummary[]> {
+  const links = await all<Link>('links');
+  const byId = new Map(links.map((l) => [l.id, l]));
+  // The whole store is a complete set for every pair it contains, which is
+  // what the pair-dedupe needs.
+  const edges = (await dedupeEdges(await all<SeriesLink>('series_links'))).filter(
+    (e) => e.link_id !== e.series_id && byId.has(e.link_id)
+  );
+
+  const bySeries = new Map<string, SeriesLink[]>();
+  for (const edge of edges) {
+    const group = bySeries.get(edge.series_id);
+    if (group) group.push(edge);
+    else bySeries.set(edge.series_id, [edge]);
+  }
+
+  return links
+    .filter(isSeries)
+    .map((series) => {
+      const parts = (bySeries.get(series.id) ?? [])
+        .sort(byPosition)
+        .map((edge, i) => ({ link: byId.get(edge.link_id)!, edge, number: i + 1 }));
+      return { series, parts, progress: progressOf(parts) };
+    })
+    .sort((a, b) => a.series.title.localeCompare(b.series.title));
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------
@@ -361,15 +403,6 @@ export async function deleteSeries(series: Link): Promise<void> {
 }
 
 /**
- * Detach a link from every series it belongs to — call before deleting a
- * link, for the same referential reason as deleteSeries.
- */
-export async function detachFromSeries(linkId: string): Promise<void> {
-  const edges = await byIndex<SeriesLink>('series_links', 'link_id', linkId);
-  await softDeleteMany('series_links', edges.map((e) => e.id));
-}
-
-/**
  * Mark the series itself read (what the "all parts done" prompt calls). The
  * parts are untouched: their read state is theirs, and the series' own is the
  * separate statement "I'm finished with this".
@@ -378,18 +411,4 @@ export async function markSeriesRead(series: Link, read = true): Promise<Link | 
   return patch<Link>('links', series.id, (current) => ({
     read_at: read ? (current.read_at ?? new Date().toISOString()) : null,
   }));
-}
-
-/**
- * Drop edges whose link or series no longer exists. Cheap self-healing for
- * the case where a link was deleted on another device by code that predates
- * `detachFromSeries` — run from the series page, which is where a hole shows.
- */
-export async function pruneDeadEdges(): Promise<number> {
-  const liveLinks = new Set((await all<Link>('links')).map((l) => l.id));
-  const dead = (await all<SeriesLink>('series_links')).filter(
-    (e) => !liveLinks.has(e.series_id) || !liveLinks.has(e.link_id)
-  );
-  if (dead.length) await softDeleteMany('series_links', dead.map((e) => e.id));
-  return dead.length;
 }

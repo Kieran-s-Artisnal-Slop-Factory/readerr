@@ -59,6 +59,7 @@
   const collections = $derived([
     { href: href('/backlog/'), label: 'Backlog' },
     { href: href('/favourites/'), label: 'Favourites' },
+    { href: href('/series/'), label: 'Series' },
     { href: href('/tags/'), label: 'Tags' },
     { href: href('/topics/'), label: 'Topics' },
     { href: href('/resources/'), label: 'Resources' },

@@ -16,15 +16,14 @@ import {
   addPart,
   createSeries,
   deleteSeries,
-  detachFromSeries,
   edgesOf,
   isSeries,
+  listSeries,
   markSeriesRead,
   movePart,
   partIdsOf,
   partsOf,
   progressOf,
-  pruneDeadEdges,
   removePart,
   reorderParts,
   seriesForLink,
@@ -235,18 +234,33 @@ describe('deletion', () => {
     );
   });
 
-  it('detaching a link removes every edge naming it', async () => {
+});
+
+describe('listSeries', () => {
+  it('returns every series with its parts and progress, sorted by title', async () => {
+    const zed = await put<Link>('links', linkRow({ title: 'Zed on Rust', is_series: true }));
     const { series, parts } = await seedSeries(2);
-    await detachFromSeries(parts[0].id);
-    expect((await edgesOf(series.id)).map((e) => e.link_id)).toEqual([parts[1].id]);
+    await put<Link>('links', { ...parts[0], read_at: NOW });
+    // A plain link is not a series and must not appear.
+    await put<Link>('links', linkRow({ title: 'Just a link' }));
+
+    const rows = await listSeries();
+    expect(rows.map((r) => r.series.title)).toEqual(['Async Rust', 'Zed on Rust']);
+    expect(rows[0].parts.map((p) => p.number)).toEqual([1, 2]);
+    expect(rows[0].progress).toMatchObject({ read: 1, total: 2, complete: false });
+    // A series with no parts still lists, at 0/0.
+    expect(rows[1]).toMatchObject({ series: { id: zed.id }, parts: [] });
+    expect(rows[1].progress.total).toBe(0);
+    expect(series.id).toBe(rows[0].series.id);
   });
 
-  it('pruneDeadEdges clears edges whose link is already gone', async () => {
+  it('ignores an edge whose part has been deleted', async () => {
     const { series, parts } = await seedSeries(2);
-    // A device that deleted the link without detaching it first.
-    await put('links', { ...parts[0], deleted_at: NOW });
-    expect(await pruneDeadEdges()).toBe(1);
-    expect((await edgesOf(series.id)).map((e) => e.link_id)).toEqual([parts[1].id]);
+    await put<Link>('links', { ...parts[1], deleted_at: NOW });
+    const [row] = await listSeries();
+    expect(row.parts.map((p) => p.link.id)).toEqual([parts[0].id]);
+    expect(row.progress.total).toBe(1);
+    expect(series.id).toBe(row.series.id);
   });
 });
 

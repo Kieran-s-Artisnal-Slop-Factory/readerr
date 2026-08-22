@@ -130,12 +130,12 @@ have inline capture boxes).
 | `/favourites`, `/resources`, `/slush`, `/archive` | respective apps | filtered link listings |
 | `/link?id=` | `LinkApp` | per-link notes, excerpts, labels, history; for a series, its **Parts** (order/add/remove) |
 | `/tags`, `/tag?id=`, `/topics`, `/topic?id=` | respective apps | label indexes + documents |
+| `/series` | `SeriesApp` | every series, with progress — Collections → Series |
 | `/resource-list?id=` | `ResourceListApp` | list membership + exports |
 | `/plan`, `/upcoming` | `PlanApp`, `UpcomingApp` | triage automation + week calendar |
 | `/stats` | `StatsApp` | origin/history/storage statistics |
 | `/settings` | `SettingsApp` | theme, sync, backups, archival, danger zone |
 | `/onboarding` | `OnboardingApp` | first-launch walkthrough (`?page=N` deep-links) |
-| `/series-demo` | `SeriesDemoApp` | **superseded prototype, not in the nav** — the design sketch the shipped series feature came from; localStorage only, never touches the database, and safe to delete |
 
 ### Two feed parsers, on purpose
 
@@ -293,8 +293,9 @@ source):
   under a sub-path.
 - **Experiments live on their own pages.** New risky features are built as
   isolated components + a test page (`/fab-test`, `/dsl-auto-complete`,
-  `/bulk-operations-test` historically), then either graduate into the main
-  components or get deleted wholesale.
+  `/bulk-operations-test`, `/series-demo` historically), then either graduate
+  into the main components or get deleted wholesale — series is the most
+  recent round trip: prototype, ship, delete the prototype.
 
 ## Development workflow
 

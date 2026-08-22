@@ -46,7 +46,7 @@ export const DEFAULT_IMPORT_DAYS = 30;
 export const IMPORT_DAY_CHOICES = [0, 7, 14, 30, 60, 90, 365] as const;
 
 /** A feed is checked at most once a day (per device). */
-export const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const nowIso = () => new Date().toISOString();
 
@@ -345,7 +345,7 @@ export async function listFeeds(): Promise<Feed[]> {
   return reconcileFeeds();
 }
 
-export async function findFeedByUrl(url: string): Promise<Feed | null> {
+async function findFeedByUrl(url: string): Promise<Feed | null> {
   const key = normalizeFeedUrl(url);
   return (await all<Feed>('feeds')).find((f) => normalizeFeedUrl(f.feed_url) === key) ?? null;
 }
@@ -585,7 +585,7 @@ export interface RefreshResult {
 }
 
 /** Check one feed now, whatever its schedule says. Never throws. */
-export async function refreshFeed(feed: Feed): Promise<RefreshResult> {
+async function refreshFeed(feed: Feed): Promise<RefreshResult> {
   const checkedAt = nowIso();
   try {
     const fetched = await fetchFeed(feed.feed_url);
@@ -771,19 +771,8 @@ export async function triageItem(
 }
 
 /** The library link an item points at, if any. */
-export async function savedLinkFor(item: FeedItem): Promise<Link | null> {
+async function savedLinkFor(item: FeedItem): Promise<Link | null> {
   return (await savedLinksFor([item])).get(item.id) ?? null;
-}
-
-/** Triage a batch — same rules as triageItem, one pass. */
-export async function triageItems(
-  items: FeedItem[],
-  action: TriageAction,
-  weekStart?: string | null
-): Promise<TriageResult[]> {
-  const out: TriageResult[] = [];
-  for (const item of items) out.push(await triageItem(item, action, weekStart));
-  return out;
 }
 
 /**

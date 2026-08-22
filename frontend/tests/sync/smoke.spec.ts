@@ -90,7 +90,7 @@ test('week page and backlog load without writing in test mode', async ({ backend
   // Visit the write-heaviest pages (week auto-close/ensure, backlog title
   // retry, the inbox's once-a-day feed check and its reconcile-on-read) and
   // assert the database stayed empty.
-  for (const path of ['/week/', '/backlog/', '/settings/', '/tags/', '/inbox/']) {
+  for (const path of ['/week/', '/backlog/', '/settings/', '/tags/', '/inbox/', '/series/']) {
     await deviceA.page.goto(`${backend.baseUrl}${path}`);
     await deviceA.page.waitForFunction(
       () => !!(window as unknown as { __readerr?: unknown }).__readerr

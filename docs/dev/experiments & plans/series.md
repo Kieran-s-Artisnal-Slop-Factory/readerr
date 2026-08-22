@@ -8,10 +8,10 @@ also usable **as a link itself** — favourite it, drop it into a reading week,
 tag it, write notes on it, and see it in a reading list.
 
 **Status: phases 1–3 are built** (schema v20 / IDB v11, `services/series.ts`,
-series rows in every list, the Add-series modal, and the Parts editor on a
-series' own page). §9 records what changed on the way in. The original
-prototype at `/series-demo/` is superseded and safe to delete — it kept its
-state in localStorage and never touched the database.
+series rows in every list, the Add-series modal, the Parts editor on a series'
+own page, and a Collections → Series index). §9 records what changed on the
+way in. The `/series-demo/` prototype this design was drawn against has served
+its purpose and been deleted.
 
 Like every design here, it is written to fit the app's grain: local-first,
 offline-first, and — the constraint that dominates every decision below —
@@ -35,8 +35,8 @@ this codebase a long list of data-loss bugs
 
 Explicit non-goals for v1: series of series (nesting), automatic detection of
 "Part 2" from titles, and per-part scheduling into *different* weeks from
-inside the series row (the demo shows a week column because the modal asks for
-it at creation time — see §5.1).
+inside the series row (the Add-series modal asks for a week per part at
+creation time instead — see §5.1).
 
 ## 2. Data model
 
@@ -103,8 +103,8 @@ series with no overview page still needs one. Two options:
    (it returns the raw string), and the row is otherwise ordinary.
 
 Recommended: **2, with the field offered and pre-filled where possible.** The
-UI must then never render a `series:` URL as a clickable link — the demo shows
-the intended treatment (title only, no external-link affordance).
+The UI must then never render a `series:` URL as a clickable link: title only,
+no external-link affordance.
 
 ### 2.3 What is NOT stored
 
@@ -198,7 +198,7 @@ cheap: build the set of part ids for the series present in the page's rows
 
 ### 5.1 The "Add series" modal
 
-Fields, in order (this is what the demo page implements):
+Fields, in order:
 
 - **Title**, **Description** (markdown), **Overview URL** (optional, §2.2);
 - **Tags & topics** for the series itself;
@@ -218,9 +218,9 @@ assignment all behave exactly as they do everywhere else), then one
 
 A series row is a normal row plus a **disclosure triangle** and a progress
 count. Expanded, the parts render as indented rows with their own ✓, ★, and
-tag chips. The demo page shows both states, next to a plain link for contrast.
+tag chips.
 
-Rules the demo pins down:
+Rules this pins down:
 
 - collapsed by default, expansion state is per-view UI state (**not** stored —
   it is not worth a synced field, and a synced one would fight between devices);
@@ -279,8 +279,7 @@ real bool, not `1`).
 1. **Model + service** — column, table, migrations, `series.ts`
    (`createSeries`, `partsOf`, `addPart`, `removePart`, `reorderParts`,
    `progressOf`), unit tests. No UI.
-2. **Reading-list rendering** — the expandable row and the hiding rule, from
-   the demo page's markup.
+2. **Reading-list rendering** — the expandable row and the hiding rule.
 3. **Creation** — the modal, plus `!series=[name]` in the capture DSL.
 4. **Everywhere else** — the part's own page ("Part 3 of…"), exports, seeder,
    stats treatment.

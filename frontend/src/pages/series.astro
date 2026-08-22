@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SeriesApp from '../components/apps/SeriesApp.svelte';
+---
+
+<Layout title="Series" hasCapture={false}>
+  <SeriesApp client:only="svelte" />
+</Layout>

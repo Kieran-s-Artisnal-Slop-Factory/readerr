@@ -26,6 +26,7 @@ New here? Start with **[Getting started](getting-started.md)**.
   here (or with the **＋** button in the corner from any page).
 - The **Inbox** is what your subscribed feeds brought in, waiting for a yes or
   no.
+- A multi-part read is one **series** row that expands to its parts.
 - Read a link, mark it done, and at week's end **close the week**: what you
   wrote about is kept, the rest is set aside.
 - **Tags** and **topics** organize things; **favourites** and **resources**

@@ -32,7 +32,9 @@
   (its parts stay). A series' page is the ordinary link page — Overview
   document, excerpts, tags, topics, reading week and history all work exactly
   as they do for a link, because a series *is* one — and lists gained a
-  **Series** filter so they're easy to find. Design and build notes:
+  **Series** filter so they're easy to find, alongside a
+  **Collections → Series** index listing every series with its progress and a
+  roll-up of parts read. Design and build notes:
   [series.md](docs/dev/experiments%20&%20plans/series.md).
 - **The inbox no longer needs a backend.** With a sync server, feeds are
   fetched server-side as before; without one — offline mode, a static host, or
@@ -69,9 +71,10 @@
 - **Backlog** and **Favourites** moved into the nav's **Collections** menu —
   they are collections of links like Tags, Topics and Resources, and the top
   row now holds Reading List, Inbox and Stats.
-- The series prototype at `/series-demo/` is superseded by the real feature and
-  can be deleted; the plan it came from now carries a "what actually happened"
-  section covering the three places the design changed on the way in.
+- The `/series-demo/` prototype has been deleted now that the real feature
+  exists — the plan it came from carries a "what actually happened" section
+  instead. Trimmed with it: a handful of exports in the series and feed
+  services that nothing outside their own module called.
 - Series are excluded from the Stats **origins** table and the variability
   score — a series is a container, not something captured from a domain, and
   its parts are already counted.

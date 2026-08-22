@@ -223,7 +223,9 @@ has, a series has:
 **Deleting a series keeps its parts** — they're links you captured, and only
 the container goes.
 
-To find your series later, tick the **Series** filter in any list's toolbar.
+**Collections → Series** lists every series you have, each with its progress,
+and totals across all of them. Any list's toolbar also has a **Series** filter
+if you'd rather find them in place.
 
 ## Favourites and resources
 
