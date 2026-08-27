@@ -1,6 +1,21 @@
-- [x] Begin working on `series.md` (phases 1-3: model + service, series rows in every list, the Add-series modal and the Parts editor; §8/§9 of the plan track what's left)
-- [x] When I'm using the RSS feed I'm getting an error (see image) — the running backend predated `/feed`; rebuilt it, and the 404 now says so instead of blaming the feed
+Maintenance:
 
+- [ ] Check all dependencies and do updates
+  - [ ] Frontend
+  - [ ] Backend
+- [ ] When I am typing to look for a link (e.g. in resource list page, the `Paste a URL to add, or search your links...`), I need to be able to scroll results, or have a next-page option. Large libraries of links far exceed the current number shown
+
+For human:
+- [ ] Review design critique
+- [ ] Test series
+  - [ ] https://blog.cloudflare.com/
+    - [ ] https://blog.cloudflare.com/rss/
+  - [ ] https://thedailywtf.com/
+    - [ ] https://feeds.feedburner.com/TheDailyWtf
+  - [ ] https://feeds.megaphone.fm/FSI1483080183
+  - [ ] https://feeds.transistor.fm/postgres-fm
+  - [ ] https://blog.flipper.net/rss/
+  - [ ] https://daverupert.com/atom.xml
 
 
 Ensure for each change:
