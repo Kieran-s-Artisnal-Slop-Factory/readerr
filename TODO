@@ -1,6 +1,6 @@
 # Version 0.4.0 plans
 
-Before beginning make sure the VERSION is up to date, and create a file called `version-<version number>-phased.md` which is a phased plan for implementing the features. If that file exists, the that means the version has been started and you're taking over from where another agent left off. If it doesn't then create the file making sure to also create "checkpoints" which are points after a few phases where the full test suite is ran, and must pass before proceeding. You don't need to run the full tests on every phase because it's going to be too slow. For each checkpoint, if it's not going to trample one another, feel free to use subagents, in fact ideally you should.
+Before beginning make sure the VERSION is up to date, and create a file called `docs/dev/plans/version-<version number>-phased.md` which is a phased plan for implementing the features, then stop after creating it. If that file exists, the that means the version has been started and you're taking over from where another agent left off. If it doesn't then create the file making sure to also create "checkpoints" which are points after a few phases where the full test suite is ran, and must pass before proceeding. You don't need to run the full tests on every phase because it's going to be too slow. For each checkpoint, if it's not going to trample one another, feel free to use subagents, in fact ideally you should.
 
 Additional things to keep in mind:
 - Usability takes priority over accessibilty when the two collide. This app is a personal app, primarily used by me, not one being shared with people who have accessibility needs. It's nice for it to be usable, but not at the cost of functionality or performance.
@@ -8,9 +8,9 @@ Additional things to keep in mind:
 
 ## Maintenance
 
-- [ ] Check all dependencies and do updates
-  - [ ] Frontend
-  - [ ] Backend
+- [x] Check all dependencies and do updates
+  - [x] Frontend
+  - [x] Backend
 
 ## Features & fixes
 

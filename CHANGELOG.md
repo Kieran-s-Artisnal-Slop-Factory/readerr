@@ -1,3 +1,14 @@
+# 0.4.0 (unreleased)
+
+## Other
+
+- Dependency refresh across both halves. Frontend: Astro 7.0.6 → 7.2.9, Svelte
+  5.57, Milkdown 7.22, CodeMirror/marked/vitest/Playwright patch-minors, and
+  TypeScript 6 → 7 (the major was trialed against the full unit suite and a
+  production build — both green, so it stays). Backend: `modernc.org/sqlite`
+  1.53.0 → 1.57.0 with transitive updates; `go test ./...` green. Nothing held
+  back.
+
 # 0.3.0 August 22nd 2026
 
 ## Features
