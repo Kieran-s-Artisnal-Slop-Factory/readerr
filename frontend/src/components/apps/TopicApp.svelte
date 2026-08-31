@@ -10,6 +10,7 @@
   import LinkList from '../LinkList.svelte';
   import LinkSearchPicker from '../LinkSearchPicker.svelte';
   import TagPicker from '../TagPicker.svelte';
+  import InProgressIcon from '../InProgressIcon.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
   import Pagination from '../Pagination.svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
@@ -166,7 +167,7 @@
           title={topicStatus(topic) === 'in-progress' ? 'Clear status' : 'Mark in progress'}
           onclick={() => void cycleStatus('in-progress')}
         >
-          ▶ In progress
+          <InProgressIcon /> In progress
         </button>
         <button
           class="btn"
@@ -256,6 +257,13 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
+  }
+
+  /* The status buttons pair the glyph with a label. */
+  .topic-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
   }
 
   /* The status buttons are toggles: the active one reads as pressed. */

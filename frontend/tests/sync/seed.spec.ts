@@ -40,7 +40,15 @@ const DATASET = {
     nestedPct: 70,
     parentsPerTag: 2,
   },
-  topics: { count: 5, referencesPct: 25, minRefs: 1, maxRefs: 8, describedPct: 80 },
+  topics: {
+    count: 5,
+    referencesPct: 25,
+    minRefs: 1,
+    maxRefs: 8,
+    describedPct: 80,
+    taggedPct: 80,
+    tagsPerTopic: 2,
+  },
   links: { notesPct: 30, excerptsPct: 20, reviewedPct: 25 },
 };
 
@@ -56,6 +64,7 @@ test('a seeded dataset pushes whole and converges field-exact on a second device
   expect(summary.links, 'links generated').toBeGreaterThan(40);
   expect(summary.tagEdges, 'tag nesting generated').toBeGreaterThan(0);
   expect(summary.references, 'topic references generated').toBeGreaterThan(0);
+  expect(summary.topicTags, 'topic tags generated').toBeGreaterThan(0);
   expect(summary.reviews, 'reviews generated').toBeGreaterThan(0);
 
   // Every generated row must reach the server — a row the server refuses is

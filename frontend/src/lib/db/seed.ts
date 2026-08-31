@@ -34,6 +34,7 @@ import type {
   Tag,
   TagParent,
   Topic,
+  TopicTag,
   Week,
   WeekLink,
 } from './types';
@@ -238,6 +239,15 @@ export interface TopicSeedOptions {
   /** Percentage of topics that get a body/description document. */
   describedPct: number;
   descriptionLength: ProseLength;
+  /** Percentage of topics carrying at least one tag (topic_tags edges). */
+  taggedPct: number;
+  /**
+   * Average tags per TAGGED topic. Every tagged topic gets at least one, and
+   * no topic can carry more distinct tags than exist, so this is the one
+   * place the physical limit can beat the request — the summary reports what
+   * was actually written.
+   */
+  tagsPerTopic: number;
 }
 
 export interface LinkSeedOptions {
@@ -288,6 +298,8 @@ export interface SeedSummary {
   topics: number;
   /** link_topics rows written. */
   references: number;
+  /** topic_tags rows written. */
+  topicTags: number;
   notes: number;
   excerpts: number;
   favourites: number;
@@ -335,6 +347,8 @@ export const DEFAULT_SEED_OPTIONS: {
     maxRefs: 40,
     describedPct: 100,
     descriptionLength: { minSentences: 6, maxParagraphs: 6 },
+    taggedPct: 50,
+    tagsPerTopic: 1.5,
   },
   links: {
     notesPct: 8,
@@ -417,6 +431,8 @@ export function resolveSeedOptions(options: SeedOptions): ResolvedSeedOptions {
       maxRefs: Math.max(minRefs, clamp(tp.maxRefs ?? d.topics.maxRefs, 0, 100_000)),
       describedPct: pct(tp.describedPct ?? d.topics.describedPct),
       descriptionLength: proseLength(tp.descriptionLength, d.topics.descriptionLength),
+      taggedPct: pct(tp.taggedPct ?? d.topics.taggedPct),
+      tagsPerTopic: Math.max(0, Math.min(20, tp.tagsPerTopic ?? d.topics.tagsPerTopic)),
     },
     links: {
       notesPct: pct(lk.notesPct ?? d.links.notesPct),
@@ -773,6 +789,33 @@ export async function seedDataset(
     }
   }
 
+  // ---- topic tags: exactly taggedPct of topics carry at least one, and the
+  // tags on any one topic are DISTINCT, so the seeded data satisfies the
+  // topic_tags-pair invariant with no reconciliation to do (the seeder
+  // contract: what it writes must already be converged).
+  const topicTags: TopicTag[] = [];
+  if (topics.length > 0 && tags.length > 0 && o.topics.tagsPerTopic > 0) {
+    const tagged = sampleIndices(
+      (topics.length * o.topics.taggedPct) / 100,
+      topics.length,
+      rand
+    );
+    if (tagged.length > 0) {
+      // Spread the budget as evenly as the remainder allows, then clamp: at
+      // least one tag (or it isn't tagged) and never more distinct tags than
+      // exist. Either clamp shows up in the summary, not as a silent miss.
+      const budget = Math.round(tagged.length * o.topics.tagsPerTopic);
+      const base = Math.floor(budget / tagged.length);
+      const extra = budget % tagged.length;
+      tagged.forEach((t, k) => {
+        const want = Math.max(1, Math.min(tags.length, base + (k < extra ? 1 : 0)));
+        for (const g of sampleIndices(want, tags.length, rand)) {
+          topicTags.push(withSyncFields({ topic_id: topics[t].id, tag_id: tags[g].id }));
+        }
+      });
+    }
+  }
+
   // ---- prose hanging off links
   const notes: Note[] = [];
   for (const i of sampleIndices((total * o.links.notesPct) / 100, total, rand)) {
@@ -845,6 +888,7 @@ export async function seedDataset(
   await chunkedPut('links', links, onProgress);
   await chunkedPut('link_tags', linkTags, onProgress);
   await chunkedPut('link_topics', linkTopics, onProgress);
+  await chunkedPut('topic_tags', topicTags, onProgress);
   await chunkedPut('notes', notes, onProgress);
   await chunkedPut('excerpts', excerpts, onProgress);
   await chunkedPut('weeks', weeks, onProgress);
@@ -875,6 +919,7 @@ export async function seedDataset(
     tagAssignments: linkTags.length,
     topics: topics.length,
     references: linkTopics.length,
+    topicTags: topicTags.length,
     notes: notes.length,
     excerpts: excerpts.length,
     favourites: links.filter((l) => l.favourite).length,

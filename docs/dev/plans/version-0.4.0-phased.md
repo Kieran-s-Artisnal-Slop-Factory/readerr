@@ -1,6 +1,6 @@
 # Version 0.4.0 — Phased implementation plan
 
-Status: **phases 1–6 complete, Checkpoints 1–3 green (2026-08-30); next up: phase 7, then 8–10 (exports).** If you are an agent picking this
+Status: **ALL PHASES COMPLETE. Checkpoints 1–4 green (2026-08-30).** If you are an agent picking this
 up: work top-to-bottom, check off items here AND in `TODO` as you go, and do not skip
 checkpoints. VERSION has already been bumped to `0.4.0`; add a `# 0.4.0 (unreleased)`
 heading to `CHANGELOG.md` with the first change you land.
@@ -248,14 +248,22 @@ checkpoint is green.*
 
 `LinkApp.svelte` (+ `pages/link.astro`).
 
-- [ ] Reschedule: a "Reading week" card already exists (~281–307, via
-      `lib/services/weeks.ts`). Verify in the running app what's actually missing —
-      likely moving a link from one pending week to another in one action rather than
-      remove+add. Implement the gap, not a duplicate.
-- [ ] Resource-list assignment card (between Topics and Excerpts): list current
-      memberships, add/remove via `resourceLists.ts`; adding marks the link
-      `is_resource` if not already (`toggleResource()`, `links.ts:655`).
-- [ ] Vitest for any new service helpers.
+- [x] Reschedule: **verified in the running app — the guessed gap does not exist.**
+      Changing the week select already MOVES the link in one action (`setLinkWeek`
+      removes the other pending assignment first); driven end to end, one `week_links`
+      row, re-pointed twice. So no duplicate was built.
+      What the verification DID turn up is a real defect in the same control: moving a
+      link away from a week it was already ticked off in **tombstoned that finished
+      entry**, silently erasing the completion (and its contribution to the stats).
+      `setLinkWeek` now displaces only UNFINISHED entries; the link page's select also
+      prefers the first unfinished assignment, so it no longer snaps back to a
+      done-but-not-yet-closed one. Three new cases in `weeks.test.ts`.
+- [x] Resource-list card on `LinkApp.svelte`, between Topics and Excerpts: membership
+      chips (TagPicker's vocabulary) plus inline create, through the phase-4
+      `addLinksToList` / `removeLinksFromList`. Adding flags the link a resource and
+      the header flag updates with it; removing deliberately leaves it.
+- [x] Vitest: the reschedule cases above; the list helpers were already covered by
+      `bulkLists.test.ts` from phase 4.
 
 ## Phase 8 — Export unification groundwork
 
@@ -263,40 +271,46 @@ checkpoint is green.*
 `lib/services/resourceLists.ts:111-176`, `resourceListExport.ts`, `topicExport.ts`,
 `htmlExport.ts` first.
 
-- [ ] Factor a shared exportable-collection core: given (title, about_md, metadata
-      stats, sectioned link groups, topic embeds) produce md / single-file HTML.
-      Resource-list export and the new tag export both call it; port resource lists
-      onto it and make sure both surfaces expose the same sensible feature set
-      (the "unify" TODO item).
-- [ ] Shared link-table serializer with columns: link, read (t/f), favourite (t/f),
-      resource (t/f), reading week, tags (comma-separated; escape `|` in md).
-      Ordering within sections: favourites → read → unread.
-- [ ] **retoken DataTable** (resolved — it's the sibling repo
-      `C:\Users\Kieran\Desktop\Development\personal\unfinished-mvp\retoken`, docs at
-      https://kieranwood.ca/retoken/table/): vendor the component per retoken's
-      copy-paste model — `src/components/DataTable.svelte`,
-      `src/components/table/{FilterBuilder,FilterCondition}.svelte`, and the
-      dependency-free model libs `src/lib/table/{types,filter,format,csv}.ts`
-      (skip `to-sql.ts`; the export filters client-side). Bring their unit tests
-      (`filter.test.ts`, `format.test.ts`, `csv.test.ts`) along into readerr's
-      vitest suite. readerr is the same Astro + Svelte 5 stack, so the component
-      drops in as-is.
-- [ ] **Inlining it into the standalone HTML export:** the exported page has no
-      Svelte runtime, so add a small build step that compiles a mount of
-      `DataTable.svelte` into one self-contained IIFE bundle (Vite lib build or an
-      Astro-emitted asset imported `?raw`), and have the export inline that JS plus
-      the serialized rows/schema JSON into the page. If bundling proves awkward,
-      fall back to: reuse the pure model libs (`filter.ts`/`format.ts` — plain
-      functions, no deps) with a compact vanilla-DOM renderer inlined in the export
-      (extending `resourceListExport.ts`'s existing searchable-table script). Either
-      way the filtering/sorting/coercion semantics come from retoken's tested model.
-- [ ] **Theming bridge:** DataTable styles itself with retoken's semantic tokens
-      (`--color-*` etc. from its `theme.css`). The export already emits readerr theme
-      CSS via `themeCss()` — add a token-mapping block (readerr vars → the retoken
-      semantic tokens DataTable consumes) so the table matches the selected theme in
-      both the app and the exported page.
-- [ ] Keep exports covered: extend `topicExport.test.ts`-style vitest to the shared
-      core (golden-ish assertions on structure, not byte-exact HTML).
+- [x] `collectionExport.ts` (writes) + `collectionSource.ts` (gathers) — the split is
+      what lets a third surface be one new `collectionForX()`. `ExportableCollection`
+      is {title, aboutMd, stats, sections, topics}; `stats` is written once and read by
+      BOTH the md frontmatter and the HTML header card, so they cannot disagree.
+      Resource lists ported: their md and HTML (single and mass export) now go through
+      it, so a list exports exactly the way a tag does. txt/csv/json stay the plain
+      data dumps they always were.
+- [x] Shared serializer, one schema for both formats. **One deliberate deviation from
+      the spec:** `link` carries the TITLE (rendered as an anchor) with `url` as its
+      own column beside it — a table you cannot search by title is not much of a
+      table, and the plan's `url` column still exists and still filters. Ordering
+      favourites → read → unread, title within the band; `|` escaped and newlines
+      flattened in md cells (`mdCell`).
+- [x] Vendored the four **dependency-free model libs** — `src/lib/table/{types,
+      format,filter,csv}.ts`, unchanged, each headed with its origin — plus their
+      upstream tests as `test/table-{filter,format,csv}.test.ts` (113 cases, only the
+      import paths changed). `to-sql.ts` skipped as planned.
+      **The Svelte components were NOT vendored** — see the next item; vendoring a
+      component nothing renders would have been dead code.
+      (Cross-repo `cp` is blocked by the sandbox here; the files were copied by
+      reading and writing them, which is retoken's copy-paste model anyway.)
+- [x] **Took the plan's documented fallback**, and deliberately: bundling a Svelte
+      runtime per exported file needs a build step whose output must ALSO exist during
+      `astro dev`, and puts tens of kilobytes of framework in every export — for a
+      table. `tableRuntime.ts` is instead a plain-JS transcription of the vendored
+      `format`/`filter`/`csv` rules, inlined with the rows and schema as JSON.
+      A transcription can drift silently, so it is **pinned**:
+      `test/tableRuntime.test.ts` evaluates the runtime string and asserts it agrees
+      with the vendored modules — every coercion result, the sign of every pairwise
+      comparison in every column, contains/isTrue/isFalse filtering vs `filterRows`,
+      search vs `searchRows`, and CSV quoting/document/filename vs `csv.ts`.
+      The reader gets: search, a filter control per column (Yes/No/Any for booleans),
+      click-to-sort headings, a live n-of-m count, and a CSV button that exports what
+      is visible, with the UTF-8 BOM.
+- [x] **Theming bridge: not needed, and that is the point of the fallback.** With no
+      vendored component there are no retoken tokens to map — `TABLE_RUNTIME_CSS` is
+      written directly against readerr's own variables, so the exported table follows
+      the selected theme through `themeCss()` with nothing in between.
+- [x] `test/collectionExport.test.ts` (32 cases) + `test/tagExport.test.ts` (15) —
+      structural assertions only, never byte-exact HTML.
 
 ## Phase 9 — Exportable tags: Markdown
 
@@ -304,43 +318,63 @@ checkpoint is green.*
 Data via `tagCounts()`, `linksTaggedDirectly()`, `linksFromChildTags()`
 (`links.ts:343-518`) and `tagTree.ts`.
 
-- [ ] Frontmatter: child tags; link counts (direct, from children); favourite count.
-- [ ] About section (tag `notes_md`).
-- [ ] Sections with headings: "Links" (direct) and "From child tags", each ordered
-      favourites → read → unread, using the phase-8 table serializer.
-- [ ] Topic embeds: metadata always; checkbox to embed full topic content as sections
-      at the bottom; checkbox to instead export each topic as its own file and bundle
-      everything as a zip (`jszip`, like `export-markdown.ts`).
-- [ ] Vitest: frontmatter correctness, `|` escaping, section membership (a link both
-      direct and via child appears once, in direct), zip mode.
+- [x] Frontmatter: `child_tags`, `links_direct`, `links_from_children`, `favourites`,
+      `topics` — the same objects the HTML header card renders.
+- [x] About section from `notes_md`, omitted entirely when there are no notes.
+- [x] "Links" and "From child tags", the second omitted when nothing reaches the tag
+      that way, both through the shared serializer.
+- [x] Topic metadata always; `embedTopics` appends the documents as sections;
+      `topicsAsFiles` writes a zip instead — the tag's document (keeping the topic
+      INDEX, dropping the bodies) plus `topics/<name>.md`, each with its own
+      frontmatter, names de-duplicated so two same-named topics cannot collide on one
+      zip path. `tagMarkdownFiles()` returns the file set before anything touches the
+      DOM, which is what makes it testable.
+- [x] Vitest as listed, including the both-ways link appearing exactly once.
 
 ## Phase 10 — Exportable tags: HTML
 
-- [ ] Single self-contained HTML page (all CSS/JS inlined), themed via `themeCss()`
-      so it matches the selected theme.
-- [ ] Header card with the same metadata stats as the md frontmatter.
-- [ ] About section rendered from markdown.
-- [ ] Two tables (direct / from child tags), default order favourites → read →
-      unread, each a retoken `DataTable` (filterable + sortable per column, schema:
-      `{link: 'url', read: 'bool', favourite: 'bool', resource: 'bool',
-      reading_week: 'str', tags: 'str'}`), inlined via the phase-8 bundle. Its CSV
-      export button comes free — leave it enabled.
-- [ ] Topic embed checkbox → modal per topic with rendered topic content.
-- [ ] Vitest on the generated document structure.
+- [x] One file, everything inlined, themed by `themeCss()`. A test asserts there is
+      no `<link rel="stylesheet">` and no `src="http` — it has to open from a disk,
+      offline.
+- [x] Header card from the same `stats` array as the frontmatter.
+- [x] About rendered from markdown.
+- [x] One table per section, default order favourites → read → unread, filterable and
+      sortable per column, with the CSV button enabled (it exports the FILTERED rows).
+      Schema as agreed apart from the title/url split noted in phase 8.
+- [x] Topic embed → a click-to-read modal per topic, closed by the ✕, the backdrop
+      or Escape.
+- [x] Vitest on the document structure, including that a link title containing
+      `</script>` cannot close the payload element early.
 
-## ✅ CHECKPOINT 4 — release gate
+## ✅ CHECKPOINT 4 — release gate — **GREEN (2026-08-30)**
 
-- [ ] Full suite (vitest, go test, test:sync) green.
-- [ ] Docs: new/updated dev docs **with mermaid + code refs** for: sync-URL guard
-      (update `docs/dev/sync.md`), topics status & tags (new or extend a topics doc),
-      unified exports (new `docs/dev/exports.md`); user docs for topics statuses,
-      bulk ops, tag export. Update `docs/README.md` index.
-- [ ] CHANGELOG.md: 0.4.0 section complete under Features / Bug Fixes / Other.
-- [ ] TODO: everything above checked off; "For human" section left intact (test-series
-      feeds are the human's manual QA).
-- [ ] Sanity pass in the browser: no console errors without a sync URL; picker scrolls
-      on a large library; done-section bulk UI; topic statuses order the overview;
-      tag export opens and filters offline.
+- [x] `npm test` 656/656 · `go test ./...` ok · `npm run test:sync` **153 passed,
+      TRUSTWORTHY, 12/12 sabotage, 18/18 stores**. `astro build` and `svelte-check`
+      clean against the same 22-error/24-warning pre-existing baseline (node types in
+      `tests/`, a readonly-tuple assignment in BacklogApp/WeekApp).
+- [x] Docs: `docs/dev/sync.md` (availability guard, mermaid + refs),
+      `docs/dev/topics.md` (new), `docs/dev/bulk-and-picking.md` (new),
+      `docs/dev/exports.md` (new), `docs/dev/data-model.md` and `docs/dev/seeding.md`
+      updated, all indexed in `docs/README.md`; user docs in
+      `docs/user/organizing-and-reading.md` for topic statuses/tags, bulk ops, the
+      link page's resource lists, and the tag export.
+- [x] CHANGELOG 0.4.0 complete. (The section was re-styled by hand mid-release into
+      terser `*` bullets; later entries follow that style rather than reverting it.)
+- [x] TODO: everything checked off except the "For human" test-series feeds, left
+      intact as the human's manual QA.
+- [x] Browser sanity pass, on a seeded library and against the running dev server:
+      no console errors without a sync URL (one `/healthz` probe, then silence); the
+      picker scrolls and pages; the done-section bulk panel; topic statuses ordering
+      the overview, its filters and search; the tag Export card; and the exported HTML
+      page driven inside an iframe — per-column text filter (4 of 76), boolean filter
+      (10 of 76, every row No), sort asc/desc with the arrow, free-text search
+      (18 of 76), CSV download carrying the UTF-8 BOM and the filtered rows, and the
+      topic modal opening and closing. Resource-list md/HTML and both mass-export zips
+      re-checked after the port.
+
+### Left for the human
+
+`TODO` → "For human": the test-series feeds. Nothing else is outstanding.
 
 ---
 

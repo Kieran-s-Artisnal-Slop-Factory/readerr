@@ -26,6 +26,7 @@
     wouldCycle,
   } from '../../lib/services/tagTree';
   import { topicStatus, topicsForTag } from '../../lib/services/topics';
+  import { downloadTagHtml, downloadTagMarkdown } from '../../lib/services/tagExport';
   import type { Link, Tag, Topic } from '../../lib/db/types';
 
   const PAGE_SIZE = 100;
@@ -38,6 +39,26 @@
   let page = $state(0);
   /** Topics carrying this tag (topic_tags) — their own section below. */
   let topics = $state<Topic[]>([]);
+
+  // Export options. Embedding is off by default: most exports are an index,
+  // and a tag with twenty topics would otherwise produce a very long file.
+  let embedTopics = $state(false);
+  let topicsAsFiles = $state(false);
+  let exporting = $state('');
+
+  async function exportTag(kind: 'md' | 'html') {
+    if (!tag || exporting) return;
+    exporting = kind;
+    try {
+      if (kind === 'md') {
+        await downloadTagMarkdown(tag, { embedTopics, topicsAsFiles });
+      } else {
+        await downloadTagHtml(tag, { embedTopics });
+      }
+    } finally {
+      exporting = '';
+    }
+  }
 
   // Hierarchy
   let allTags = $state<Tag[]>([]);
@@ -220,6 +241,37 @@
       />
     </Card>
 
+    <Card title="Export">
+      <p class="muted section-hint">
+        Everything filed under {tag.name}: the child tags and counts as
+        metadata, the notes above as an About section, then a table of the
+        direct links and one of the links reaching it through a child tag —
+        favourites first, then read, then unread. HTML is a single
+        self-contained page whose tables filter and sort offline and export
+        their own CSV.
+      </p>
+      {#if topics.length > 0}
+        <div class="export-options">
+          <label class="check">
+            <input type="checkbox" bind:checked={embedTopics} />
+            Include each topic's full document
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={topicsAsFiles} disabled={!embedTopics} />
+            Markdown only: one file per topic, bundled as a zip
+          </label>
+        </div>
+      {/if}
+      <div class="export-actions">
+        <button class="btn" disabled={!!exporting} onclick={() => void exportTag('md')}>
+          {exporting === 'md' ? 'Exporting…' : 'Markdown'}
+        </button>
+        <button class="btn" disabled={!!exporting} onclick={() => void exportTag('html')}>
+          {exporting === 'html' ? 'Exporting…' : 'HTML'}
+        </button>
+      </div>
+    </Card>
+
     {#if topics.length > 0}
       <Card title={`Topics (${topics.length.toLocaleString()})`}>
         <p class="muted section-hint">
@@ -354,6 +406,19 @@
   .section-hint {
     margin: 0 0 var(--space-3);
     font-size: var(--font-size-sm);
+  }
+
+  .export-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-3);
+  }
+
+  .export-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
   }
 
   .topic-list {

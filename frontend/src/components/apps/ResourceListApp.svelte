@@ -20,7 +20,7 @@
     type ListMember,
     type ListExportFormat,
   } from '../../lib/services/resourceLists';
-  import { downloadListHtml } from '../../lib/services/resourceListExport';
+  import { downloadListHtml, downloadListMarkdown } from '../../lib/services/resourceListExport';
   import type { Link, ResourceList, Tag } from '../../lib/db/types';
 
   let list = $state<ResourceList | null>(null);
@@ -92,6 +92,12 @@
 
   function exportAs(format: ListExportFormat) {
     if (!list) return;
+    // Markdown goes through the shared collection core (stats, about section,
+    // the full link table); txt/csv/json stay the plain data dumps they are.
+    if (format === 'md') {
+      void downloadListMarkdown(list);
+      return;
+    }
     downloadList(list, members, format);
   }
 
@@ -144,10 +150,12 @@
 
     <Card title="Export">
       <p class="hint">
-        Markdown gives a <code>- [title](url)</code> list; txt is one bare URL
-        per line; csv has title,url columns; JSON includes the description.
-        HTML is a self-contained themed page with a searchable link list and
-        per-link notes/excerpts — the same page the mass export produces.
+        Markdown gives the full document — stats, the about section, and a
+        table of every link with its read / favourite / resource / reading-week
+        / tag columns. txt is one bare URL per line; csv has title,url columns;
+        JSON includes the description. HTML is a self-contained themed page
+        whose table filters and sorts offline and exports its own CSV — the
+        same page the mass export and a tag export produce.
       </p>
       <div class="export-actions">
         <button class="btn" onclick={() => exportAs('md')}>Markdown</button>

@@ -11,6 +11,7 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import ChipFilter from '../ChipFilter.svelte';
+  import InProgressIcon from '../InProgressIcon.svelte';
   import SearchInput from '../SearchInput.svelte';
   import TopicBulkPanel from '../TopicBulkPanel.svelte';
   import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
@@ -203,8 +204,9 @@
               class:active={status === 'in-progress'}
               title={status === 'in-progress' ? 'Clear status' : 'Mark in progress'}
               onclick={() => cycleStatus(topic, 'in-progress')}
+              aria-label={status === 'in-progress' ? 'Clear status' : 'Mark in progress'}
             >
-              ▶
+              <InProgressIcon />
             </button>
             <button
               class="btn status-btn"
@@ -363,6 +365,13 @@
     display: flex;
     gap: var(--space-1);
     flex-shrink: 0;
+  }
+
+  /* The glyph is an SVG, so the button has to center it like an icon button. */
+  .status-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .status-btn.active {

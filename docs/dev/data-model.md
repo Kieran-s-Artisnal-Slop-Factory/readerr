@@ -430,5 +430,7 @@ to next. The other scopes merge by id under the same last-write-wins rule
 sync uses, so an older imported row never regresses a newer local one.
 [export-markdown.ts](../../frontend/src/lib/db/export-markdown.ts) writes the
 prose model out as a zip of markdown files — possible precisely because
-markdown is the stored format. Backup fixtures used by the test suite live
+markdown is the stored format. The per-collection exports (a tag, a resource
+list) are a different animal entirely and live in
+[exports.md](exports.md). Backup fixtures used by the test suite live
 in [frontend/test/fixtures/](../../frontend/test/fixtures/).

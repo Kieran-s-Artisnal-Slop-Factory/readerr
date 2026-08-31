@@ -532,7 +532,8 @@
         `Demo data loaded: ${s.links.toLocaleString()} links across ${s.weeks} weeks from ` +
         `${s.origins.toLocaleString()} domains · ${s.tags.toLocaleString()} tags ` +
         `(${s.tagAssignments.toLocaleString()} assignments, ${s.tagEdges.toLocaleString()} nested) · ` +
-        `${s.topics.toLocaleString()} topics (${s.references.toLocaleString()} references) · ` +
+        `${s.topics.toLocaleString()} topics ` +
+        `(${s.references.toLocaleString()} references, ${s.topicTags.toLocaleString()} tag assignments) · ` +
         `${s.notes.toLocaleString()} notes · ${s.excerpts.toLocaleString()} excerpts · ` +
         `${s.favourites.toLocaleString()} favourites · ${s.resources.toLocaleString()} resources · ` +
         `${s.slushed.toLocaleString()} slushed · ${s.reviews.toLocaleString()} reviews` +
@@ -1208,6 +1209,20 @@
             <label>
               With a body document (% of topics)
               <input type="number" min="0" max="100" bind:value={adv.topics.describedPct} />
+            </label>
+            <label>
+              Tagged (% of topics)
+              <input type="number" min="0" max="100" bind:value={adv.topics.taggedPct} />
+            </label>
+            <label>
+              Average tags per tagged topic
+              <input
+                type="number"
+                min="0"
+                max="20"
+                step="0.1"
+                bind:value={adv.topics.tagsPerTopic}
+              />
             </label>
             <label>
               Body: min sentences

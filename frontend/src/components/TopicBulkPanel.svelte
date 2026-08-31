@@ -11,6 +11,7 @@
    */
   import { onMount } from 'svelte';
   import ChipSelect from './ChipSelect.svelte';
+  import InProgressIcon from './InProgressIcon.svelte';
   import { all, put, softDelete, softDeleteMany, withSyncFields } from '../lib/db/repo';
   import { byIndex } from '../lib/db/repo';
   import {
@@ -106,7 +107,7 @@
     <span class="op-label">Status</span>
     <div class="op-actions">
       <button class="btn" disabled={busy} onclick={() => applyStatus('in-progress')}>
-        ▶ In progress
+        <InProgressIcon /> In progress
       </button>
       <button class="btn" disabled={busy} onclick={() => applyStatus('done')}>✓ Done</button>
       <button class="btn" disabled={busy} onclick={() => applyStatus('')}>Clear status</button>
@@ -194,5 +195,12 @@
     align-items: center;
     gap: var(--space-2);
     flex-wrap: wrap;
+  }
+
+  /* Buttons that pair the status glyph with a label. */
+  .op-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
   }
 </style>

@@ -26,6 +26,7 @@ import type {
   Tag,
   TagParent,
   Topic,
+  TopicTag,
   UserSettings,
   Week,
   WeekLink,
@@ -333,6 +334,94 @@ describe('topics', () => {
     await seedDataset({ ...BASE, topics: { count: 20, describedPct: 50 } });
     const described = (await rows<Topic>('topics')).filter((t) => t.body_md.length > 0);
     expect(described.length).toBe(10);
+  });
+});
+
+describe('topic tags', () => {
+  it('tags exactly the requested share of topics', async () => {
+    await seedDataset({
+      ...BASE,
+      tags: { count: 8 },
+      topics: { count: 20, taggedPct: 25, tagsPerTopic: 2 },
+    });
+    const edges = await rows<TopicTag>('topic_tags');
+    expect(new Set(edges.map((e) => e.topic_id)).size).toBe(5);
+  });
+
+  it('writes the requested average, and reports what it wrote', async () => {
+    const summary = await seedDataset({
+      ...BASE,
+      tags: { count: 8 },
+      topics: { count: 20, taggedPct: 100, tagsPerTopic: 3 },
+    });
+    expect(summary.topicTags).toBe(60);
+    expect((await rows<TopicTag>('topic_tags')).length).toBe(60);
+  });
+
+  it('spreads a fractional average across the tagged topics', async () => {
+    // 10 tagged topics × 1.5 = 15 edges: five topics get two, five get one.
+    const summary = await seedDataset({
+      ...BASE,
+      tags: { count: 8 },
+      topics: { count: 10, taggedPct: 100, tagsPerTopic: 1.5 },
+    });
+    expect(summary.topicTags).toBe(15);
+    const perTopic = new Map<string, number>();
+    for (const e of await rows<TopicTag>('topic_tags')) {
+      perTopic.set(e.topic_id, (perTopic.get(e.topic_id) ?? 0) + 1);
+    }
+    expect([...perTopic.values()].sort()).toEqual([1, 1, 1, 1, 1, 2, 2, 2, 2, 2]);
+  });
+
+  it('never assigns the same tag to a topic twice', async () => {
+    // The topic_tags-pair invariant: seeded data must need no reconciliation.
+    await seedDataset({
+      ...BASE,
+      tags: { count: 3 },
+      topics: { count: 30, taggedPct: 100, tagsPerTopic: 3 },
+    });
+    const pairs = (await rows<TopicTag>('topic_tags')).map((e) => `${e.topic_id} ${e.tag_id}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
+  });
+
+  it('caps a topic at the number of tags that actually exist', async () => {
+    // The physical limit wins over the request, and the summary says so.
+    const summary = await seedDataset({
+      ...BASE,
+      tags: { count: 2 },
+      topics: { count: 10, taggedPct: 100, tagsPerTopic: 9 },
+    });
+    expect(summary.topicTags).toBe(20); // 10 topics x 2 available tags
+  });
+
+  it('gives a tagged topic at least one tag even below an average of one', async () => {
+    const summary = await seedDataset({
+      ...BASE,
+      tags: { count: 8 },
+      topics: { count: 10, taggedPct: 100, tagsPerTopic: 0.2 },
+    });
+    expect(summary.topicTags).toBe(10);
+  });
+
+  it('writes nothing when the average is zero, or when there are no tags', async () => {
+    const none = await seedDataset({
+      ...BASE,
+      tags: { count: 8 },
+      topics: { count: 10, tagsPerTopic: 0 },
+    });
+    expect(none.topicTags).toBe(0);
+    const noTags = await seedDataset({ ...BASE, tags: { count: 0 }, topics: { count: 10 } });
+    expect(noTags.topicTags).toBe(0);
+  });
+
+  it('points every edge at a topic and a tag that exist', async () => {
+    await seedDataset({ ...BASE, tags: { count: 6 }, topics: { count: 12 } });
+    const topicIds = new Set((await rows<Topic>('topics')).map((t) => t.id));
+    const tagIds = new Set((await rows<Tag>('tags')).map((t) => t.id));
+    for (const e of await rows<TopicTag>('topic_tags')) {
+      expect(topicIds.has(e.topic_id)).toBe(true);
+      expect(tagIds.has(e.tag_id)).toBe(true);
+    }
   });
 });
 

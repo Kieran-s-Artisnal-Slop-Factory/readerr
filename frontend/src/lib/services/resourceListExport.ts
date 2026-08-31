@@ -1,24 +1,24 @@
 /**
  * Mass export of ALL resource lists (#2): the plain per-list formats
- * (md/txt/csv) zipped one file per list, JSON as a single combined file,
- * or a self-contained set of themed HTML pages — an index of every list
- * plus a page per list with a client-side-searchable link table, where
- * each row links out and expands (a <details>) into the link's notes,
- * excerpts, and full URL. The HTML follows the currently set theme by
- * resolving the active tokens into a light-dark() stylesheet.
+ * (txt/csv) zipped one file per list, JSON as a single combined file, and —
+ * for markdown and HTML — the shared collection core, so a list exports
+ * exactly the way a tag does: stats, about section, and a link table with
+ * read / favourite / resource / reading-week / tags columns. The HTML page
+ * carries the table runtime, so it filters and sorts offline, and follows the
+ * currently set theme by resolving the active tokens into a light-dark()
+ * stylesheet.
  */
 import JSZip from 'jszip';
-import { byIndex } from '../db/repo';
-import { download, esc, md, page, safeName as safe, themeCss } from './htmlExport';
-import { domainOf } from './links';
+import { collectionHtml, collectionMarkdown } from './collectionExport';
+import { allListCollections, collectionForList } from './collectionSource';
+import { download, esc, page, safeName as safe, themeCss } from './htmlExport';
 import {
   listMembers,
   listResourceLists,
   serializeList,
   type ListExportFormat,
-  type ListMember,
 } from './resourceLists';
-import type { Excerpt, Note, ResourceList } from '../db/types';
+import type { ResourceList } from '../db/types';
 
 export type MassExportFormat = ListExportFormat | 'html';
 
@@ -42,83 +42,24 @@ function indexHtml(lists: { list: ResourceList; count: number; file: string }[])
   return page('Resource lists', `<h1>Resource lists</h1>\n${items}`);
 }
 
-interface MemberDetail {
-  member: ListMember;
-  notes: Note[];
-  excerpts: Excerpt[];
-}
-
-function listHtml(
-  list: ResourceList,
-  details: MemberDetail[],
-  opts: { standalone?: boolean; css?: string } = {}
-): string {
-  const rows = details
-    .map(({ member, notes, excerpts }) => {
-      const { link } = member;
-      const haystack = esc(`${link.title} ${link.url}`.toLowerCase());
-      const noteHtml = notes
-        .filter((n) => n.body_md.trim())
-        .map((n) => md(n.body_md))
-        .join('\n');
-      const excerptHtml = excerpts
-        .map((e) => `<blockquote>${md(e.content_md)}</blockquote>`)
-        .join('\n');
-      return `<li data-search="${haystack}">
-  <a class="link-title" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.title)}</a>
-  <span class="domain">${esc(domainOf(link.url))}</span>
-  <details>
-    <summary>Details</summary>
-    <div class="body">
-      <p class="full-url"><a href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.url)}</a></p>
-      ${noteHtml ? `<h3>Notes</h3>\n${noteHtml}` : ''}
-      ${excerptHtml ? `<h3>Excerpts</h3>\n${excerptHtml}` : ''}
-    </div>
-  </details>
-</li>`;
-    })
-    .join('\n');
-
-  // A standalone file has no index.html beside it — skip the crumb.
-  const crumb = opts.standalone ? '' : '<p class="crumb"><a href="index.html">← All resource lists</a></p>\n';
-  const body = `${crumb}<h1>${esc(list.name)}</h1>
-${list.description_md ? `<div class="desc">${md(list.description_md)}</div>` : ''}
-<input class="search" type="search" placeholder="Filter links by title or URL…" id="q">
-<ul class="links" id="links">
-${rows}
-</ul>
-<script>
-document.getElementById('q').addEventListener('input', (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  for (const li of document.querySelectorAll('#links > li')) {
-    li.style.display = !q || li.dataset.search.includes(q) ? '' : 'none';
-  }
-});
-</script>`;
-  return page(`${list.name} · Resource lists`, body, opts.css);
-}
-
-/** Notes + excerpts for each member (the <details> content). */
-async function memberDetails(members: ListMember[]): Promise<MemberDetail[]> {
-  const details: MemberDetail[] = [];
-  for (const member of members) {
-    details.push({
-      member,
-      notes: await byIndex<Note>('notes', 'link_id', member.link.id),
-      excerpts: await byIndex<Excerpt>('excerpts', 'link_id', member.link.id),
-    });
-  }
-  return details;
-}
-
 /**
  * One list as a single self-contained themed HTML file — the same page the
- * mass export produces, with the stylesheet inlined and no index crumb.
+ * mass export produces, and the same page a TAG exports, because both go
+ * through the shared collection core (collectionExport.ts).
  */
 export async function downloadListHtml(list: ResourceList): Promise<void> {
-  const details = await memberDetails(await listMembers(list.id));
-  const html = listHtml(list, details, { standalone: true, css: themeCss() });
+  const collection = await collectionForList(list);
+  const html = collectionHtml(collection, themeCss(), { embedTopics: true });
   download(new Blob([html], { type: 'text/html' }), `${safeName(list.name)}.html`);
+}
+
+/** One list as markdown, through the same core — table, stats and all. */
+export async function downloadListMarkdown(list: ResourceList): Promise<void> {
+  const collection = await collectionForList(list);
+  download(
+    new Blob([collectionMarkdown(collection, { embedTopics: false })], { type: 'text/markdown' }),
+    `${safeName(list.name)}.md`
+  );
 }
 
 /**
@@ -148,17 +89,25 @@ export async function downloadAllLists(format: MassExportFormat): Promise<void> 
 
   const zip = new JSZip();
 
-  if (format === 'html') {
-    zip.file('style.css', themeCss());
+  if (format === 'html' || format === 'md') {
+    // Both go through the shared collection core, so a page (or document) in
+    // the bundle is byte-identical to the single-list download.
+    const css = themeCss();
     const indexEntries: { list: ResourceList; count: number; file: string }[] = [];
-    for (const list of lists) {
-      const members = await listMembers(list.id);
-      const details = await memberDetails(members);
-      const file = `${safeName(list.name)}.html`;
-      zip.file(file, listHtml(list, details));
-      indexEntries.push({ list, count: members.length, file });
+    for (const { list, collection } of await allListCollections()) {
+      const count = collection.sections[0]?.rows.length ?? 0;
+      if (format === 'html') {
+        const file = `${safeName(list.name)}.html`;
+        zip.file(file, collectionHtml(collection, css, { embedTopics: true }));
+        indexEntries.push({ list, count, file });
+      } else {
+        zip.file(
+          `${safeName(list.name)}.md`,
+          collectionMarkdown(collection, { embedTopics: false })
+        );
+      }
     }
-    zip.file('index.html', indexHtml(indexEntries));
+    if (format === 'html') zip.file('index.html', indexHtml(indexEntries));
   } else {
     for (const list of lists) {
       const members = await listMembers(list.id);

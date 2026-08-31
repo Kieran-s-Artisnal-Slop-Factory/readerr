@@ -181,6 +181,49 @@ describe('setLinkWeek', () => {
     await setLinkWeek(link.id, null);
     expect(await pendingWeeksForLink(link.id)).toHaveLength(0);
   });
+
+  it('re-scheduling never discards an entry already marked done', async () => {
+    // The one way this control could LOSE data instead of moving it: an entry
+    // done in the current (still open) week is a record of reading that
+    // happened, and the week simply hasn't closed to turn it into history.
+    const thisWeek = currentWeekStart();
+    const later = weekStartPlus(thisWeek, 2);
+    const link = await makeLink();
+
+    await setLinkWeek(link.id, thisWeek);
+    const [entry] = await weekEntries((await findWeek(thisWeek))!.id);
+    await setEntryDone(entry.entry, true);
+
+    await setLinkWeek(link.id, later);
+
+    // The completed entry stands, and the new schedule sits alongside it.
+    const done = await weekEntries((await findWeek(thisWeek))!.id);
+    expect(done, 'the finished entry survives').toHaveLength(1);
+    expect(done[0].entry.done_at).toBeTruthy();
+    expect(await weekEntries((await findWeek(later))!.id)).toHaveLength(1);
+  });
+
+  it('still displaces an UNFINISHED entry, done or not elsewhere', async () => {
+    // The guard is about completion, not about having two entries in general.
+    const first = weekStartPlus(currentWeekStart(), 1);
+    const second = weekStartPlus(currentWeekStart(), 2);
+    const link = await makeLink();
+
+    await setLinkWeek(link.id, first);
+    await setLinkWeek(link.id, second);
+    expect(await weekEntries((await findWeek(first))!.id)).toHaveLength(0);
+  });
+
+  it('clearing the week leaves a completed entry alone', async () => {
+    const thisWeek = currentWeekStart();
+    const link = await makeLink();
+    await setLinkWeek(link.id, thisWeek);
+    const [entry] = await weekEntries((await findWeek(thisWeek))!.id);
+    await setEntryDone(entry.entry, true);
+
+    await setLinkWeek(link.id, null);
+    expect(await weekEntries((await findWeek(thisWeek))!.id)).toHaveLength(1);
+  });
 });
 
 describe('scheduleLinkForWeek', () => {

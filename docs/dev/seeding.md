@@ -82,6 +82,8 @@ keep.
 | | Top *n* topics accounting for *x*% | pinned head of the reference distribution |
 | | Fewest / most references per topic | per-topic clamp, applied after the split |
 | | With a body document + length | `body_md` coverage and size |
+| | Tagged (% of topics) | share of topics carrying at least one `topic_tags` edge |
+| | Average tags per tagged topic | edge budget for those topics |
 | Notes & excerpts | Links with a note / excerpt + lengths | `notes` and `excerpts` coverage and size |
 
 Prose lengths are expressed the way you'd say them out loud — "at least one
@@ -104,6 +106,16 @@ slots simply stay under it — nothing is invented to hit the total.
 after the distribution split, so with many topics and a low reference budget
 `minRefs` can push the total above the requested percentage. That is
 deliberate: a topic with zero references is not a useful test fixture.
+
+**Topic tags are exact on the share, best-effort on the average.**
+`taggedPct` picks exactly that share of topics; the budget
+(`tagged x tagsPerTopic`) is then spread as evenly as the remainder allows and
+clamped per topic to **at least one** (a tagged topic with no tag would make
+the share a lie) and **at most the number of tags that exist** (you cannot
+carry more distinct tags than there are). Either clamp shows up in
+`SeedSummary.topicTags`, which reports what was really written. The tags on
+one topic are always distinct, so seeded data satisfies the `topic_tags-pair`
+invariant with nothing left for `dedupeTopicTags` to heal.
 
 **One fixed resource list.** Every run seeds the same "Handy tools" list from
 a fixed ten-URL pool (`RESOURCE_POOL`), adding the first six as members. It

@@ -208,6 +208,35 @@ buttons include the references:
   (`[^1]: [Title](url)`), so the citations work as footnotes in Obsidian or
   anything else that speaks GitHub-flavoured markdown.
 
+### Exporting a tag
+
+A tag's page has an **Export** card. Both formats carry the same thing:
+the child tags and link counts as metadata, your tag notes as an **About**
+section, then a table of the links tagged directly and — when there are any —
+a second table of the links that reach the tag through a nested child tag.
+A link that is both only appears once, under the direct heading.
+
+Rows come out **favourites first, then read, then unread**.
+Each row shows the link, its URL, whether it's read / a favourite / a resource,
+the reading week it's queued for, and its tags.
+
+- **HTML** — one self-contained themed page. Every table has a search box, a
+  filter per column, sortable headings, and a **Download CSV** button that
+  exports exactly what you've filtered down to. It all works from a saved file
+  with no internet.
+- **Markdown** — the same content as YAML frontmatter plus GitHub-flavoured
+  tables, ready to drop into a vault.
+
+If the tag has tagged **topics**, they're listed either way. Two checkboxes
+decide how much of them travels: *include each topic's full document* (an
+extra section in the markdown, a click-to-read modal in the HTML), and, for
+markdown only, *one file per topic, bundled as a zip* — the tag's document
+plus a `topics/` folder, one note per topic.
+
+**Resource lists export the same way**, from the Export card on a list's page:
+Markdown and HTML now produce the same document shape a tag does. (Plain
+**txt**, **csv** and **JSON** are still there for a bare list of URLs.)
+
 ## Series (part 1, part 2, part 3…)
 
 Some writing comes in parts. A **series** keeps them together: it is one link
@@ -242,7 +271,8 @@ has, a series has:
 - an **Overview** document (the description you typed lands here) with the
   same markdown editor and MD/HTML exports as any link's notes;
 - **excerpts**, for quotations that belong to the series as a whole;
-- **tags** and **topics**, its **reading week**, and its **history**;
+- **tags**, **topics** and **resource lists** (adding it to a list marks it a
+  resource), its **reading week**, and its **history**;
 - and a **Parts** card on top: add a part by URL, reorder with **↑ ↓**, remove
   one, or delete the series.
 

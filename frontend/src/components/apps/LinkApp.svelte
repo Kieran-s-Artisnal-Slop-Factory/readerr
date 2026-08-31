@@ -3,7 +3,8 @@
    * Link detail: edit title/url and flags, assign tags/topics, keep excerpts
    * (notable quotations) and a free-form note. The note row is created
    * lazily on first edit; both prose fields autosave via MarkdownEditor's
-   * debounced onChange.
+   * debounced onChange. Resource-list membership is edited here too, which is
+   * the only per-link way in (the list pages add FROM the list's side).
    */
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
@@ -26,7 +27,12 @@
   import SeriesParts from '../SeriesParts.svelte';
   import { href } from '../../lib/paths';
   import { isSeries, isSyntheticSeriesUrl, partsOf, seriesForLink } from '../../lib/services/series';
-  import type { Excerpt, Link, Note } from '../../lib/db/types';
+  import {
+    addLinksToList,
+    listResourceLists,
+    removeLinksFromList,
+  } from '../../lib/services/resourceLists';
+  import type { Excerpt, Link, Note, ResourceList, ResourceListLink } from '../../lib/db/types';
 
   let link = $state<Link | null>(null);
   let note = $state<Note | null>(null);
@@ -35,6 +41,10 @@
   let pending = $state<PendingWeekAssignment[]>([]);
   let weekChoice = $state('');
   let missing = $state(false);
+  /** Every list, and the ids of the ones this link is in. */
+  let allLists = $state<ResourceList[]>([]);
+  let memberListIds = $state<Set<string>>(new Set());
+  let newListName = $state('');
   // The note loads a tick after the link, so the Notes editor must wait for
   // it — otherwise it mounts with '' before the note arrives (the editor
   // only reads `value` at mount), showing an existing note as blank and
@@ -66,6 +76,7 @@
       (a, b) => a.position - b.position
     );
     await refreshWeeks(id);
+    await refreshLists(id);
     await refreshSeries(id);
     loaded = true;
   });
@@ -103,7 +114,43 @@
   async function refreshWeeks(linkId: string) {
     history = await weekHistoryForLink(linkId);
     pending = await pendingWeeksForLink(linkId);
-    weekChoice = pending[0]?.week.week_start ?? '';
+    // Prefer the first UNFINISHED assignment: a done-but-not-yet-closed entry
+    // is a record, not a schedule, so the control shouldn't snap back to it.
+    weekChoice = (pending.find((p) => !p.entry.done_at) ?? pending[0])?.week.week_start ?? '';
+  }
+
+  /** Resource-list memberships for this link (both directions of the join). */
+  async function refreshLists(linkId: string) {
+    const [lists, joins] = await Promise.all([
+      listResourceLists(),
+      byIndex<ResourceListLink>('resource_list_links', 'link_id', linkId),
+    ]);
+    allLists = lists;
+    memberListIds = new Set(joins.map((j) => j.list_id));
+  }
+
+  /**
+   * Toggle membership. Adding also flags the link a resource — list
+   * membership IS the organizational layer over the flat resources view — so
+   * the flag in the header above updates with it.
+   */
+  async function toggleList(list: ResourceList) {
+    if (!link) return;
+    if (memberListIds.has(list.id)) await removeLinksFromList(list.id, [link]);
+    else await addLinksToList(list.id, [link]);
+    link = (await get<Link>('links', link.id)) ?? link;
+    await refreshLists(link.id);
+  }
+
+  async function createListWithLink() {
+    const name = newListName.trim();
+    if (!name || !link) return;
+    const existing = allLists.find((l) => l.name.toLowerCase() === name.toLowerCase());
+    const list = existing ?? (await put('resource_lists', withSyncFields({ name, description_md: '' })));
+    await addLinksToList(list.id, [link]);
+    newListName = '';
+    link = (await get<Link>('links', link.id)) ?? link;
+    await refreshLists(link.id);
   }
 
   /** What adding the link to a week would file it as, in plain words. */
@@ -314,6 +361,39 @@
       <TopicPicker linkId={link.id} />
     </Card>
 
+    <Card title={`Resource lists (${memberListIds.size})`}>
+      <p class="hint">
+        Adding this link to a list also marks it a <strong>resource</strong>.
+        Removing it from one leaves the flag alone — it is still reference
+        material, just not in that list.
+      </p>
+      {#if allLists.length > 0}
+        <div class="chips">
+          {#each allLists as list (list.id)}
+            <button
+              type="button"
+              class="chip"
+              class:selected={memberListIds.has(list.id)}
+              aria-pressed={memberListIds.has(list.id)}
+              onclick={() => toggleList(list)}
+            >
+              {list.name}
+            </button>
+          {/each}
+        </div>
+      {/if}
+      <form
+        class="create"
+        onsubmit={(e) => {
+          e.preventDefault();
+          void createListWithLink();
+        }}
+      >
+        <input type="text" placeholder="New list…" bind:value={newListName} />
+        <button type="submit" class="btn" disabled={!newListName.trim()}>Add</button>
+      </form>
+    </Card>
+
     <Card title="Excerpts">
       <div class="excerpts">
         {#each excerpts as excerpt (excerpt.id)}
@@ -369,6 +449,51 @@
 {/if}
 
 <style>
+  /* Resource-list chips: the TagPicker vocabulary, so the two cards read alike. */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-bottom: var(--space-2);
+  }
+
+  .chip {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    background: var(--surface-color);
+    padding: 0 var(--space-3);
+    font-size: var(--font-size-sm);
+    line-height: 1.9;
+    cursor: pointer;
+    color: var(--text-color);
+  }
+
+  .chip:hover {
+    border-color: var(--color-primary);
+  }
+
+  .chip.selected {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+    font-weight: 600;
+  }
+
+  .create {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .create input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface-color);
+    color: var(--text-color);
+  }
+
   .stack {
     display: flex;
     flex-direction: column;

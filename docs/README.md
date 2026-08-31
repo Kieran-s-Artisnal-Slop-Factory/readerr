@@ -26,6 +26,7 @@ protocol, the capture DSL internals, offline support, and deployment/CI.
 - [Data model](dev/data-model.md)
 - [Tagging](dev/tagging.md) — tag storage, the nesting DAG, and its reconcilers
 - [Topics](dev/topics.md) — statuses, topic tags, and how both fold across devices
+- [Exports](dev/exports.md) — the shared tag/resource-list core and the table inlined in exported pages
 - [Sync protocol](dev/sync.md)
 - [Link DSL](dev/link-dsl.md)
 - [Bulk operations & the link picker](dev/bulk-and-picking.md) — the shared adder/search component and batch edits

@@ -378,6 +378,29 @@ export async function removeFromWeek(entryId: string): Promise<void> {
   await softDelete('week_links', entryId);
 }
 
+/**
+ * The reading week each link is currently queued for, as `YYYY-MM-DD`.
+ *
+ * One pass over `week_links` and `weeks` for the WHOLE library, rather than an
+ * index read per link: the exports need this column for every row they print,
+ * and asking per link is the shape docs/dev/performance.md keeps warning
+ * about. Only open, un-outcomed entries count — a closed week is history, not
+ * a schedule — and the earliest wins if a link somehow sits in two.
+ */
+export async function pendingWeekByLink(): Promise<Map<string, string>> {
+  const [entries, weeks] = await Promise.all([all<WeekLink>('week_links'), all<Week>('weeks')]);
+  const openWeeks = new Map(weeks.filter((w) => !w.closed_at).map((w) => [w.id, w.week_start]));
+  const out = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.outcome) continue;
+    const start = openWeeks.get(entry.week_id);
+    if (!start) continue;
+    const existing = out.get(entry.link_id);
+    if (!existing || start < existing) out.set(entry.link_id, start);
+  }
+  return out;
+}
+
 export interface PendingWeekAssignment {
   entry: WeekLink;
   week: Week;
@@ -407,13 +430,20 @@ export function entryKindFor(link: Link): WeekLinkKind {
  * Queue a link for the week starting on the given Monday (creating that
  * week if needed). A link sits in at most one upcoming week, so any other
  * pending assignment is removed first; null just clears it.
+ *
+ * "Pending" means NOT YET FINISHED. An entry already stamped `done_at` in an
+ * open week is a record of reading that actually happened — the week just
+ * hasn't closed to turn it into history — so re-scheduling the link leaves it
+ * alone and adds a fresh entry alongside. Removing it would silently erase
+ * that week's completion (and its contribution to the stats), which is the one
+ * way this control could lose data rather than move it.
  */
 export async function setLinkWeek(linkId: string, weekStart: string | null): Promise<void> {
   const pending = await pendingWeeksForLink(linkId);
   let already = false;
   for (const { entry, week } of pending) {
     if (week.week_start === weekStart && !already) already = true;
-    else await removeFromWeek(entry.id);
+    else if (!entry.done_at) await removeFromWeek(entry.id);
   }
   if (weekStart && !already) {
     const week = await ensureWeek(weekStart);

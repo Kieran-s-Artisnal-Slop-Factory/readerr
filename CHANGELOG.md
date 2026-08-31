@@ -6,6 +6,11 @@
 * Topics can be marked **In Progress** or **Done** and can now be tagged.
 * Added **topic search, filtering, and bulk operations**.
 * Bulk operations can now add links to **resource lists**.
+* Tags can be **exported** as a single self-contained HTML page or as Markdown — metadata, your tag notes, and tables of the direct links and the links reaching the tag through a child tag.
+* Exported HTML tables **search, filter per column, sort, and download their own CSV**, offline from a saved file.
+* Tagged topics travel with a tag export: metadata always, and optionally each topic's full document — as sections, as a modal, or as one file per topic in a zip.
+* Resource lists now export through the **same shared core as tags**, so both produce the same document shape.
+* The link page can now file a link into **resource lists** (adding also marks it a resource).
 * Added a new **Inbox** for RSS/Atom feed subscriptions and triage.
 * Inbox feeds can work **without a sync server**, including offline/static-host deployments.
 * Added **Series** for grouping multi-part content into a single link with progress tracking.
@@ -18,6 +23,7 @@
 * Sync no longer attempts server requests when **no sync server is configured**.
 * Added validation for invalid sync URLs.
 * Bulk action controls now appear alongside the **selected items** instead of at the top of the page.
+* Re-scheduling a link no longer **discards an entry already marked done** in the current, still-open week.
 * Fixed older servers potentially **overwriting newer client fields** during sync.
 * Fixed series parts appearing **twice in reading weeks**.
 * Improved error messages for outdated or incorrectly configured sync servers.
@@ -27,6 +33,8 @@
 
 * Moved **Backlog** and **Favourites** under the Collections menu.
 * Added migration tests for both backend and IndexedDB upgrades.
+* The demo/stress seeder can generate **topic tags** (share of topics tagged, and average tags each).
+* Vendored retoken's dependency-free table model and its 113 upstream tests to back the exported tables.
 * Added extensive test coverage for **Series, Inbox, syncing, and migrations**.
 * Added a backend `/feed` endpoint supporting **RSS 2.0, Atom, and RSS 1.0/RDF**.
 * Removed the temporary Series prototype now that the feature is implemented.
