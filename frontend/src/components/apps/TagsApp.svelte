@@ -13,6 +13,7 @@
   import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
   import { reconcileTags, tagCounts, type TagCount } from '../../lib/services/links';
   import { parentMap, reconcileTagParents } from '../../lib/services/tagTree';
+  import { clearTagFromTopics } from '../../lib/services/topics';
   import { href } from '../../lib/paths';
   import type { LinkTag, Tag, TagParent } from '../../lib/db/types';
 
@@ -130,6 +131,8 @@
     const asChild = await byIndex<TagParent>('tag_parents', 'child_id', tag.id);
     const asParent = await byIndex<TagParent>('tag_parents', 'parent_id', tag.id);
     await softDeleteMany('tag_parents', [...asChild, ...asParent].map((e) => e.id));
+    // …and the topics carrying it, for the same reason.
+    await clearTagFromTopics(tag.id);
     await softDelete('tags', tag.id);
     await refresh();
   }

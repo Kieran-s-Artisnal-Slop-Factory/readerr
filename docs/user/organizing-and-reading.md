@@ -145,6 +145,32 @@ Both are edited in an Obsidian-style live Markdown editor, with a **source
 mode** toggle for exact text. Markdown is the storage format, so exporting to
 plain `.md` files is lossless.
 
+### Topic statuses
+
+A topic can be marked **In progress** or **Done** — or neither, which is the
+normal state. Use the ▶ and ✓ buttons on the topics list, or the matching
+buttons in a topic's header; clicking the status a topic already has clears it.
+
+The status changes where the topic sits on the list: **in progress first, then
+unmarked topics, then done**. In progress is a way to float the thing you are
+actively writing to the top; done retires a finished piece without deleting it.
+
+### Tagging topics
+
+Topics take tags, the same way links do — the **Tags** card on a topic page.
+A tagged topic shows up in a **Topics** section on that tag's page, next to the
+links carrying it, and the tags travel into the topic's Markdown and HTML
+exports as metadata.
+
+### Finding and bulk-editing topics
+
+The topics list has a **search box** (it matches the topic name or any of its
+tag names) and chip filters for **status** and **tag**. Several status chips
+mean "any of these"; several tag chips narrow to topics carrying *all* of them.
+
+Tick the checkbox on any rows for a **bulk operations** panel: set or clear the
+status, add or remove tags, or delete the selected topics.
+
 ### Citing links as footnotes
 
 Every link on a topic page carries a footnote marker — `[^1]`, `[^2]` — shown

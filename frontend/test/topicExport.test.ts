@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderTopicBody, topicHtml, topicMarkdown } from '../src/lib/services/topicExport';
-import type { Link, Topic, LinkTopic } from '../src/lib/db/types';
+import type { Link, Tag, Topic, LinkTopic } from '../src/lib/db/types';
 import type { TopicReference } from '../src/lib/services/topics';
 
 const known = new Set([1, 3]);
@@ -119,5 +119,56 @@ describe('topicHtml', () => {
 
   it('inlines the stylesheet so the page stands alone', () => {
     expect(topicHtml(topic, [ref(1)], 'body { color: red }')).toContain('<style>');
+  });
+});
+
+describe('status and tag metadata in exports', () => {
+  const tags = [
+    { id: 'g1', name: 'systems' } as Tag,
+    { id: 'g2', name: 'databases' } as Tag,
+  ];
+  const plain = { id: 't1', name: 'Storage', body_md: 'Body.' } as Topic;
+  const marked = { ...plain, status: 'in-progress' } as Topic;
+
+  it('markdown gets YAML frontmatter with status and tags', () => {
+    const out = topicMarkdown(marked, [], tags);
+    expect(out.startsWith('---\n')).toBe(true);
+    expect(out).toContain('status: "in-progress"');
+    expect(out).toContain('tags: ["systems", "databases"]');
+    expect(out).toContain('Body.');
+  });
+
+  it('markdown of an unmarked, untagged topic is unchanged prose', () => {
+    // The whole point of the frontmatter being conditional: existing exports
+    // must not grow a metadata block they never had.
+    expect(topicMarkdown(plain, [])).toBe('Body.\n');
+  });
+
+  it('markdown carries frontmatter for tags alone, with no status', () => {
+    const out = topicMarkdown(plain, [], tags);
+    expect(out).toContain('status: ""');
+    expect(out).toContain('tags: ["systems", "databases"]');
+  });
+
+  it('frontmatter sits above the footnote definitions, not inside them', () => {
+    const out = topicMarkdown(marked, [ref(1)], tags);
+    expect(out.indexOf('---')).toBeLessThan(out.indexOf('[^1]:'));
+  });
+
+  it('html gets a metadata card with the status label and tag chips', () => {
+    const html = topicHtml(marked, [], '', tags);
+    expect(html).toContain('class="topic-meta"');
+    expect(html).toContain('In progress');
+    expect(html).toContain('>systems<');
+  });
+
+  it('html of an unmarked, untagged topic has no metadata card', () => {
+    expect(topicHtml(plain, [], '')).not.toContain('topic-meta"');
+  });
+
+  it('escapes a tag name that looks like markup', () => {
+    const html = topicHtml(plain, [], '', [{ id: 'g9', name: '<script>x' } as Tag]);
+    expect(html).not.toContain('<script>x');
+    expect(html).toContain('&lt;script&gt;x');
   });
 });

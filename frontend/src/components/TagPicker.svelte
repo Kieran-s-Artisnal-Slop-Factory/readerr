@@ -1,20 +1,45 @@
 <script lang="ts">
   /**
-   * Assign/unassign tags on a link as toggleable chips, with inline create.
+   * Assign/unassign tags as toggleable chips, with inline create.
+   *
+   * Works on a link (`link_tags`) or a topic (`topic_tags`) — the two are the
+   * same junction shape and the same interaction, so the difference is three
+   * function references rather than a second component.
    */
   import { onMount } from 'svelte';
   import { all, put, withSyncFields } from '../lib/db/repo';
   import { assignTag, tagsForLink, unassignTag } from '../lib/services/links';
+  import { assignTopicTag, tagsForTopic, unassignTopicTag } from '../lib/services/topics';
   import type { Tag } from '../lib/db/types';
 
   let {
     linkId,
+    topicId,
     onChange,
   }: {
-    linkId: string;
+    /** The link to tag. Exactly one of linkId / topicId. */
+    linkId?: string;
+    /** The topic to tag. Exactly one of linkId / topicId. */
+    topicId?: string;
     /** Fired after any assignment change, so list pages can refresh chips. */
     onChange?: () => void;
   } = $props();
+
+  const ops = $derived(
+    topicId
+      ? {
+          id: topicId,
+          read: tagsForTopic,
+          add: assignTopicTag,
+          drop: unassignTopicTag,
+        }
+      : {
+          id: linkId ?? '',
+          read: tagsForLink,
+          add: assignTag,
+          drop: unassignTag,
+        }
+  );
 
   let allTags = $state<Tag[]>([]);
   let assignedIds = $state<Set<string>>(new Set());
@@ -23,15 +48,15 @@
   onMount(refresh);
 
   async function refresh() {
-    const [tags, assigned] = await Promise.all([all<Tag>('tags'), tagsForLink(linkId)]);
+    const [tags, assigned] = await Promise.all([all<Tag>('tags'), ops.read(ops.id)]);
     tags.sort((a, b) => a.name.localeCompare(b.name));
     allTags = tags;
     assignedIds = new Set(assigned.map((t) => t.id));
   }
 
   async function toggle(tag: Tag) {
-    if (assignedIds.has(tag.id)) await unassignTag(linkId, tag.id);
-    else await assignTag(linkId, tag.id);
+    if (assignedIds.has(tag.id)) await ops.drop(ops.id, tag.id);
+    else await ops.add(ops.id, tag.id);
     await refresh();
     onChange?.();
   }
@@ -41,7 +66,7 @@
     if (!name) return;
     const existing = allTags.find((t) => t.name.toLowerCase() === name.toLowerCase());
     const tag = existing ?? (await put('tags', withSyncFields({ name, notes_md: '' })));
-    await assignTag(linkId, tag.id);
+    await ops.add(ops.id, tag.id);
     newName = '';
     await refresh();
     onChange?.();

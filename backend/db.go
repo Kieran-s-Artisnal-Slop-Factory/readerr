@@ -230,6 +230,26 @@ CREATE INDEX idx_series_links_series ON series_links (series_id);
 CREATE INDEX idx_series_links_link ON series_links (link_id);
 CREATE INDEX idx_series_links_seq ON series_links (server_seq);
 `,
+	// v20 → v21: topic statuses and topic tags. `status` is '' by default
+	// ("no status"), so existing topics keep behaving exactly as before and a
+	// row pushed by an older client (which omits the column) lands on the
+	// default rather than NULL. `topic_tags` mirrors link_tags — additive,
+	// and with no rows the behaviour is unchanged.
+	`
+ALTER TABLE topics ADD COLUMN status TEXT NOT NULL DEFAULT ''
+    CHECK (status IN ('', 'in-progress', 'done'));
+CREATE TABLE topic_tags (
+    id         TEXT PRIMARY KEY,
+    topic_id   TEXT NOT NULL REFERENCES topics (id),
+    tag_id     TEXT NOT NULL REFERENCES tags (id),
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_topic_tags_topic ON topic_tags (topic_id);
+CREATE INDEX idx_topic_tags_tag ON topic_tags (tag_id);
+CREATE INDEX idx_topic_tags_seq ON topic_tags (server_seq);
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

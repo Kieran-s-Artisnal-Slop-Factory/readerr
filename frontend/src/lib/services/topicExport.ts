@@ -16,8 +16,8 @@
 import { Marked, type Tokens } from 'marked';
 import { download, esc, page, safeName, themeCss } from './htmlExport';
 import { domainOf } from './links';
-import { topicReferences, type TopicReference } from './topics';
-import type { Topic } from '../db/types';
+import { tagsForTopic, topicReferences, topicStatus, type TopicReference } from './topics';
+import type { Tag, Topic } from '../db/types';
 
 interface FootnoteRefToken extends Tokens.Generic {
   type: 'footnoteRef';
@@ -92,13 +92,72 @@ ${items}
 </section>`;
 }
 
+/**
+ * The topic's own metadata — status and tags — as a small card under the
+ * title. Only rendered when there is something to say, so an untagged topic
+ * with no status exports exactly as it did before this existed.
+ */
+function metaCardHtml(topic: Topic, tags: Tag[]): string {
+  const status = topicStatus(topic);
+  if (!status && tags.length === 0) return '';
+  const bits: string[] = [];
+  if (status) {
+    bits.push(`<span class="meta-item"><strong>Status:</strong> ${esc(statusLabel(status))}</span>`);
+  }
+  if (tags.length > 0) {
+    const chips = tags.map((t) => `<span class="tag">${esc(t.name)}</span>`).join(' ');
+    bits.push(`<span class="meta-item"><strong>Tags:</strong> ${chips}</span>`);
+  }
+  return `<section class="topic-meta">${bits.join('')}</section>`;
+}
+
+/** Human label for a status, shared by both export formats. */
+function statusLabel(status: string): string {
+  return status === 'in-progress' ? 'In progress' : status === 'done' ? 'Done' : '';
+}
+
 /** The full page — exported for testing without touching the DOM. */
-export function topicHtml(topic: Topic, refs: TopicReference[], css: string): string {
+export function topicHtml(
+  topic: Topic,
+  refs: TopicReference[],
+  css: string,
+  tags: Tag[] = []
+): string {
   const known = new Set(refs.map((r) => r.number));
   const body = `<h1>${esc(topic.name)}</h1>
+${metaCardHtml(topic, tags)}
 ${renderTopicBody(topic.body_md, known)}
 ${footnotesHtml(refs)}`;
-  return page(topic.name, body, css);
+  return page(topic.name, body, css + META_CSS);
+}
+
+/** Styling for the metadata card; appended to the theme CSS the page carries. */
+const META_CSS = `
+.topic-meta { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 1.5rem;
+  padding: 0.6rem 0.9rem; border: 1px solid var(--border-color);
+  border-radius: 8px; background: var(--surface-color); font-size: 0.9rem; }
+.topic-meta .meta-item { display: flex; align-items: center; gap: 0.4rem; }
+.topic-meta .tag { border: 1px solid var(--border-color); border-radius: 999px;
+  padding: 0 0.5rem; color: var(--text-muted-color); }
+`;
+
+/**
+ * YAML frontmatter carrying the topic's status and tags — the markdown twin
+ * of the HTML metadata card. Omitted entirely when there is neither, so an
+ * ordinary topic still exports as bare prose the way it always has.
+ */
+function frontmatter(topic: Topic, tags: Tag[]): string {
+  const status = topicStatus(topic);
+  if (!status && tags.length === 0) return '';
+  const names = tags.map((t) => JSON.stringify(t.name)).join(', ');
+  return [
+    '---',
+    `status: ${JSON.stringify(status)}`,
+    `tags: [${names}]`,
+    '---',
+    '',
+    '',
+  ].join('\n');
 }
 
 /**
@@ -108,25 +167,26 @@ ${footnotesHtml(refs)}`;
  * references. Definitions are generated here for the same reason they are
  * in the HTML — body_md stays what was typed.
  */
-export function topicMarkdown(topic: Topic, refs: TopicReference[]): string {
+export function topicMarkdown(topic: Topic, refs: TopicReference[], tags: Tag[] = []): string {
+  const front = frontmatter(topic, tags);
   const body = topic.body_md.replace(/\\(\[\^\d+\])/g, '$1').trimEnd();
-  if (refs.length === 0) return `${body}\n`;
+  if (refs.length === 0) return `${front}${body}\n`;
   const definitions = refs
     .map(({ link, number }) => `[^${number}]: [${link.title}](${link.url})`)
     .join('\n');
-  return `${body}\n\n${definitions}\n`;
+  return `${front}${body}\n\n${definitions}\n`;
 }
 
 export async function downloadTopicMarkdown(topic: Topic): Promise<void> {
-  const refs = await topicReferences(topic.id);
+  const [refs, tags] = await Promise.all([topicReferences(topic.id), tagsForTopic(topic.id)]);
   download(
-    new Blob([topicMarkdown(topic, refs)], { type: 'text/markdown' }),
+    new Blob([topicMarkdown(topic, refs, tags)], { type: 'text/markdown' }),
     `${safeName(topic.name, 'topic')}.md`
   );
 }
 
 export async function downloadTopicHtml(topic: Topic): Promise<void> {
-  const refs = await topicReferences(topic.id);
-  const html = topicHtml(topic, refs, themeCss());
+  const [refs, tags] = await Promise.all([topicReferences(topic.id), tagsForTopic(topic.id)]);
+  const html = topicHtml(topic, refs, themeCss(), tags);
   download(new Blob([html], { type: 'text/html' }), `${safeName(topic.name, 'topic')}.html`);
 }

@@ -90,6 +90,7 @@ export function checkInvariants(db: Db): InvariantViolation[] {
     live(db.resource_list_links),
     (r) => `${r.list_id}|${r.link_id}`
   );
+  dupCheck(v, 'topic_tags-pair', live(db.topic_tags), (r) => `${r.topic_id}|${r.tag_id}`);
 
   // 7. One live week_link per (week, link).
   dupCheck(v, 'week_links-pair', live(db.week_links), (r) => `${r.week_id}|${r.link_id}`);

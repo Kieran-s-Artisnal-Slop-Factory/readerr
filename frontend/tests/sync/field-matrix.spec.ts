@@ -259,6 +259,88 @@ test('store:topics + store:link_topics — body_md + footnote ref_number round-t
   await expectFieldRoundTrip(backend, deviceB, { store: 'link_topics', id: join.id, field: 'ref_number', value: 1 });
 });
 
+test('store:topics status — every value class round-trips (incl. the empty default)', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  // '' is the DEFAULT, so it is the value most likely to be quietly rewritten
+  // by a server default or dropped as falsy — pin it alongside the real ones.
+  for (const status of ['in-progress', 'done', '']) {
+    const topicId = await seedParent(A, 'topics', {
+      id: uid(),
+      updated_at: iso(),
+      deleted_at: null,
+      server_seq: null,
+      name: `Status ${status || 'none'}`,
+      body_md: '',
+      status,
+    });
+    await propagate(deviceA, deviceB);
+    await expectFieldRoundTrip(backend, deviceB, {
+      store: 'topics',
+      id: topicId,
+      field: 'status',
+      value: status,
+    });
+  }
+});
+
+test('store:topic_tags — a topic-tag edge round-trips with both endpoints live', async ({
+  backend,
+  deviceA,
+  deviceB,
+}) => {
+  const A = hook(deviceA);
+  const tagId = await seedParent(A, 'tags', {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    name: 'systems',
+    notes_md: '',
+  });
+  const topicId = await seedParent(A, 'topics', {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    name: 'Storage engines',
+    body_md: 'text',
+    status: 'in-progress',
+  });
+  const edge = {
+    id: uid(),
+    updated_at: iso(),
+    deleted_at: null,
+    server_seq: null,
+    topic_id: topicId,
+    tag_id: tagId,
+  };
+  await A.repoPut('topic_tags', edge);
+  await propagate(deviceA, deviceB);
+  await expectFieldRoundTrip(backend, deviceB, {
+    store: 'topic_tags',
+    id: edge.id,
+    field: 'topic_id',
+    value: topicId,
+  });
+  await expectFieldRoundTrip(backend, deviceB, {
+    store: 'topic_tags',
+    id: edge.id,
+    field: 'tag_id',
+    value: tagId,
+  });
+  await expectFieldRoundTrip(backend, deviceB, {
+    store: 'topics',
+    id: topicId,
+    field: 'status',
+    value: 'in-progress',
+  });
+  assertInvariants((await hook(deviceB).rawDumpAll()) as Record<string, SyncRow[]>, 'topic_tags');
+});
+
 test('store:notes + store:excerpts — prose + position round-trip', async ({
   backend,
   deviceA,
@@ -546,6 +628,7 @@ test('coverage guard: every synced store appears in the field matrix', async () 
     'tag_parents',
     'link_tags',
     'topics',
+    'topic_tags',
     'link_topics',
     'notes',
     'excerpts',

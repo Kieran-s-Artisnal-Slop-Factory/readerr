@@ -1,6 +1,6 @@
 # Version 0.4.0 — Phased implementation plan
 
-Status: **phases 1–4 complete, Checkpoints 1 and 2 green (2026-08-30); next up: phase 5 (the schema change).** If you are an agent picking this
+Status: **phases 1–6 complete, Checkpoints 1–3 green (2026-08-30); next up: phase 7, then 8–10 (exports).** If you are an agent picking this
 up: work top-to-bottom, check off items here AND in `TODO` as you go, and do not skip
 checkpoints. VERSION has already been bumped to `0.4.0`; add a `# 0.4.0 (unreleased)`
 heading to `CHANGELOG.md` with the first change you land.
@@ -152,45 +152,94 @@ Docs: new [bulk-and-picking.md](../bulk-and-picking.md) (two mermaid diagrams
 
 The one real schema change of this release. Follow **Appendix A** end-to-end.
 
-- [ ] `topics.status` — optional text column: `'' | 'in-progress' | 'done'`
-      (nullable/default-empty like `links.is_series`; no IDB migration needed for a new
-      field, SQLite migration + `sync.go` metadata required).
-- [ ] New `topic_tags` junction `{topic_id, tag_id}` mirroring `link_tags`: SQL schema
-      + Go migration + `migrate_test.go` undo + `sync.go` `tableOrder`/`tables` +
-      `types.ts` `STORES` (own `updated_at` index — post-v7 rule) + IDB `MIGRATIONS`
-      append.
-- [ ] Reconcile: `reconcileTopics()` (`lib/services/links.ts:203`) must carry `status`
-      onto the survivor; `topic_tags` gets `dedupePairs()` (`lib/db/repo.ts:230`) and
-      repointing when topic/tag singletons fold (mirror how `link_tags` is repointed).
-- [ ] Harness metadata: `tests/sync/helpers/meta.ts`, invariants (`topic_tags-pair` +
-      referential checks), `field-matrix.spec.ts` coverage tags, and a sabotage
-      injector still turns the oracle RED.
-- [ ] Backup/import: `lib/db/export.ts` scopes + `export-markdown.ts` include status
-      and topic tags; fixture updates in `frontend/test/fixtures/`.
-- [ ] Unit tests: reconcile-preserves-status, topic_tags dedupe/repoint, version-skew
-      (old server can't erase `status` — `mergeIncoming()` guard, `lib/sync.ts:126`).
+- [x] `topics.status TEXT NOT NULL DEFAULT '' CHECK (status IN ('', 'in-progress',
+      'done'))`. Empty-string, not NULL — a row pushed by an older client arrives
+      without the column and the server default fills it, so there is no NULL-vs-empty
+      ambiguity downstream (the `links.is_series` choice). Reads go through
+      `topicStatus()`, which normalizes `undefined` AND unknown future values to empty.
+      SQLite migration v20 → v21; no IDB migration needed for a new field.
+- [x] `topic_tags {topic_id, tag_id}`: `schema.sql` + `db.go` v20 → v21 +
+      `migrate_test.go` undo (`undoTargetVersion` unchanged at 18, the undo block
+      just grew) + `sync.go` `tableOrder` (after topics; tags land earlier) and
+      `tables` + `types.ts` `TopicTag`/`STORES` (own `updated_at` index) + IDB
+      `MIGRATIONS` v12.
+- [x] Reconcile: `reconcileTopics()` carries `status` onto the survivor with the
+      prose rule (a real status beats empty, newest wins between two real ones).
+      New `repointTopicTags(axis, ...)` runs on BOTH axes — `topic_id` when duplicate
+      topics fold, `tag_id` when duplicate tags do — grouping by the other endpoint
+      so pairs that collide after the rewrite collapse to the smallest id.
+      `dedupeTopicTags()` guards every display read. Deletion cascades added on both
+      sides (`clearTopicTags` / `clearTagFromTopics`).
+- [x] Harness: `meta.ts` (TABLE_ORDER, TABLES, FOREIGN_KEYS), `topic_tags-pair` in
+      `invariants.ts`, two new `store:` tests in `field-matrix.spec.ts` (topics.status
+      across all three value classes incl. the empty default, and a topic_tags edge),
+      coverage sets in the spec AND `reporter.ts` (which had its own hardcoded list —
+      that is why coverage briefly read 18/17).
+- [x] Backup/import: `export.ts` carries `topic_tags` in full / curated / range /
+      (tags+topics) template scopes, always via `topicTagsWithin` so an edge never
+      travels without BOTH endpoints; `export-markdown.ts` writes status + tags as
+      YAML frontmatter. The three files in `frontend/test/fixtures/` are frozen
+      historical backups (schemaVersion 5 and 7 — they predate `tag_parents`,
+      `series_links` and `feeds` too), so they were left alone; current-format
+      round-trips are covered by new tests instead.
+- [x] Unit tests: `topicStatusTags.test.ts` (40 cases) + 3 new version-skew cases
+      (`makeOldServer` generalized to any table) proving an old backend cannot erase
+      `status` and that `topic_tags` simply stays local until it is rebuilt.
 
 ## Phase 6 — Topics UI
 
 **After phase 5.** All in `TopicsApp.svelte` / `TopicApp.svelte`.
 
-- [ ] Status controls on topic detail + overview: set/clear `in-progress` / `done`.
-- [ ] Overview ordering: in-progress first, then no-status, then done.
-- [ ] Bulk operations on topics overview (reuse the `BulkActionsPanel` pattern):
-      delete, assign status, remove status, assign tags, remove tags.
-- [ ] Tag assignment on topic detail (reuse `TagPicker.svelte` / `ChipSelect.svelte`).
-- [ ] Tagged topics surface on the tag overview page (`TagApp.svelte`) — a "Topics"
-      section; and topic tags appear as metadata in that topic's export
-      (`topicExport.ts`: frontmatter for md, header card for HTML).
-- [ ] Topics overview search (reuse `SearchInput.svelte`, follow the tags-page search
-      from 0.3.0) + filters by tag and by status (`ChipFilter.svelte`).
-- [ ] Vitest for ordering/filtering helpers.
+- [x] Status controls: the two toggles per row on the overview and in the topic
+      header. They CYCLE — clicking the active status clears it — so one control
+      both sets and unsets without a per-row "clear" button.
+- [x] Overview ordering via `orderTopics()` / `statusRank()`: in-progress (0), no
+      status (1), done (2), name within the band. Unmarked deliberately sits BETWEEN
+      the two, since most topics carry no status and belong above retired ones.
+- [x] `TopicBulkPanel.svelte` — the `BulkActionsPanel` shape for topics (set/clear
+      status, add/remove tags, delete with the full tombstone cascade). A separate
+      component, not a mode: every op on the link panel is link-shaped.
+- [x] Tag assignment on topic detail. `TagPicker.svelte` now takes `linkId` **or**
+      `topicId` — same junction shape, same interaction, three swapped function
+      references — rather than a near-duplicate component.
+- [x] `TagApp.svelte` gained a "Topics" section (name + status badge) above Links;
+      `topicExport.ts` emits YAML frontmatter (md) and a metadata card (HTML), both
+      omitted entirely when a topic has neither status nor tags, so existing exports
+      are byte-identical.
+- [x] Overview search (`SearchInput`, matching name OR tag name) + `ChipFilter`s for
+      status and tag. Statuses are OR (a topic has one status); tags are AND (chips
+      narrow). Only tags actually in use are offered.
+- [x] Vitest: `filterTopics` / `orderTopics` / `statusRank` / `compareTopicsByStatus`
+      in `topicStatusTags.test.ts`, plus export-metadata structure in
+      `topicExport.test.ts`.
 
-## ✅ CHECKPOINT 3 (after phases 5–6) — the big one
+## ✅ CHECKPOINT 3 (after phases 5–6) — **GREEN (2026-08-30)**
 
-Full suite with emphasis on sync: **12/12 sabotage + full `test:sync` green** is the
-gate (schema changed). Also run `reconcile-clobber`, `versionSkew`, `field-matrix`
-suites explicitly and confirm the new store shows coverage.
+`npm test` 470/470 · `go test ./...` ok · `npm run test:sync` **153 passed,
+TRUSTWORTHY, self-verification 12/12, coverage 18/18 stores**. `reconcile-clobber`
++ `field-matrix` also run explicitly (55 passed, 18/18 — that partial run reports
+NOT TRUSTWORTHY only because the sabotage suite is not in the subset).
+`versionSkew.test.ts` is vitest and ran with the unit suite. `astro build` and
+`svelte-check` clean against the same 22-error/24-warning pre-existing baseline.
+
+One flake on the first harness run — `net::ERR_NO_BUFFER_SPACE` fetching a static
+CSS asset on device B under parallel load, local resource exhaustion rather than a
+schema fault. Green on re-run.
+
+Verified in the running app on a seeded library: ordering (in-progress → unmarked
+→ done), each chip filter and search, per-row and header status toggles including
+clear-by-reclick, bulk tag-add (re-applying created 0 new rows: 2 live rows /
+2 unique pairs) and bulk status, the tag page's Topics section, markdown
+frontmatter + HTML metadata card, and the delete cascade taking a topic's
+`topic_tags` with it. No console errors on any topics/tag page.
+
+Docs: new [topics.md](../topics.md) (three mermaid diagrams + code refs), indexed
+in `docs/README.md`; `data-model.md` updated (ER diagram, IDB table, junction
+lists, migration counters); user docs in `organizing-and-reading.md`.
+
+Original gate, for the record: full suite with emphasis on sync — 12/12 sabotage +
+full `test:sync` green — plus `reconcile-clobber`, `versionSkew`, `field-matrix`
+run explicitly with the new store showing coverage.
 *Phase 7 below is independent of 5–6 and may run as a parallel subagent while 5–6 are
 in flight (different files), but it must not be merged past this checkpoint until the
 checkpoint is green.*

@@ -53,6 +53,8 @@ erDiagram
     tags  ||--o{ tag_parents : "nested under (DAG)"
     links ||--o{ link_topics : ""
     topics ||--o{ link_topics : ""
+    topics ||--o{ topic_tags : ""
+    tags  ||--o{ topic_tags : ""
     links ||--o{ resource_list_links : ""
     links ||--o{ series_links : "a series holds its parts"
     resource_lists ||--o{ resource_list_links : ""
@@ -105,7 +107,8 @@ erDiagram
     tags { text name
            text notes_md }
     topics { text name
-             text body_md "the long-form document" }
+             text body_md "the long-form document"
+             text status "'' | in-progress | done" }
     link_topics { int ref_number "footnote number; 0 = unassigned" }
     resource_lists { text name
                      text description_md }
@@ -156,7 +159,7 @@ Design decisions embedded here:
 - **`week_links` rows are permanent history.** Closing a week stamps each
   entry's `outcome` rather than deleting it; a link's whole reading history
   is queryable (`weekHistoryForLink`).
-- **Joins are their own tables** (`link_tags`, `link_topics`,
+- **Joins are their own tables** (`link_tags`, `link_topics`, `topic_tags`,
   `resource_list_links`, `tag_parents`) with soft-deleted rows, so label
   changes sync.
 - **Tags nest as a DAG, not a tree.** `tag_parents` holds one row per
@@ -211,7 +214,7 @@ Design decisions embedded here:
     ([settings.ts](../../frontend/src/lib/services/settings.ts)) and each
     `plans` row ([plans.ts](../../frontend/src/lib/services/plans.ts)).
   - **Per-pair dedupe** for the junction tables (`link_tags`, `link_topics`,
-    `resource_list_links`, `tag_parents`), whose natural key is a
+    `topic_tags`, `resource_list_links`, `tag_parents`), whose natural key is a
     `(left, right)` pair: the
     assign helpers guard only against the local db, so two devices that form
     the same pair each mint a join row — cosmetic duplicate chips and inflated
@@ -319,6 +322,7 @@ and indexes append-only. Current version: **11**.
 | `tags`, `topics` | `updated_at` | one per `lower(name)`; `reconcileTags`/`reconcileTopics` collapse duplicates, re-point join rows + `focus_tag_ids` |
 | `resource_lists` | `updated_at` | |
 | `link_tags`, `link_topics` | `link_id`, `tag_id`/`topic_id`, `updated_at` | |
+| `topic_tags` | `topic_id`, `tag_id`, `updated_at` | one live row per (topic, tag); both directions indexed — `topic_id` for a topic's chips, `tag_id` for the tag page's Topics section |
 | `tag_parents` | `child_id`, `parent_id`, `updated_at` | one live row per (child, parent); `reconcileTagParents` drops self-edges, dead refs and cycles |
 | `notes`, `excerpts` | `link_id`, `updated_at` | note is one-per-link; `getNote` collapses duplicates on read |
 | `resource_list_links` | `list_id`, `link_id`, `updated_at` | |
@@ -386,12 +390,13 @@ flowchart LR
 - Server-only: the `sync_state` table (the global `last_seq` counter) and
   `idx_*_seq` indexes for pull.
 
-Migration counters as of this writing: SQLite `user_version` **20**
-(`links.is_series` + the `series_links` table are the latest), IDB version
-**11**. `is_series` itself needed no IDB migration, for the same reason
-`priority` didn't: IndexedDB is schemaless per record, so the flag appears on
-rows that carry it and reads `undefined` on older ones (which `isSeries()`
-treats as false).
+Migration counters as of this writing: SQLite `user_version` **21**
+(`topics.status` + the `topic_tags` table are the latest), IDB version
+**12**. `topics.status` itself needed no IDB migration, for the same reason
+`is_series` and `priority` didn't: IndexedDB is schemaless per record, so the
+field appears on rows that carry it and reads `undefined` on older ones
+(which `topicStatus()` — like `isSeries()` — normalizes to '').
+See [topics.md](topics.md) for statuses and topic tags end to end.
 Fresh installs
 skip migrations — SQLite executes `schema.sql` wholesale, IDB creates the
 current `STORES` map in v1 — so both migration chains only run for

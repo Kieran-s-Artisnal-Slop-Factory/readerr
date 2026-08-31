@@ -157,6 +157,23 @@ const MIGRATIONS: Migration[] = [
       store.createIndex('updated_at', 'updated_at', { multiEntry: false });
     }
   },
+  // v12 — topic tags: `topic_tags` edges pointing a topic at its tags.
+  // Guarded because fresh installs already get the store from the v1 STORES
+  // loop; the updated_at index is created here too, since the v7 loop has
+  // already run for existing databases and never revisits a later store.
+  //
+  // `topics.status` needs no migration: IndexedDB is schemaless per record,
+  // so the field simply appears on rows that carry it and reads `undefined`
+  // on older ones (which `topicStatus()` treats as ''), the same handling
+  // `priority` and `is_series` got.
+  (db) => {
+    if (!db.objectStoreNames.contains('topic_tags')) {
+      const store = db.createObjectStore('topic_tags', { keyPath: 'id' });
+      store.createIndex('topic_id', 'topic_id', { multiEntry: false });
+      store.createIndex('tag_id', 'tag_id', { multiEntry: false });
+      store.createIndex('updated_at', 'updated_at', { multiEntry: false });
+    }
+  },
 ];
 
 /**

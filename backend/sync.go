@@ -64,6 +64,9 @@ var tableOrder = []string{
 	"tag_parents",
 	"link_tags",
 	"topics",
+	// After BOTH topics and tags (tags land further up), so a restoring client
+	// sees both endpoints of a topic-tag edge before the edge.
+	"topic_tags",
 	"link_topics",
 	"notes",
 	"excerpts",
@@ -117,8 +120,11 @@ var tables = map[string]tableMeta{
 		columns: cols("id", "child_id", "parent_id"),
 	},
 	"topics": {
-		columns:  cols("id", "name", "body_md"),
-		defaults: map[string]any{"body_md": ""},
+		columns:  cols("id", "name", "body_md", "status"),
+		defaults: map[string]any{"body_md": "", "status": ""},
+	},
+	"topic_tags": {
+		columns: cols("id", "topic_id", "tag_id"),
 	},
 	"link_topics": {
 		columns:  cols("id", "link_id", "topic_id", "ref_number"),

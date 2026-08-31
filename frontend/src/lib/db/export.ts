@@ -18,7 +18,16 @@
 import { getDB, DB_NAME, DB_VERSION, LOCAL_STORES } from './db';
 import { STORES } from './types';
 import { importKindOf } from '../importKind';
-import type { Excerpt, Link, LinkTag, LinkTopic, Note, SyncFields, TagParent } from './types';
+import type {
+  Excerpt,
+  Link,
+  LinkTag,
+  LinkTopic,
+  Note,
+  SyncFields,
+  TagParent,
+  TopicTag,
+} from './types';
 
 export type ExportScope = 'full' | 'curated' | 'range' | 'template';
 
@@ -63,6 +72,21 @@ async function tagEdgesWithin(tagIds: Set<string>): Promise<TagParent[]> {
   );
 }
 
+/**
+ * Topic-tag edges whose BOTH endpoints are in the export, for the same reason
+ * tagEdgesWithin exists: an edge naming a topic or tag the file doesn't carry
+ * would import as a dangling reference, which the referential invariant
+ * (rightly) treats as corruption.
+ */
+async function topicTagsWithin(
+  topicIds: Set<string>,
+  tagIds: Set<string>
+): Promise<TopicTag[]> {
+  return (await live<TopicTag>('topic_tags')).filter(
+    (e) => topicIds.has(e.topic_id) && tagIds.has(e.tag_id)
+  );
+}
+
 /** Everything attached to the given links, plus their tags/topics. */
 async function relatedData(links: Link[]): Promise<Record<string, unknown[]>> {
   const ids = new Set(links.map((l) => l.id));
@@ -79,6 +103,9 @@ async function relatedData(links: Link[]): Promise<Record<string, unknown[]>> {
     tags: (await live<SyncFields & { id: string }>('tags')).filter((t) => tagIds.has(t.id)),
     tag_parents: await tagEdgesWithin(tagIds),
     topics: (await live<SyncFields & { id: string }>('topics')).filter((t) => topicIds.has(t.id)),
+    // A topic's own tags travel with it, but only where the export already
+    // carries the tag (it may have reached the file only via a link).
+    topic_tags: await topicTagsWithin(topicIds, tagIds),
   };
 }
 
@@ -99,7 +126,18 @@ export async function exportData(
       // The nesting IS part of the vocabulary a tag template seeds.
       data.tag_parents = await tagEdgesWithin(new Set(tags.map((t) => t.id)));
     }
-    if (opts.topics) data.topics = await live('topics');
+    if (opts.topics) {
+      const topics = await live<SyncFields & { id: string }>('topics');
+      data.topics = topics;
+      // Topic tags are part of the scheme too — but only when the template
+      // also carries the tags, or the edges would import dangling.
+      if (opts.tags) {
+        data.topic_tags = await topicTagsWithin(
+          new Set(topics.map((t) => t.id)),
+          new Set((data.tags as { id: string }[]).map((t) => t.id))
+        );
+      }
+    }
   } else if (scope === 'curated') {
     const links = await live<Link>('links');
     const tagged = new Set((await live<LinkTag>('link_tags')).map((j) => j.link_id));

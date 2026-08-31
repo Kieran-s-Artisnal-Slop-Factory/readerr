@@ -25,6 +25,7 @@ const ALL_STORES = [
   'tag_parents',
   'link_tags',
   'topics',
+  'topic_tags',
   'link_topics',
   'notes',
   'excerpts',

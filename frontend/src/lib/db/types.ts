@@ -156,11 +156,34 @@ export interface TagParent extends SyncFields {
   parent_id: string;
 }
 
+/**
+ * Optional working state for a topic. '' — the ordinary case — means no
+ * status, and orders BETWEEN in-progress and done on the overview.
+ */
+export type TopicStatus = '' | 'in-progress' | 'done';
+
 /** An in-depth document covering a topic, referencing many links. */
 export interface Topic extends SyncFields {
   name: string;
   /** The long-form document (markdown). */
   body_md: string;
+  /**
+   * Optional status. Absent on rows written before this field existed — read
+   * it through `topicStatus()` (services/topics.ts), which maps
+   * undefined/garbage to '', exactly as `isSeries()` handles `is_series`.
+   */
+  status?: TopicStatus;
+}
+
+/**
+ * One "topic carries tag" edge. Structurally identical to LinkTag — one row
+ * per (topic, tag) pair under a random UUID — and healed by the same
+ * pair-dedupe, since two devices tagging the same topic before syncing each
+ * mint a row that row-level LWW never merges.
+ */
+export interface TopicTag extends SyncFields {
+  topic_id: string;
+  tag_id: string;
 }
 
 export interface LinkTopic extends SyncFields {
@@ -305,6 +328,9 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   // filtering) and 'child_id' walks up (a tag's own parents, for the picker).
   tag_parents: { indexes: [{ name: 'child_id' }, { name: 'parent_id' }] },
   topics: { indexes: [] },
+  // Both directions: 'topic_id' for a topic's own chips, 'tag_id' for the
+  // "Topics" section on a tag page.
+  topic_tags: { indexes: [{ name: 'topic_id' }, { name: 'tag_id' }] },
   link_topics: { indexes: [{ name: 'link_id' }, { name: 'topic_id' }] },
   notes: { indexes: [{ name: 'link_id' }] },
   excerpts: { indexes: [{ name: 'link_id' }] },

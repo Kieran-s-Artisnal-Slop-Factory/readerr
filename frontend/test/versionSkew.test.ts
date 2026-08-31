@@ -18,7 +18,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDB } from '../src/lib/db/db';
 import { STORES } from '../src/lib/db/types';
 import { syncNow } from '../src/lib/sync';
-import type { Link } from '../src/lib/db/types';
+import type { Link, Topic } from '../src/lib/db/types';
 
 const NOW = '2026-08-22T12:00:00.000Z';
 const LATER = '2026-08-22T13:00:00.000Z';
@@ -28,7 +28,7 @@ const LATER = '2026-08-22T13:00:00.000Z';
  * un-rebuilt server is. Anything else in a pushed row is dropped on the floor,
  * and the row it serves back is short by those columns.
  */
-function makeOldServer(knownColumns: string[]) {
+function makeOldServer(knownColumns: string[], table = 'links') {
   const stored = new Map<string, Record<string, unknown>>();
   let seq = 0;
   const json = (body: unknown) =>
@@ -46,15 +46,15 @@ function makeOldServer(knownColumns: string[]) {
     if (url.includes('/sync/push')) {
       const body = JSON.parse(String(init?.body)) as { rows: Record<string, Record<string, unknown>[]> };
       const accepted: { table: string; id: string; server_seq: number }[] = [];
-      for (const [table, rows] of Object.entries(body.rows ?? {})) {
+      for (const [t, rows] of Object.entries(body.rows ?? {})) {
         // An old server iterates ITS OWN table list, so a table it doesn't
         // know is ignored rather than rejected.
-        if (table !== 'links') continue;
+        if (t !== table) continue;
         for (const row of rows) {
           seq++;
           const id = row.id as string;
           stored.set(id, { ...strip(row), server_seq: seq });
-          accepted.push({ table, id, server_seq: seq });
+          accepted.push({ table: t, id, server_seq: seq });
         }
       }
       return json({ accepted, latestSeq: seq, epoch: 'old-server' });
@@ -62,7 +62,7 @@ function makeOldServer(knownColumns: string[]) {
     if (url.includes('/sync/pull')) {
       const since = Number(new URL(url).searchParams.get('since') ?? 0);
       const rows = [...stored.values()].filter((r) => (r.server_seq as number) > since);
-      return json({ rows: { links: rows }, latestSeq: seq, epoch: 'old-server' });
+      return json({ rows: { [table]: rows }, latestSeq: seq, epoch: 'old-server' });
     }
     return new Response('not found', { status: 404 });
   };
@@ -223,6 +223,103 @@ describe('syncing against a server that predates a column', () => {
     // the backend is rebuilt, and the next push sends it again.
     expect(result.ok, result.error).toBe(true);
     const edge = (await db.get('series_links', 'edge-1')) as { server_seq: number | null };
+    expect(edge.server_seq).toBeNull();
+  });
+});
+
+/** Every topics column a backend from before statuses/topic tags knew about. */
+const PRE_STATUS_TOPIC_COLUMNS = [
+  'id',
+  'name',
+  'body_md',
+  'updated_at',
+  'deleted_at',
+  'server_seq',
+];
+
+describe('syncing topics against a server that predates topics.status', () => {
+  it('keeps the status when the server hands the topic back without it', async () => {
+    // The exact is_series failure, one release later: a topic marked
+    // in-progress here, pushed to a backend that has never heard of `status`,
+    // would come home unmarked and silently drop out of the overview's
+    // in-progress band.
+    const server = makeOldServer(PRE_STATUS_TOPIC_COLUMNS, 'topics');
+    vi.stubGlobal('fetch', server.handler);
+    const db = await getDB();
+    await db.put('topics', {
+      id: 'topic-1',
+      updated_at: NOW,
+      deleted_at: null,
+      server_seq: null,
+      name: 'Storage engines',
+      body_md: 'text',
+      status: 'in-progress',
+    });
+
+    const result = await syncNow();
+    expect(result.ok, result.error).toBe(true);
+    expect(server.stored.get('topic-1')).not.toHaveProperty('status');
+
+    const local = (await db.get('topics', 'topic-1')) as Topic;
+    expect(local.status).toBe('in-progress');
+    expect(local.server_seq).toBe(1);
+  });
+
+  it('keeps the status through a later pull that rewrites the document', async () => {
+    const server = makeOldServer(PRE_STATUS_TOPIC_COLUMNS, 'topics');
+    vi.stubGlobal('fetch', server.handler);
+    const db = await getDB();
+    await db.put('topics', {
+      id: 'topic-1',
+      updated_at: NOW,
+      deleted_at: null,
+      server_seq: null,
+      name: 'Storage engines',
+      body_md: 'text',
+      status: 'done',
+    });
+    await syncNow();
+
+    const onServer = server.stored.get('topic-1')!;
+    server.stored.set('topic-1', {
+      ...onServer,
+      body_md: 'edited on another device',
+      updated_at: LATER,
+      server_seq: 99,
+    });
+    await db.put('sync_meta', { key: 'lastPullSeq', value: 1 });
+    expect((await syncNow()).ok).toBe(true);
+
+    const local = (await db.get('topics', 'topic-1')) as Topic;
+    expect(local.body_md).toBe('edited on another device'); // sent → wins
+    expect(local.status).toBe('done'); // never sent → survives
+  });
+
+  it('leaves topic_tags local until the backend is rebuilt, without failing the sync', async () => {
+    const server = makeOldServer(PRE_STATUS_TOPIC_COLUMNS, 'topics');
+    vi.stubGlobal('fetch', server.handler);
+    const db = await getDB();
+    await db.put('topics', {
+      id: 'topic-1',
+      updated_at: NOW,
+      deleted_at: null,
+      server_seq: null,
+      name: 'Storage engines',
+      body_md: '',
+      status: '',
+    });
+    await db.put('topic_tags', {
+      id: 'tt-1',
+      updated_at: NOW,
+      deleted_at: null,
+      server_seq: null,
+      topic_id: 'topic-1',
+      tag_id: 'tag-1',
+    });
+
+    const result = await syncNow();
+    expect(result.ok, result.error).toBe(true);
+    const edge = (await db.get('topic_tags', 'tt-1')) as { server_seq: number | null };
     expect(edge.server_seq).toBeNull();
   });
 });

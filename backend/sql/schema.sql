@@ -140,10 +140,32 @@ CREATE TABLE topics (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
     body_md    TEXT NOT NULL DEFAULT '',     -- the long-form document (markdown)
+    -- Optional working state. '' (the default) means "no status set", which
+    -- is the ordinary case and orders between in-progress and done on the
+    -- topics overview. Empty-string-not-NULL matches links.is_series' choice:
+    -- a row from an older client arrives without the column and the server's
+    -- default fills it, so there is no NULL/'' ambiguity to handle downstream.
+    status     TEXT NOT NULL DEFAULT ''
+               CHECK (status IN ('', 'in-progress', 'done')),
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
     server_seq INTEGER
 );
+
+-- Tags on a topic. Structurally identical to link_tags (one row per
+-- (topic, tag) pair, random UUID key) and healed by the same pair-dedupe —
+-- a topic tagged on two devices before syncing mints two rows that row-level
+-- LWW never merges.
+CREATE TABLE topic_tags (
+    id         TEXT PRIMARY KEY,
+    topic_id   TEXT NOT NULL REFERENCES topics (id),
+    tag_id     TEXT NOT NULL REFERENCES tags (id),
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    server_seq INTEGER
+);
+CREATE INDEX idx_topic_tags_topic ON topic_tags (topic_id);
+CREATE INDEX idx_topic_tags_tag ON topic_tags (tag_id);
 
 CREATE TABLE link_topics (
     id         TEXT PRIMARY KEY,
@@ -301,3 +323,4 @@ CREATE INDEX idx_week_links_seq ON week_links (server_seq);
 CREATE INDEX idx_feeds_seq ON feeds (server_seq);
 CREATE INDEX idx_feed_items_seq ON feed_items (server_seq);
 CREATE INDEX idx_series_links_seq ON series_links (server_seq);
+CREATE INDEX idx_topic_tags_seq ON topic_tags (server_seq);

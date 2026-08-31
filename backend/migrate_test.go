@@ -21,6 +21,8 @@ import (
 // When you add a migration, add its undo here: that is the whole cost of
 // keeping this guarantee.
 const undoLatestMigrations = `
+DROP TABLE topic_tags;
+ALTER TABLE topics DROP COLUMN status;
 DROP TABLE series_links;
 ALTER TABLE links DROP COLUMN is_series;
 DROP TABLE feed_items;

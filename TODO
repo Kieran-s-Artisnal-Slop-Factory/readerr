@@ -23,27 +23,27 @@ Additional things to keep in mind:
   - [x] allow me to add them to resource lists
   - [x] Improve the UI
     - [x] on the reading list page so that if I'm selecting items in the `done` section, the controls appear in the `done` section. Currentl selecting links in the `done` section causes the UI to appear at the top of `this week` which can take a while to scroll to
-- [ ] Topics
-  - [ ] Statuses
-    - [ ] Allow me to mark topics as `in-progress` and `done`
-      - [ ] These statuses are optional, but when set change the display and filtering behavior on the topics overview page (page that lists all topics)
-        - [ ] In progress acts as a way to more highly weight a topic, and should appear at the top of the topics page
-        - [ ] Done items should appear below in-progress and items with no status
-  - [ ] Add bulk operations
-    - [ ] Delete
-    - [ ] Assign status (in-progress, done)
-    - [ ] Remove status
-    - [ ] Assign tags
-    - [ ] remove tags
-  - [ ] Allow assigning tags to topics
-    - [ ] This makes them show up on that tags overview page
-    - [ ] Show up as a metadata item in the export for that tag
-    - [ ] Show the tags as a metadata item (frontmatter for md, in header card for HTML)
-  - [ ] Add filters and search to topics overview
-    - [ ] Add the ability to search
-    - [ ] Add the abilty to filter on the topics page by
-      - [ ] Tag
-      - [ ] Status
+- [ ] Topics (all but the tag-export metadata, which waits on phases 9–10)
+  - [x] Statuses
+    - [x] Allow me to mark topics as `in-progress` and `done`
+      - [x] These statuses are optional, but when set change the display and filtering behavior on the topics overview page (page that lists all topics)
+        - [x] In progress acts as a way to more highly weight a topic, and should appear at the top of the topics page
+        - [x] Done items should appear below in-progress and items with no status
+  - [x] Add bulk operations
+    - [x] Delete
+    - [x] Assign status (in-progress, done)
+    - [x] Remove status
+    - [x] Assign tags
+    - [x] remove tags
+  - [x] Allow assigning tags to topics
+    - [x] This makes them show up on that tags overview page
+    - [ ] Show up as a metadata item in the export for that tag (blocked: the tag export itself is phases 9–10)
+    - [x] Show the tags as a metadata item (frontmatter for md, in header card for HTML)
+  - [x] Add filters and search to topics overview
+    - [x] Add the ability to search
+    - [x] Add the abilty to filter on the topics page by
+      - [x] Tag
+      - [x] Status
 - [ ] In the link overview page (page that lets you take exerpts, write notes etc. for a single link)
   - [ ] Add the ability to reschedule a link
   - [ ] Add the ability for me to assign the item to a resource list (should mark it as a resource if it isn't already)

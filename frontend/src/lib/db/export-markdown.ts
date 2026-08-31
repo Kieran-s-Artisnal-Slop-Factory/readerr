@@ -10,7 +10,8 @@
  */
 import JSZip from 'jszip';
 import { all } from './repo';
-import type { Excerpt, Link, LinkTag, LinkTopic, Note, Tag, Topic } from './types';
+import { topicStatus } from '../services/topics';
+import type { Excerpt, Link, LinkTag, LinkTopic, Note, Tag, Topic, TopicTag } from './types';
 
 /** Filesystem-safe filename from a title/name, deduped by the caller. */
 function slugify(name: string): string {
@@ -29,15 +30,17 @@ function yamlStr(s: string): string {
 }
 
 async function buildMarkdownExport(): Promise<Blob> {
-  const [links, tags, topics, linkTags, linkTopics, notes, excerpts] = await Promise.all([
-    all<Link>('links'),
-    all<Tag>('tags'),
-    all<Topic>('topics'),
-    all<LinkTag>('link_tags'),
-    all<LinkTopic>('link_topics'),
-    all<Note>('notes'),
-    all<Excerpt>('excerpts'),
-  ]);
+  const [links, tags, topics, linkTags, linkTopics, topicTags, notes, excerpts] =
+    await Promise.all([
+      all<Link>('links'),
+      all<Tag>('tags'),
+      all<Topic>('topics'),
+      all<LinkTag>('link_tags'),
+      all<LinkTopic>('link_topics'),
+      all<TopicTag>('topic_tags'),
+      all<Note>('notes'),
+      all<Excerpt>('excerpts'),
+    ]);
 
   const tagById = new Map(tags.map((t) => [t.id, t]));
   const topicById = new Map(topics.map((t) => [t.id, t]));
@@ -50,6 +53,11 @@ async function buildMarkdownExport(): Promise<Blob> {
   for (const j of linkTopics) {
     const topic = topicById.get(j.topic_id);
     if (topic) topicsByLink.set(j.link_id, [...(topicsByLink.get(j.link_id) ?? []), topic]);
+  }
+  const tagsByTopic = new Map<string, Tag[]>();
+  for (const j of topicTags) {
+    const tag = tagById.get(j.tag_id);
+    if (tag) tagsByTopic.set(j.topic_id, [...(tagsByTopic.get(j.topic_id) ?? []), tag]);
   }
   const noteByLink = new Map(notes.map((n) => [n.link_id, n]));
   const excerptsByLink = new Map<string, Excerpt[]>();
@@ -67,7 +75,26 @@ async function buildMarkdownExport(): Promise<Blob> {
   };
 
   for (const topic of topics) {
-    zip.file(unique('topics', slugify(topic.name)), `# ${topic.name}\n\n${topic.body_md}\n`);
+    // Status and tags go in YAML frontmatter rather than the prose: the
+    // document body stays exactly what was typed, so a round-trip through
+    // another editor never has metadata woven into it. Topics with neither
+    // get no frontmatter block at all.
+    const status = topicStatus(topic);
+    const topicTagNames = (tagsByTopic.get(topic.id) ?? []).map((t) => t.name).sort();
+    const front =
+      status || topicTagNames.length > 0
+        ? [
+            '---',
+            `status: ${yamlStr(status)}`,
+            `tags: [${topicTagNames.map(yamlStr).join(', ')}]`,
+            '---',
+            '',
+          ].join('\n')
+        : '';
+    zip.file(
+      unique('topics', slugify(topic.name)),
+      `${front}# ${topic.name}\n\n${topic.body_md}\n`
+    );
   }
 
   for (const tag of tags) {

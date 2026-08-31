@@ -9,16 +9,24 @@
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
   import LinkSearchPicker from '../LinkSearchPicker.svelte';
+  import TagPicker from '../TagPicker.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
   import Pagination from '../Pagination.svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
   import { assignTopic, reconcileTopics, tagsForLinks } from '../../lib/services/links';
-  import { topicReferences, type TopicReference } from '../../lib/services/topics';
+  import {
+    clearTopicTags,
+    setTopicStatus,
+    tagsForTopic,
+    topicReferences,
+    topicStatus,
+    type TopicReference,
+  } from '../../lib/services/topics';
   import { citationSuggestions, type CitationSuggestion } from '../../lib/services/citationSuggest';
   import { downloadTopicHtml, downloadTopicMarkdown } from '../../lib/services/topicExport';
   import { href } from '../../lib/paths';
-  import type { Link, LinkTopic, Tag, Topic } from '../../lib/db/types';
+  import type { Link, LinkTopic, Tag, Topic, TopicStatus } from '../../lib/db/types';
 
   const PAGE_SIZE = 100;
 
@@ -30,6 +38,8 @@
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
   let missing = $state(false);
   let allLinks = $state<Link[]>([]);
+  /** This topic's own tags (topic_tags), for the export header and chips. */
+  let topicTags = $state<Tag[]>([]);
   let query = $state('');
   let adding = $state(false);
   let page = $state(0);
@@ -66,6 +76,13 @@
     links = rows.map((r) => r.link);
     refNumbers = new Map(rows.map((r) => [r.link.id, r.number]));
     allLinks = everything;
+    topicTags = await tagsForTopic(topic.id);
+  }
+
+  /** Clicking the active status clears it — one control, set and unset. */
+  async function cycleStatus(status: TopicStatus) {
+    if (!topic) return;
+    topic = await setTopicStatus(topic, topicStatus(topic) === status ? '' : status);
   }
 
   /**
@@ -129,6 +146,8 @@
     }
     const joins = await byIndex<LinkTopic>('link_topics', 'topic_id', topic.id);
     await softDeleteMany('link_topics', joins.map((j) => j.id));
+    // Tag edges go too, or they stay live pointing at a tombstoned topic.
+    await clearTopicTags(topic.id);
     await softDelete('topics', topic.id);
     location.assign(href('/topics/'));
   }
@@ -143,6 +162,22 @@
       <div class="topic-actions">
         <button
           class="btn"
+          class:active={topicStatus(topic) === 'in-progress'}
+          title={topicStatus(topic) === 'in-progress' ? 'Clear status' : 'Mark in progress'}
+          onclick={() => void cycleStatus('in-progress')}
+        >
+          ▶ In progress
+        </button>
+        <button
+          class="btn"
+          class:active={topicStatus(topic) === 'done'}
+          title={topicStatus(topic) === 'done' ? 'Clear status' : 'Mark done'}
+          onclick={() => void cycleStatus('done')}
+        >
+          ✓ Done
+        </button>
+        <button
+          class="btn"
           title="Download this document and its references as a themed HTML page"
           onclick={() => topic && downloadTopicHtml(topic)}
         >
@@ -151,6 +186,13 @@
         <button class="btn btn-danger" onclick={deleteTopic}>Delete topic</button>
       </div>
     </div>
+    <Card title={`Tags (${topicTags.length})`}>
+      <p class="hint">
+        Tagging a topic files it on that tag's page alongside the links, and
+        carries the tag into this topic's exports.
+      </p>
+      <TagPicker topicId={topic.id} onChange={() => void refresh()} />
+    </Card>
     <MarkdownEditor
       value={topic.body_md}
       placeholder="Write the topic document…"
@@ -214,6 +256,14 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
+  }
+
+  /* The status buttons are toggles: the active one reads as pressed. */
+  .topic-actions .btn.active {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+    color: var(--color-primary-strong);
+    font-weight: 600;
   }
 
   .empty {

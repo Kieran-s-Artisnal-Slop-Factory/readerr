@@ -17,12 +17,21 @@ import {
 } from '../db/repo';
 import { getDB } from '../db/db';
 import { healsAllowed } from '../testMode';
-import { dedupeLinkTopics, nextRefNumber } from './topics';
+import { dedupeLinkTopics, nextRefNumber, topicStatus } from './topics';
 import { repointTagParents, tagsWithDescendants } from './tagTree';
 import { addLinkToWeek, currentWeekStart, ensureOpenWeek, pendingWeeksForLink, setLinkWeek } from './weeks';
 import { remapFocusTags as remapSettingsFocusTags } from './settings';
 import { remapFocusTags as remapPlansFocusTags } from './plans';
-import type { Link, LinkTag, LinkTopic, SyncFields, Tag, Topic } from '../db/types';
+import type {
+  Link,
+  LinkTag,
+  LinkTopic,
+  SyncFields,
+  Tag,
+  Topic,
+  TopicStatus,
+  TopicTag,
+} from '../db/types';
 
 /** The (link, tag) pair a join row stands for — its logical identity. */
 const tagPairKey = (j: LinkTag): string => `${j.link_id} ${j.tag_id}`;
@@ -187,6 +196,9 @@ export async function reconcileTags(): Promise<void> {
     // The survivor also inherits the strays' place in the tag hierarchy —
     // otherwise merging `Astro` into `astro` silently un-nests it.
     await repointTagParents(survivor.id, group.map((t) => t.id));
+    // …and the topics that carried a stray: a merged-away tag must not take
+    // its topics off the tag page with it.
+    await repointTopicTags('tag_id', survivor.id, group.map((t) => t.id));
     for (const s of strays) remap.set(s.id, survivor.id);
     await softDeleteMany('tags', strays.map((s) => s.id));
   }
@@ -209,10 +221,23 @@ export async function reconcileTopics(): Promise<void> {
     const survivor = smallestId(group);
     const strays = group.filter((t) => t.id !== survivor.id);
     const body_md = freshestProse(group, (t) => t.body_md);
+    // Status carries the same way prose does: a real status beats '' (which
+    // means "not set"), newest wins between two real ones. Without this,
+    // merging an `in-progress` duplicate into an unmarked survivor would
+    // silently drop the status the user set on the other device.
+    const status = freshestProse(group, (t) => topicStatus(t)) as TopicStatus;
     // Preserve the freshest content time (see reconcileTags) so a stale fold
     // can't clobber a newer topic document under LWW.
-    await putReconciled('topics', { ...survivor, body_md, updated_at: maxUpdatedAt(group) });
+    await putReconciled('topics', {
+      ...survivor,
+      body_md,
+      status,
+      updated_at: maxUpdatedAt(group),
+    });
     await repointTopicJoins(survivor.id, group.map((t) => t.id));
+    // The survivor inherits the strays' tags too — otherwise merging a
+    // duplicate topic silently untags it.
+    await repointTopicTags('topic_id', survivor.id, group.map((t) => t.id));
     for (const s of strays) remap.set(s.id, survivor.id);
     await softDeleteMany('topics', strays.map((s) => s.id));
   }
@@ -279,6 +304,48 @@ async function repointTagJoins(survivorId: string, groupIds: string[]): Promise<
   for (const [keeper, ...losers] of byLinkId(joins)) {
     if (keeper.tag_id !== survivorId) await put('link_tags', { ...keeper, tag_id: survivorId });
     await softDeleteMany('link_tags', losers.map((l) => l.id));
+  }
+}
+
+/**
+ * Move topic_tags edges off a fold group's strays onto the survivor.
+ *
+ * Runs on BOTH axes, because either endpoint can fold: `topic_id` when
+ * duplicate topics merge, `tag_id` when duplicate tags do. Edges that then
+ * duplicate a pair collapse to the smallest-id one (device-independent) and
+ * the rest are tombstoned — the topic_tags twin of repointTagJoins, and the
+ * reason a merge on either side can't leave the `topic_tags-pair` invariant
+ * violated.
+ *
+ * `put`, not `putReconciled`: re-pointing an edge is a structural change that
+ * has to win, exactly as repointTagParents argues at length. Nobody edits an
+ * edge's endpoints concurrently, so there is no newer content to protect.
+ */
+async function repointTopicTags(
+  axis: 'topic_id' | 'tag_id',
+  survivorId: string,
+  groupIds: string[]
+): Promise<void> {
+  const other = axis === 'topic_id' ? 'tag_id' : 'topic_id';
+  const edges = (
+    await Promise.all(groupIds.map((id) => byIndex<TopicTag>('topic_tags', axis, id)))
+  ).flat();
+  // Group by the OTHER endpoint: those are the rows that become the same pair
+  // once this axis is rewritten to the survivor.
+  const buckets = new Map<string, TopicTag[]>();
+  for (const edge of edges) {
+    const key = edge[other];
+    const b = buckets.get(key);
+    if (b) b.push(edge);
+    else buckets.set(key, [edge]);
+  }
+  for (const bucket of buckets.values()) {
+    bucket.sort((a, z) => (a.id < z.id ? -1 : a.id > z.id ? 1 : 0));
+    const [keeper, ...losers] = bucket;
+    if (keeper[axis] !== survivorId) {
+      await put('topic_tags', { ...keeper, [axis]: survivorId });
+    }
+    await softDeleteMany('topic_tags', losers.map((l) => l.id));
   }
 }
 

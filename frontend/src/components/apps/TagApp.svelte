@@ -25,7 +25,8 @@
     setTagParents,
     wouldCycle,
   } from '../../lib/services/tagTree';
-  import type { Link, Tag } from '../../lib/db/types';
+  import { topicStatus, topicsForTag } from '../../lib/services/topics';
+  import type { Link, Tag, Topic } from '../../lib/db/types';
 
   const PAGE_SIZE = 100;
 
@@ -35,6 +36,8 @@
   let tagsByLink = $state<Map<string, Tag[]>>(new Map());
   let missing = $state(false);
   let page = $state(0);
+  /** Topics carrying this tag (topic_tags) — their own section below. */
+  let topics = $state<Topic[]>([]);
 
   // Hierarchy
   let allTags = $state<Tag[]>([]);
@@ -75,6 +78,7 @@
     allTags = (await all<Tag>('tags')).sort((a, b) => a.name.localeCompare(b.name));
     await loadHierarchy();
     await loadLinks();
+    topics = await topicsForTag(tag.id);
   });
 
   async function loadHierarchy() {
@@ -216,6 +220,26 @@
       />
     </Card>
 
+    {#if topics.length > 0}
+      <Card title={`Topics (${topics.length.toLocaleString()})`}>
+        <p class="muted section-hint">
+          Long-form documents tagged {tag.name}.
+        </p>
+        <ul class="topic-list">
+          {#each topics as t (t.id)}
+            <li>
+              <a class="inherited-title" href={`${href('/topic/')}?id=${t.id}`}>{t.name}</a>
+              {#if topicStatus(t)}
+                <span class="status" class:done={topicStatus(t) === 'done'}>
+                  {topicStatus(t) === 'done' ? 'Done' : 'In progress'}
+                </span>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </Card>
+    {/if}
+
     <Card title={`Links (${links.length.toLocaleString()})`}>
       <LinkList links={visible} {tagsByLink} onChange={onRowChange} empty="No links carry this tag yet." />
       <Pagination total={links.length} pageSize={PAGE_SIZE} bind:page label="links" />
@@ -330,6 +354,42 @@
   .section-hint {
     margin: 0 0 var(--space-3);
     font-size: var(--font-size-sm);
+  }
+
+  .topic-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .topic-list li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .topic-list li:last-child {
+    border-bottom: none;
+  }
+
+  .topic-list .status {
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-full);
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    padding: 0 var(--space-2);
+    line-height: 1.7;
+  }
+
+  .topic-list .status.done {
+    border-color: var(--border-color);
+    background: var(--surface-color);
+    color: var(--text-muted-color);
+    font-weight: 400;
   }
 
   .inherited {
