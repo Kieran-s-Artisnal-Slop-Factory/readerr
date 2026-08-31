@@ -4,7 +4,7 @@ Before beginning make sure the VERSION is up to date, and create a file called `
 
 Additional things to keep in mind:
 - Usability takes priority over accessibilty when the two collide. This app is a personal app, primarily used by me, not one being shared with people who have accessibility needs. It's nice for it to be usable, but not at the cost of functionality or performance.
-- When documenting features, in the `dev` docs be sure to include mermaid diagrams, and code references to make it clear and simple for people to find what they need to understand. 
+- When documenting features, in the `dev` docs be sure to include mermaid diagrams, and code references to make it clear and simple for people to find what they need to understand.
 
 ## Maintenance
 
@@ -18,11 +18,11 @@ Additional things to keep in mind:
   - [x] There are currently constant errors in the console log
     - [x] Related to posts to `/healthz`, `/sync/push`, and `/sync/stats`
     - [x] When on inbox page, getting constant errors on `/feed`
-- [ ] When I am typing to look for a link (e.g. in resource list page, the `Paste a URL to add, or search your links...`), I need to be able to scroll results, or have a next-page option. Large libraries of links far exceed the current number shown
-- [ ] Bulk operations; When bulk selecting links such as in the reading list tab
-  - [ ] allow me to add them to resource lists
-  - [ ] Improve the UI
-    - [ ] on the reading list page so that if I'm selecting items in the `done` section, the controls appear in the `done` section. Currentl selecting links in the `done` section causes the UI to appear at the top of `this week` which can take a while to scroll to
+- [x] When I am typing to look for a link (e.g. in resource list page, the `Paste a URL to add, or search your links...`), I need to be able to scroll results, or have a next-page option. Large libraries of links far exceed the current number shown
+- [x] Bulk operations; When bulk selecting links such as in the reading list tab
+  - [x] allow me to add them to resource lists
+  - [x] Improve the UI
+    - [x] on the reading list page so that if I'm selecting items in the `done` section, the controls appear in the `done` section. Currentl selecting links in the `done` section causes the UI to appear at the top of `this week` which can take a while to scroll to
 - [ ] Topics
   - [ ] Statuses
     - [ ] Allow me to mark topics as `in-progress` and `done`

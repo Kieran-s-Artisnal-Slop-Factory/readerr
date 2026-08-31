@@ -278,10 +278,16 @@ On the **Backlog**, **Favourites** and **Reading List**, tick the checkbox on
 any rows to open a **bulk operations** panel. Select a range and, in one action:
 
 - add or remove tags/topics,
+- add to or remove from **resource lists** (anything you add to a list is
+  marked a resource, since lists are the layer above the flat ⚒ view),
 - set/clear favourite, resource, or done,
 - set or clear the reading week.
 
 It's the fastest way to triage a big paste or reorganize after the fact.
+
+On the Reading List the panel appears **next to whatever you selected**: tick
+rows in **Done** and the controls open in the Done section rather than at the
+top of the page. A selection spanning both follows wherever you last ticked.
 
 **Shift+click selects a range.** Tick one row, then shift+click another, and
 everything between them is ticked too — in either direction. (For "all of
@@ -295,6 +301,18 @@ shift+click again to adjust how far the range reaches.
 
 On the Reading List a range can span the **To read**, **Review** and **Done**
 sections — it covers what's between the two rows on screen.
+
+## Adding a link you already have
+
+The **"Paste a URL to add, or search your links…"** box on the reading list,
+on a topic, and on a resource list does two jobs from one field. Paste a full
+URL and an **Add link** button appears — it captures the link (or reuses the
+one you already had) and attaches it. Type anything else and it searches your
+library by title, URL, and tag name.
+
+Results are a scrollable list, twenty-five at a time, with **Show more
+results** underneath when there are further matches. Links already attached
+don't appear, so the list is only ever things you could actually add.
 
 ## Archiving old links (keeping things fast)
 

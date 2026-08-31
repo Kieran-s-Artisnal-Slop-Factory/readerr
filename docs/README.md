@@ -27,6 +27,7 @@ protocol, the capture DSL internals, offline support, and deployment/CI.
 - [Tagging](dev/tagging.md) — tag storage, the nesting DAG, and its reconcilers
 - [Sync protocol](dev/sync.md)
 - [Link DSL](dev/link-dsl.md)
+- [Bulk operations & the link picker](dev/bulk-and-picking.md) — the shared adder/search component and batch edits
 - [Offline support](dev/offline-support.md)
 - [Seeding](dev/seeding.md) — demo/stress datasets and what the controls guarantee
 - [Performance at scale](dev/performance.md) — measured page costs on a 77k-link library

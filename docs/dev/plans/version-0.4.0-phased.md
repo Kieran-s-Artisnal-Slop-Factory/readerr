@@ -1,6 +1,6 @@
 # Version 0.4.0 — Phased implementation plan
 
-Status: **phases 1–2 complete and Checkpoint 1 green (2026-08-30); next up: phase 3.** If you are an agent picking this
+Status: **phases 1–4 complete, Checkpoints 1 and 2 green (2026-08-30); next up: phase 5 (the schema change).** If you are an agent picking this
 up: work top-to-bottom, check off items here AND in `TODO` as you go, and do not skip
 checkpoints. VERSION has already been bumped to `0.4.0`; add a `# 0.4.0 (unreleased)`
 heading to `CHANGELOG.md` with the first change you land.
@@ -92,37 +92,61 @@ checkpoint runs once, after both merge.*
 The "Paste a URL to add, or search your links…" pattern is duplicated three times with
 a hard `.slice(0, 8)` cap.
 
-- [ ] Extract a shared `LinkSearchPicker.svelte` component (input + results list +
-      add-by-URL) from `ResourceListApp.svelte` (~44–51, 143–167), reusing
-      `matchesSearch()` (`lib/services/links.ts:736`).
-- [ ] Results: raise the cap, make the list max-height scrollable, and add
-      incremental "show more" paging (follow `WeekApp.svelte`'s lazy `ensureCorpus()`
-      model so large libraries stay fast — see `readerr-hot-path-scans` lesson: don't
-      re-scan the whole links table per keystroke).
-- [ ] Adopt the component in `ResourceListApp.svelte`, `TopicApp.svelte` (~191),
-      `WeekApp.svelte` (~718).
-- [ ] Vitest for the paging/filter logic (pure helper, not the component).
+- [x] `frontend/src/components/LinkSearchPicker.svelte` — input + scrollable results
+      + add-by-URL, with the per-page styles (and the sub-40rem stacking rule) moved
+      out of all three hosts. Matching goes through `matchesSearch()`; tag names
+      participate only via an optional `tagsByLink` map, so no host reads the whole
+      `link_tags` table to search.
+- [x] 25 results per page, list capped at `22rem` with `overflow-y: auto`, and a
+      "Show more results" button that WIDENS the page (rows already on screen keep
+      their positions). New pure helper `searchLinkCorpus()` in `lib/services/links.ts`
+      stops one row past the page, so cost tracks what's drawn, not what's stored.
+      `WeekApp`'s lazy `ensureCorpus()` survives as the picker's `onFocus` prop.
+- [x] Adopted in `ResourceListApp.svelte`, `TopicApp.svelte`, `WeekApp.svelte`
+      (each keeps its own `exclude` set; the week adder keeps `accept: !slushed_at`).
+- [x] `frontend/test/linkSearchPicker.test.ts` — 10 cases including a counted-iteration
+      test proving a 25-row page visits 26 rows of a 5,000-link corpus.
 
 ## Phase 4 — Bulk operations on links
 
 **Serial with phase 3** (both touch `WeekApp.svelte`).
 
-- [ ] Add a "Resource lists" op-group to `BulkActionsPanel.svelte` using
-      `listResourceLists()` + `addToList()` (`lib/services/resourceLists.ts`); adding
-      also sets `is_resource` on each link.
-- [ ] Fix panel placement on the reading-list page (`WeekApp.svelte`): selecting in the
-      **Done** section must show the controls in/near the Done section, not at the top
-      of "This week". Render the panel adjacent to whichever section owns the active
-      selection (Done checkboxes ~806–810, `doneSelectedCount` ~178).
-- [ ] General bulk-UI polish pass (sticky positioning or per-section rendering —
-      pick whichever is simpler; usability first).
-- [ ] Tests: vitest for the add-to-list bulk helper (incl. junction pair-dedupe safety
-      — adding a link already in the list must not create a duplicate pair).
+- [x] "Resource lists" op-group in `BulkActionsPanel.svelte` (Add to / Remove from
+      selected, with inline list creation via `ChipSelect`, mirroring Tags/Topics).
+      New `addLinksToList()` / `removeLinksFromList()` in `resourceLists.ts` read the
+      membership index ONCE per batch instead of once per link, and `addToList()` now
+      delegates to the bulk helper so there's a single implementation. Adding sets
+      `is_resource` even when the pair already existed. Removing deliberately leaves
+      `is_resource` alone, matching `removeFromList()`.
+- [x] Panel placement: `WeekApp` renders one `{#snippet bulkPanel()}` at one of two
+      sites, chosen by `panelSection` — Done-only selection → inside the Done card,
+      week-only → "This week", mixed → follows `lastClickedSection`. Placement uses
+      UNFILTERED Done membership so Done's search/filters can't move the panel, and
+      the panel always acts on the whole selection.
+- [x] Per-section rendering WAS the polish item (the plan's simpler option); no sticky
+      positioning added — the reported pain was purely "the controls are far away".
+- [x] `frontend/test/bulkLists.test.ts` — 12 cases, including a link already in the
+      list, the same link twice in one batch, and a pair already forked across devices
+      (the deduping read heals it rather than minting a third row).
 
-## ✅ CHECKPOINT 2 (after phases 3–4)
+## ✅ CHECKPOINT 2 (after phases 3–4) — **GREEN (2026-08-30)**
 
-Full suite. `resource_list_links` junction writes happen in bulk now — watch the
-`resource_list_links-pair` invariant in `tests/sync/helpers/invariants.ts`.
+`npm test` 420/420 · `go test ./...` ok · `npm run test:sync` 151 passed,
+self-verification 12/12, coverage 17/17 stores (the `resource_list_links-pair`
+invariant included). `astro build` + `svelte-check` clean against the same
+22-error/24-warning pre-existing baseline.
+
+Verified in the running app against a 2,396-link seeded library: the picker
+shows 25 scrollable results with a working "Show more" (→50), resets depth on
+a new query, still lazy-loads the week corpus on first focus, and adds on
+click in all three hosts; the bulk panel renders in Done for a Done-only
+selection and in "This week" for a mixed one, never both; "Add to selected"
+created 3 memberships and re-applying it created 0 (10 rows / 10 unique pairs),
+each link flagged `is_resource`; "Remove from selected" took them back out.
+
+Docs: new [bulk-and-picking.md](../bulk-and-picking.md) (two mermaid diagrams
++ code refs), indexed in `docs/README.md` and cross-linked from
+`architecture.md`; user docs updated in `organizing-and-reading.md`.
 
 ## Phase 5 — Topics data model: status + topic tags (schema change)
 

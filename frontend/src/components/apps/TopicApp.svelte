@@ -8,11 +8,12 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkList from '../LinkList.svelte';
+  import LinkSearchPicker from '../LinkSearchPicker.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
   import Pagination from '../Pagination.svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
-  import { assignTopic, domainOf, reconcileTopics, tagsForLinks } from '../../lib/services/links';
+  import { assignTopic, reconcileTopics, tagsForLinks } from '../../lib/services/links';
   import { topicReferences, type TopicReference } from '../../lib/services/topics';
   import { citationSuggestions, type CitationSuggestion } from '../../lib/services/citationSuggest';
   import { downloadTopicHtml, downloadTopicMarkdown } from '../../lib/services/topicExport';
@@ -42,25 +43,6 @@
   });
 
   const assignedIds = $derived(new Set(links.map((l) => l.id)));
-
-  const queryIsUrl = $derived.by(() => {
-    try {
-      const u = new URL(query.trim());
-      return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch {
-      return false;
-    }
-  });
-
-  /** Existing links matching the search, unassigned ones first. */
-  const matches = $derived.by(() => {
-    const q = query.trim().toLowerCase();
-    if (!q || queryIsUrl) return [];
-    return allLinks
-      .filter((l) => l.title.toLowerCase().includes(q) || l.url.toLowerCase().includes(q))
-      .filter((l) => !assignedIds.has(l.id))
-      .slice(0, 8);
-  });
 
   onMount(async () => {
     // Heal same-name duplicates first so this topic's references and footnote
@@ -113,11 +95,10 @@
   }
 
   /** Paste-a-URL path: capture (or reuse the existing row) and assign. */
-  async function addByUrl() {
-    if (!topic || !queryIsUrl || adding) return;
+  async function addByUrl(url: string) {
+    if (!topic || adding) return;
     adding = true;
     try {
-      const url = new URL(query.trim()).toString();
       const { added } = await captureLinks(url);
       const link = added[0] ?? allLinks.find((l) => l.url === url);
       if (link) await assignTopic(link.id, topic.id);
@@ -181,38 +162,15 @@
       onCitationAccept={citeLink}
     />
     <Card title={`Referenced links (${links.length.toLocaleString()})`}>
-      <form
-        class="adder"
-        onsubmit={(e) => {
-          e.preventDefault();
-          void addByUrl();
-        }}
-      >
-        <input
-          type="text"
-          placeholder="Paste a URL to add, or search your links…"
-          bind:value={query}
-        />
-        {#if queryIsUrl}
-          <button type="submit" class="btn btn-primary" disabled={adding}>
-            {adding ? 'Adding…' : 'Add link'}
-          </button>
-        {/if}
-      </form>
-      {#if matches.length > 0}
-        <ul class="matches">
-          {#each matches as match (match.id)}
-            <li>
-              <button type="button" class="match" onclick={() => addExisting(match)}>
-                <span class="match-title">{match.title}</span>
-                <span class="match-domain">{domainOf(match.url)}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {:else if query.trim() && !queryIsUrl}
-        <p class="no-match">No unassigned links match — paste a full URL to add a new one.</p>
-      {/if}
+      <LinkSearchPicker
+        corpus={allLinks}
+        bind:query
+        exclude={assignedIds}
+        noMatchText="No unassigned links match — paste a full URL to add a new one."
+        {adding}
+        onSelect={addExisting}
+        onAddUrl={addByUrl}
+      />
       <p class="hint">
         Type <code>[^</code> in the document above to search your links and cite one —
         picking a link that isn't here yet adds it. You can also write a marker by
@@ -264,67 +222,6 @@
     padding: var(--space-5) 0;
   }
 
-  .adder {
-    display: flex;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-  }
-
-  .adder input {
-    flex: 1;
-    min-width: 0;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    background: var(--surface-color);
-    color: var(--text-color);
-  }
-
-  .matches {
-    list-style: none;
-    margin: 0 0 var(--space-3);
-    padding: 0;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-
-  .match {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-3);
-    width: 100%;
-    padding: var(--space-2) var(--space-3);
-    border: none;
-    border-bottom: 1px solid var(--border-color);
-    background: var(--surface-color);
-    color: var(--text-color);
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .matches li:last-child .match {
-    border-bottom: none;
-  }
-
-  .match:hover {
-    background: var(--color-primary-soft);
-  }
-
-  .match-title {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .match-domain {
-    flex-shrink: 0;
-    font-size: var(--font-size-sm);
-    color: var(--text-muted-color);
-  }
-
   .hint {
     color: var(--text-muted-color);
     font-size: var(--font-size-sm);
@@ -333,25 +230,5 @@
 
   .hint code {
     font-family: var(--font-mono, ui-monospace, monospace);
-  }
-
-  .no-match {
-    color: var(--text-muted-color);
-    font-size: var(--font-size-sm);
-    margin: 0 0 var(--space-3);
-  }
-
-  /* Title beside domain leaves too little of either to recognise a result. */
-  @media (max-width: 40rem) {
-    .match {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 2px;
-    }
-
-    .match-title {
-      white-space: normal;
-      overflow-wrap: anywhere;
-    }
   }
 </style>

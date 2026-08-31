@@ -1,9 +1,9 @@
 <script lang="ts">
   /**
    * Bulk operations over a selection of links (graduated from the
-   * /bulk-operations-test experiment): batch add/remove tags/topics,
-   * set/clear favourite/resource/done, and assign or clear the reading
-   * week. Hosts own the selection UI (checkboxes) and pass the selected
+   * /bulk-operations-test experiment): batch add/remove tags/topics and
+   * resource-list memberships, set/clear favourite/resource/done, and assign
+   * or clear the reading week. Hosts own the selection UI (checkboxes) and pass the selected
    * links in; the panel renders WordPress-style right where the selection
    * happens and reports back through onApplied so the host can refresh.
    */
@@ -19,7 +19,13 @@
     unassignTopic,
   } from '../lib/services/links';
   import { setLinkWeek, upcomingWeekOptions } from '../lib/services/weeks';
-  import type { Link, Tag, Topic } from '../lib/db/types';
+  import {
+    addLinksToList,
+    createResourceList,
+    listResourceLists,
+    removeLinksFromList,
+  } from '../lib/services/resourceLists';
+  import type { Link, ResourceList, Tag, Topic } from '../lib/db/types';
 
   let {
     links,
@@ -35,8 +41,10 @@
 
   let allTags = $state<Tag[]>([]);
   let allTopics = $state<Topic[]>([]);
+  let allLists = $state<ResourceList[]>([]);
   let tagIdsToApply = $state<string[]>([]);
   let topicIdsToApply = $state<string[]>([]);
+  let listIdsToApply = $state<string[]>([]);
   let weekChoice = $state('');
   let busy = $state(false);
   let message = $state('');
@@ -44,9 +52,14 @@
   const weekOptions = upcomingWeekOptions();
 
   onMount(async () => {
-    const [tags, topics] = await Promise.all([all<Tag>('tags'), all<Topic>('topics')]);
+    const [tags, topics, lists] = await Promise.all([
+      all<Tag>('tags'),
+      all<Topic>('topics'),
+      listResourceLists(),
+    ]);
     allTags = tags.sort((a, b) => a.name.localeCompare(b.name));
     allTopics = topics.sort((a, b) => a.name.localeCompare(b.name));
+    allLists = lists; // listResourceLists already sorts by name
   });
 
   async function createTag(name: string): Promise<string> {
@@ -55,10 +68,33 @@
     return tag.id;
   }
 
+  async function createList(name: string): Promise<string> {
+    const list = await createResourceList(name);
+    allLists = [...allLists, list].sort((a, b) => a.name.localeCompare(b.name));
+    return list.id;
+  }
+
   async function createTopic(name: string): Promise<string> {
     const topic = await put('topics', withSyncFields({ name, body_md: '' }));
     allTopics = [...allTopics, topic].sort((a, b) => a.name.localeCompare(b.name));
     return topic.id;
+  }
+
+  /**
+   * Run an operation ONCE for the whole selection, then report + refresh.
+   * List membership is a per-list batch (one index read for the batch, not
+   * one per link), so it can't use the per-link forSelected loop.
+   */
+  async function forSelection(label: string, op: () => Promise<unknown>) {
+    if (busy || links.length === 0) return;
+    busy = true;
+    try {
+      await op();
+      message = `${label} for ${links.length} link${links.length === 1 ? '' : 's'}.`;
+      onApplied();
+    } finally {
+      busy = false;
+    }
   }
 
   /** Run an operation over every selected link, then report + refresh. */
@@ -107,6 +143,16 @@
       if (v) return l.read_at ? Promise.resolve() : markLinkDone(l, false);
       return l.read_at ? toggleRead(l) : Promise.resolve();
     });
+  // Adding also marks each link a resource — list membership IS the
+  // organizational layer over the flat ⚒ resources view (resourceLists.ts).
+  const addToLists = () =>
+    forSelection('Added to resource lists', async () => {
+      for (const id of listIdsToApply) await addLinksToList(id, links);
+    });
+  const removeFromLists = () =>
+    forSelection('Removed from resource lists', async () => {
+      for (const id of listIdsToApply) await removeLinksFromList(id, links);
+    });
   const setWeek = () => forSelected('Week set', (l) => setLinkWeek(l.id, weekChoice || null));
   const clearWeek = () => forSelected('Week cleared', (l) => setLinkWeek(l.id, null));
 </script>
@@ -135,6 +181,15 @@
     <div class="op-actions">
       <button class="btn" disabled={busy || topicIdsToApply.length === 0} onclick={addTopics}>Add to selected</button>
       <button class="btn btn-danger" disabled={busy || topicIdsToApply.length === 0} onclick={removeTopics}>Remove from selected</button>
+    </div>
+  </div>
+
+  <div class="op-group">
+    <span class="op-label">Resource lists</span>
+    <ChipSelect items={allLists} bind:selected={listIdsToApply} createPlaceholder="New list…" pageLabel="lists" pageSize={10} onCreate={createList} />
+    <div class="op-actions">
+      <button class="btn" disabled={busy || listIdsToApply.length === 0} onclick={addToLists}>Add to selected</button>
+      <button class="btn btn-danger" disabled={busy || listIdsToApply.length === 0} onclick={removeFromLists}>Remove from selected</button>
     </div>
   </div>
 

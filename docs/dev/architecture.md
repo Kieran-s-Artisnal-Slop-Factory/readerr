@@ -205,7 +205,10 @@ change notification flows up.
   [CaptureBox](../../frontend/src/components/CaptureBox.svelte) (paste box + DSL
   autocomplete + "Just Added" list),
   [BulkActionsPanel](../../frontend/src/components/BulkActionsPanel.svelte)
-  (batch operations over a selection), and
+  (batch operations over a selection),
+  [LinkSearchPicker](../../frontend/src/components/LinkSearchPicker.svelte)
+  (the shared "paste a URL, or search your links" adder — both documented in
+  [bulk-and-picking.md](bulk-and-picking.md)), and
   [MarkdownEditor](../../frontend/src/components/MarkdownEditor.svelte)
   (Milkdown Crepe WYSIWYG with a CodeMirror source-mode bailout).
 

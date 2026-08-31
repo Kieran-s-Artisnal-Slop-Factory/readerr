@@ -743,6 +743,60 @@ export function matchesSearch(link: Link, tags: Tag[], query: string): boolean {
   );
 }
 
+/**
+ * One page of link-picker results.
+ *
+ * `hasMore` is "there is at least one further match", not a count — the scan
+ * stops the moment it knows, so widening the page is cheap and a two-letter
+ * query over a ten-thousand-link corpus never materialises ten thousand rows.
+ */
+export interface LinkSearchPage {
+  results: Link[];
+  hasMore: boolean;
+}
+
+/**
+ * The corpus scan behind LinkSearchPicker: the "paste a URL to add, or search
+ * your links…" box on the reading list, topics, and resource lists.
+ *
+ * Deliberately lazy. The old inline versions filtered the WHOLE corpus and
+ * then `.slice(0, 8)`'d it on every keystroke; here the scan stops one row
+ * past the requested page, so cost tracks what is shown rather than what is
+ * stored (see docs/dev/performance.md — the same reason WeekApp loads the
+ * corpus on first focus instead of on mount).
+ *
+ * Matching is `matchesSearch`, so the picker and the list pages agree on what
+ * "matches" means. Tag names participate only for links present in
+ * `tagsByLink`; callers that don't already hold a tag map pass none rather
+ * than reading the whole `link_tags` table to build one.
+ */
+export function searchLinkCorpus(
+  corpus: readonly Link[],
+  query: string,
+  limit: number,
+  options: {
+    /** Link ids to omit — already a member, already assigned, already scheduled. */
+    exclude?: ReadonlySet<string>;
+    /** Extra per-link predicate, e.g. the week picker skipping slushed links. */
+    accept?: (link: Link) => boolean;
+    tagsByLink?: ReadonlyMap<string, Tag[]>;
+  } = {}
+): LinkSearchPage {
+  const q = query.trim();
+  if (!q || limit <= 0) return { results: [], hasMore: false };
+  const { exclude, accept, tagsByLink } = options;
+  const results: Link[] = [];
+  for (const link of corpus) {
+    if (exclude?.has(link.id)) continue;
+    if (accept && !accept(link)) continue;
+    if (!matchesSearch(link, tagsByLink?.get(link.id) ?? [], q)) continue;
+    // One past the page: enough to know there IS more, without counting it.
+    if (results.length === limit) return { results, hasMore: true };
+    results.push(link);
+  }
+  return { results, hasMore: false };
+}
+
 /** Hostname for compact display next to titles. */
 export function domainOf(url: string): string {
   try {

@@ -1,6 +1,26 @@
 # 0.4.0 (unreleased)
 
+## Features
+
+- **The link adder scrolls and pages.** "Paste a URL to add, or search your
+  links…" — on the reading list, topics, and resource lists — was capped at
+  eight results with no way to reach the ninth, so on a large library the link
+  you wanted was often simply unreachable. It is now one shared component with
+  a scrollable list, twenty-five results a page, and a **Show more results**
+  button. The corpus scan stops at the end of the page it is drawing, so
+  widening stays cheap on a multi-thousand-link library.
+- **Bulk operations can add links to resource lists.** The bulk panel gained a
+  **Resource lists** group alongside Tags and Topics; adding also marks each
+  link a resource, and adding a link that is already a member never creates a
+  duplicate. Documented in
+  [docs/dev/bulk-and-picking.md](docs/dev/bulk-and-picking.md).
+
 ## Bug Fixes
+
+- **The bulk panel opens where you selected.** On the reading list it always
+  appeared at the top of "This week", so ticking rows in the **Done** section
+  meant scrolling back up past everything to reach the controls. It now
+  renders in whichever section holds the selection.
 
 - **Sync only runs when there's a server to sync with.** With no sync URL
   configured the app fell back to same-origin and fired `/healthz`,

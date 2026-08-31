@@ -15,6 +15,7 @@
   import Card from '../Card.svelte';
   import CaptureBox from '../CaptureBox.svelte';
   import LinkRow from '../LinkRow.svelte';
+  import LinkSearchPicker from '../LinkSearchPicker.svelte';
   import ListToolbar from '../ListToolbar.svelte';
   import Pagination from '../Pagination.svelte';
   import { FLAG_FILTERS } from '../../lib/services/links';
@@ -93,6 +94,32 @@
   const selectedLinks = $derived(
     entries.filter((e) => selectedIds.includes(e.link.id)).map((e) => e.link)
   );
+
+  /**
+   * Which section the bulk panel renders in.
+   *
+   * The panel used to live at the top of "This week" always, so ticking
+   * boxes in Done — which sits below Review and can be a hundred rows long —
+   * put the controls somewhere you had to scroll back up to find. It now
+   * renders next to whatever the selection is actually in; a selection
+   * spanning both sections follows the section you last clicked in, since
+   * either answer is arbitrary and "where my hand is" is the useful one.
+   * The panel always operates on the WHOLE selection regardless of where it
+   * is drawn.
+   */
+  let lastClickedSection = $state<'week' | 'done'>('week');
+  /** Done membership regardless of Done's search/filters — placement must not follow them. */
+  const doneLinkIds = $derived(
+    new Set(entries.filter((e) => !!e.entry.done_at).map((e) => e.link.id))
+  );
+  const panelSection = $derived.by((): 'week' | 'done' | null => {
+    if (selectedLinks.length === 0) return null;
+    const anyDone = selectedIds.some((id) => doneLinkIds.has(id));
+    const anyWeek = selectedIds.some((id) => !doneLinkIds.has(id));
+    if (anyDone && !anyWeek) return 'done';
+    if (anyWeek && !anyDone) return 'week';
+    return lastClickedSection;
+  });
 
   /** Notes taken across this week's links (#6). */
   let stats = $state({ linksWithNotes: 0, excerpts: 0 });
@@ -179,6 +206,7 @@
   );
 
   function toggleAllDone(selectAll: boolean) {
+    lastClickedSection = 'done';
     const ids = done.map((e) => e.link.id);
     if (selectAll) {
       selectedIds = [...new Set([...selectedIds, ...ids])];
@@ -212,29 +240,12 @@
 
   /** Returns whether the clicked row ended up selected. */
   function toggleSelect(id: string, shiftKey = false): boolean {
+    lastClickedSection = doneLinkIds.has(id) ? 'done' : 'week';
     const result = selectOnClick(selectedIds, selectableIds, id, shiftKey, anchor);
     selectedIds = result.selected;
     anchor = result.anchor;
     return result.selected.includes(id);
   }
-
-  const queryIsUrl = $derived.by(() => {
-    try {
-      const u = new URL(query.trim());
-      return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch {
-      return false;
-    }
-  });
-
-  const matches = $derived.by(() => {
-    const q = query.trim().toLowerCase();
-    if (!q || queryIsUrl) return [];
-    return allLinks
-      .filter((l) => l.title.toLowerCase().includes(q) || l.url.toLowerCase().includes(q))
-      .filter((l) => !entryLinkIds.has(l.id) && !l.slushed_at)
-      .slice(0, 8);
-  });
 
   function describeClose(r: CloseResult): string {
     return `${r.read} read, ${r.slushed} slushed, ${r.returned} returned to the backlog`;
@@ -474,11 +485,10 @@
     await refresh();
   }
 
-  async function addByUrl() {
-    if (!week || !queryIsUrl || adding) return;
+  async function addByUrl(url: string) {
+    if (!week || adding) return;
     adding = true;
     try {
-      const url = new URL(query.trim()).toString();
       const { added } = await captureLinks(url);
       // A duplicate paste reported no `added` row — find the existing link by
       // its indexed URL (the lazy corpus may not be loaded).
@@ -626,6 +636,18 @@
   }
 </script>
 
+<!--
+  One panel, two possible homes (see panelSection). A snippet rather than two
+  copies so the two sites can never drift apart.
+-->
+{#snippet bulkPanel()}
+  <BulkActionsPanel
+    links={selectedLinks}
+    onApplied={() => void loadWeek()}
+    onClearSelection={() => (selectedIds = [])}
+  />
+{/snippet}
+
 {#snippet draggableList(sectionKey: 'toRead' | 'review', withReviewed: boolean)}
   <div class="entries">
     {#each sectionOf(sectionKey) as { entry, link }, i (entry.id)}
@@ -700,47 +722,20 @@
         </p>
       {/if}
 
-      {#if selectedLinks.length > 0}
-        <BulkActionsPanel
-          links={selectedLinks}
-          onApplied={() => void loadWeek()}
-          onClearSelection={() => (selectedIds = [])}
-        />
+      {#if panelSection === 'week'}
+        {@render bulkPanel()}
       {/if}
       {#if isOpenWeek}
-        <form
-          class="adder"
-          onsubmit={(e) => {
-            e.preventDefault();
-            void addByUrl();
-          }}
-        >
-          <input
-            type="text"
-            placeholder="Paste a URL to add, or search your links…"
-            bind:value={query}
-            onfocus={() => void ensureCorpus()}
-          />
-          {#if queryIsUrl}
-            <button type="submit" class="btn btn-primary" disabled={adding}>
-              {adding ? 'Adding…' : 'Add link'}
-            </button>
-          {/if}
-        </form>
-        {#if matches.length > 0}
-          <ul class="matches">
-            {#each matches as match (match.id)}
-              <li>
-                <button type="button" class="match" onclick={() => addExisting(match)}>
-                  <span class="match-title">{match.title}</span>
-                  <span class="match-domain">{domainOf(match.url)}</span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {:else if query.trim() && !queryIsUrl}
-          <p class="no-match">No links match — paste a full URL to add a new one.</p>
-        {/if}
+        <LinkSearchPicker
+          corpus={allLinks}
+          bind:query
+          exclude={entryLinkIds}
+          accept={(l) => !l.slushed_at}
+          {adding}
+          onSelect={addExisting}
+          onAddUrl={addByUrl}
+          onFocus={() => void ensureCorpus()}
+        />
       {/if}
 
       {#if isOpenWeek && quota !== null && underQuota > 0 && suggestions.length > 0}
@@ -798,6 +793,9 @@
           selectableCount={done.length}
           onToggleAll={toggleAllDone}
         />
+        {#if panelSection === 'done'}
+          {@render bulkPanel()}
+        {/if}
         {#if done.length === 0}
           <p class="empty">Nothing you've read this week matches that.</p>
         {/if}
@@ -877,22 +875,6 @@
     color: var(--text-muted-color);
     font-size: var(--font-size-sm);
     text-align: center;
-  }
-
-  .adder {
-    display: flex;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-  }
-
-  .adder input {
-    flex: 1;
-    min-width: 0;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    background: var(--surface-color);
-    color: var(--text-color);
   }
 
   .matches {

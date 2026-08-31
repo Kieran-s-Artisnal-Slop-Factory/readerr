@@ -77,19 +77,68 @@ export async function ensureListIdsByName(names: string[]): Promise<string[]> {
   return ids;
 }
 
+/**
+ * Add many links to one list in a single pass — the bulk-panel entry point.
+ *
+ * The membership index is read ONCE for the whole batch, not once per link:
+ * a fifty-link selection used to mean fifty `byIndex` scans of
+ * resource_list_links (the hot-path lesson in docs/dev/performance.md).
+ * `present` then carries the already-a-member set forward across the batch,
+ * so a link listed twice in one selection, or already in the list from
+ * another device, still produces exactly one (list, link) pair — the
+ * invariant the sync harness checks as `resource_list_links-pair`.
+ *
+ * Membership implies resource-hood, so every link that isn't flagged gets
+ * flagged, whether or not the pair itself is new.
+ *
+ * Returns how many memberships were actually created.
+ */
+export async function addLinksToList(listId: string, links: Link[]): Promise<number> {
+  // Deduped read: a pair already forked across devices collapses here rather
+  // than tricking the membership check below into adding a third row.
+  const joins = await dedupeListLinks(
+    await byIndex<ResourceListLink>('resource_list_links', 'list_id', listId)
+  );
+  const present = new Set(joins.map((j) => j.link_id));
+  let position = joins.reduce((max, j) => Math.max(max, j.position), -1) + 1;
+  let added = 0;
+  for (const link of links) {
+    if (!present.has(link.id)) {
+      present.add(link.id);
+      await put(
+        'resource_list_links',
+        withSyncFields({ list_id: listId, link_id: link.id, position: position++ })
+      );
+      added++;
+    }
+    if (!link.is_resource) {
+      await put('links', { ...link, is_resource: true });
+    }
+  }
+  return added;
+}
+
 /** Add a link to a list; the link becomes a resource if it wasn't one. */
 export async function addToList(listId: string, link: Link): Promise<void> {
-  const joins = await byIndex<ResourceListLink>('resource_list_links', 'list_id', listId);
-  if (!joins.some((j) => j.link_id === link.id)) {
-    const position = joins.reduce((max, j) => Math.max(max, j.position), -1) + 1;
-    await put(
-      'resource_list_links',
-      withSyncFields({ list_id: listId, link_id: link.id, position })
-    );
-  }
-  if (!link.is_resource) {
-    await put('links', { ...link, is_resource: true });
-  }
+  await addLinksToList(listId, [link]);
+}
+
+/**
+ * Drop many links from one list. The links keep their resource flag —
+ * `is_resource` says "this is reference material", which staying true of a
+ * link you took out of one list is the honest reading (and matches
+ * removeFromList, which has never cleared it either).
+ *
+ * Returns how many memberships were removed.
+ */
+export async function removeLinksFromList(listId: string, links: Link[]): Promise<number> {
+  const joins = await dedupeListLinks(
+    await byIndex<ResourceListLink>('resource_list_links', 'list_id', listId)
+  );
+  const wanted = new Set(links.map((l) => l.id));
+  const doomed = joins.filter((j) => wanted.has(j.link_id)).map((j) => j.id);
+  if (doomed.length) await softDeleteMany('resource_list_links', doomed);
+  return doomed.length;
 }
 
 export async function removeFromList(entryId: string): Promise<void> {

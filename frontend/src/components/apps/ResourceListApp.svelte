@@ -7,10 +7,11 @@
   import { onMount } from 'svelte';
   import Card from '../Card.svelte';
   import LinkRow from '../LinkRow.svelte';
+  import LinkSearchPicker from '../LinkSearchPicker.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
   import { all, get, put } from '../../lib/db/repo';
   import { captureLinks, fetchTitles } from '../../lib/services/capture';
-  import { domainOf, tagsForLink } from '../../lib/services/links';
+  import { tagsForLink } from '../../lib/services/links';
   import {
     addToList,
     downloadList,
@@ -31,24 +32,6 @@
   let missing = $state(false);
 
   const memberLinkIds = $derived(new Set(members.map((m) => m.link.id)));
-
-  const queryIsUrl = $derived.by(() => {
-    try {
-      const u = new URL(query.trim());
-      return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch {
-      return false;
-    }
-  });
-
-  const matches = $derived.by(() => {
-    const q = query.trim().toLowerCase();
-    if (!q || queryIsUrl) return [];
-    return allLinks
-      .filter((l) => l.title.toLowerCase().includes(q) || l.url.toLowerCase().includes(q))
-      .filter((l) => !memberLinkIds.has(l.id))
-      .slice(0, 8);
-  });
 
   onMount(async () => {
     const id = new URLSearchParams(location.search).get('id');
@@ -77,11 +60,10 @@
     list = await put('resource_lists', { ...list, description_md: md });
   }
 
-  async function addByUrl() {
-    if (!list || !queryIsUrl || adding) return;
+  async function addByUrl(url: string) {
+    if (!list || adding) return;
     adding = true;
     try {
-      const url = new URL(query.trim()).toString();
       const { added } = await captureLinks(url);
       const link = added[0] ?? allLinks.find((l) => l.url === url);
       if (link) await addToList(list.id, link);
@@ -133,38 +115,14 @@
     </Card>
 
     <Card title={`Links (${members.length})`}>
-      <form
-        class="adder"
-        onsubmit={(e) => {
-          e.preventDefault();
-          void addByUrl();
-        }}
-      >
-        <input
-          type="text"
-          placeholder="Paste a URL to add, or search your links…"
-          bind:value={query}
-        />
-        {#if queryIsUrl}
-          <button type="submit" class="btn btn-primary" disabled={adding}>
-            {adding ? 'Adding…' : 'Add link'}
-          </button>
-        {/if}
-      </form>
-      {#if matches.length > 0}
-        <ul class="matches">
-          {#each matches as match (match.id)}
-            <li>
-              <button type="button" class="match" onclick={() => addExisting(match)}>
-                <span class="match-title">{match.title}</span>
-                <span class="match-domain">{domainOf(match.url)}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {:else if query.trim() && !queryIsUrl}
-        <p class="no-match">No links match — paste a full URL to add a new one.</p>
-      {/if}
+      <LinkSearchPicker
+        corpus={allLinks}
+        bind:query
+        exclude={memberLinkIds}
+        {adding}
+        onSelect={addExisting}
+        onAddUrl={addByUrl}
+      />
 
       {#if members.length === 0}
         <p class="empty">No links yet — add some above.</p>
@@ -227,73 +185,6 @@
     margin: 0 0 var(--space-3);
   }
 
-  .adder {
-    display: flex;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-  }
-
-  .adder input {
-    flex: 1;
-    min-width: 0;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    background: var(--surface-color);
-    color: var(--text-color);
-  }
-
-  .matches {
-    list-style: none;
-    margin: 0 0 var(--space-3);
-    padding: 0;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-
-  .match {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-3);
-    width: 100%;
-    padding: var(--space-2) var(--space-3);
-    border: none;
-    border-bottom: 1px solid var(--border-color);
-    background: var(--surface-color);
-    color: var(--text-color);
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .matches li:last-child .match {
-    border-bottom: none;
-  }
-
-  .match:hover {
-    background: var(--color-primary-soft);
-  }
-
-  .match-title {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .match-domain {
-    flex-shrink: 0;
-    font-size: var(--font-size-sm);
-    color: var(--text-muted-color);
-  }
-
-  .no-match {
-    color: var(--text-muted-color);
-    font-size: var(--font-size-sm);
-    margin: 0 0 var(--space-3);
-  }
-
   .member-list {
     display: flex;
     flex-direction: column;
@@ -342,17 +233,4 @@
     flex-wrap: wrap;
   }
 
-  /* Title beside domain leaves too little of either to recognise a result. */
-  @media (max-width: 40rem) {
-    .match {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 2px;
-    }
-
-    .match-title {
-      white-space: normal;
-      overflow-wrap: anywhere;
-    }
-  }
 </style>
