@@ -20,19 +20,7 @@ Additional things to keep in mind:
 
 This section is for me to keep track of what I need to manually review, feel free to add to this
 
-- [ ] Test all exports
-  - [ ] Topics
-- [ ] Test series
-  - [ ] https://blog.cloudflare.com/
-    - [ ] https://blog.cloudflare.com/rss/
-  - [ ] https://thedailywtf.com/
-    - [ ] https://feeds.feedburner.com/TheDailyWtf
-  - [ ] https://feeds.megaphone.fm/FSI1483080183
-  - [ ] https://feeds.transistor.fm/postgres-fm
-  - [ ] https://blog.flipper.net/rss/
-  - [ ] https://daverupert.com/atom.xml
-  - [ ] https://rustfoundation.org/media/category/blog/feed/
-  - [ ] https://feeds.transistor.fm/database-school
+- [ ] 
 
 ## Per change
 Required guidence to follow per change
