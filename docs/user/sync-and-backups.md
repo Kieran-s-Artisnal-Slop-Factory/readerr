@@ -139,6 +139,15 @@ instead of a server.
 
 ## Watching sync health
 
+**The icon beside the readerr logo** tells you where you stand at a glance,
+and clicking it takes you to Settings:
+
+| Icon | Meaning |
+|---|---|
+| a **wifi** symbol | Connected — your sync server is set up and the last attempt worked. |
+| a **crossed-out wifi** symbol, in red | Your sync server is set up but can't be reached right now — you're offline, or the last sync failed. Everything keeps working here and catches up when it comes back. |
+| a **crossed-out server** symbol | No sync server at all. This library lives on this device only. That's not an error, so it isn't red. |
+
 **Settings → Sync** shows the last sync time or the last error. Expand **Sync
 history** (shown only while sync is enabled) for a log of recent syncs, with
 options for how much to track (all errors, only real errors ignoring offline

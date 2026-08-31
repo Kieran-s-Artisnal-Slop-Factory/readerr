@@ -129,6 +129,32 @@ itself.
 
 Tests: [syncGuard.test.ts](../../frontend/test/syncGuard.test.ts).
 
+### The status indicator
+
+[ConnectionStatus.svelte](../../frontend/src/components/ConnectionStatus.svelte)
+sits beside the wordmark and reads the guard above rather than issuing probes
+of its own:
+
+```mermaid
+flowchart TD
+  A{"hasValidSyncUrl() and<br/>ensureSyncAvailable()?"} -- no --> L["local — struck-out server icon,<br/>muted (not an error: it is a choice)"]
+  A -- yes --> B{"navigator.onLine?"}
+  B -- no --> U["unreachable — wifi-off,<br/>danger colour"]
+  B -- yes --> C{"stored lastError?"}
+  C -- set --> U
+  C -- none --> K["connected — wifi, muted"]
+```
+
+It refreshes on `SYNC_EVENT` and on the browser's `online`/`offline` events, so
+it costs nothing beyond the once-per-session `/healthz` probe the app already
+makes. The navbar's older "offline" badge now only appears in the **local**
+state, where the icon says nothing about the network — with a server
+configured, being offline already shows as wifi-off.
+
+Icons are Bootstrap Icons (MIT), inlined; the struck-out rack draws its slash
+twice, once in the navbar's background colour underneath, so the line reads as
+a gap through the filled shape.
+
 ## Setting up a server
 
 The backend is a single binary (or Docker container) with an SQLite file:

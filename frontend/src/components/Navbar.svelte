@@ -1,10 +1,18 @@
 <script>
   import { onMount } from 'svelte';
+  import ConnectionStatus from './ConnectionStatus.svelte';
   import { href } from '../lib/paths';
 
   let { currentPath = '/' } = $props();
   let open = $state(false);
   let online = $state(true);
+  /**
+   * What the sync indicator is currently showing. The "offline" badge is only
+   * worth the space when the icon ISN'T already saying it — with a server
+   * configured, being offline shows as wifi-off there, and two indicators of
+   * the same thing side by side is one too many.
+   */
+  let connState = $state('local');
   let collectionsOpen = $state(false);
   let plansOpen = $state(false);
   let archiveEnabled = $state(false);
@@ -93,9 +101,14 @@
 </script>
 
 <header class="navbar">
-  <a class="brand" href={href('/')}>read<span>err</span></a>
+  <!-- The wordmark and the sync indicator are ONE child of the navbar, or
+       space-between would push them apart across the whole bar. -->
+  <div class="brand-group">
+    <a class="brand" href={href('/')}>read<span>err</span></a>
+    <ConnectionStatus onState={(s) => (connState = s)} />
+  </div>
 
-  {#if !online}
+  {#if !online && connState === 'local'}
     <span class="offline-badge" title="You're offline — everything keeps working from this device">
       offline
     </span>
@@ -193,6 +206,13 @@
     padding-inline: var(--space-4);
     background: var(--surface-color);
     border-bottom: 1px solid var(--border-color);
+  }
+
+  .brand-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
   }
 
   .brand {

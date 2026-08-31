@@ -8,107 +8,13 @@ Additional things to keep in mind:
 
 ## Maintenance
 
-- [x] Check all dependencies and do updates
-  - [x] Frontend
-  - [x] Backend
+- [ ] Check all dependencies and do updates
+  - [ ] Frontend
+  - [ ] Backend
 
 ## Features & fixes
 
-- [x] Only sync when a valid URL is set as a sync url
-  - [x] There are currently constant errors in the console log
-    - [x] Related to posts to `/healthz`, `/sync/push`, and `/sync/stats`
-    - [x] When on inbox page, getting constant errors on `/feed`
-- [x] When I am typing to look for a link (e.g. in resource list page, the `Paste a URL to add, or search your links...`), I need to be able to scroll results, or have a next-page option. Large libraries of links far exceed the current number shown
-- [x] Bulk operations; When bulk selecting links such as in the reading list tab
-  - [x] allow me to add them to resource lists
-  - [x] Improve the UI
-    - [x] on the reading list page so that if I'm selecting items in the `done` section, the controls appear in the `done` section. Currentl selecting links in the `done` section causes the UI to appear at the top of `this week` which can take a while to scroll to
-- [x] Topics
-  - [x] Statuses
-    - [x] Allow me to mark topics as `in-progress` and `done`
-      - [x] These statuses are optional, but when set change the display and filtering behavior on the topics overview page (page that lists all topics)
-        - [x] In progress acts as a way to more highly weight a topic, and should appear at the top of the topics page
-        - [x] Done items should appear below in-progress and items with no status
-  - [x] Add bulk operations
-    - [x] Delete
-    - [x] Assign status (in-progress, done)
-    - [x] Remove status
-    - [x] Assign tags
-    - [x] remove tags
-  - [x] Allow assigning tags to topics
-    - [x] This makes them show up on that tags overview page
-    - [x] Show up as a metadata item in the export for that tag
-    - [x] Show the tags as a metadata item (frontmatter for md, in header card for HTML)
-  - [x] Add filters and search to topics overview
-    - [x] Add the ability to search
-    - [x] Add the abilty to filter on the topics page by
-      - [x] Tag
-      - [x] Status
-- [x] In the link overview page (page that lets you take exerpts, write notes etc. for a single link)
-  - [x] Add the ability to reschedule a link
-  - [x] Add the ability for me to assign the item to a resource list (should mark it as a resource if it isn't already)
-- [x] Exportable tags, similar to the exportable resource lists
-  - [x] Unify resource list exporting and exportable tags. Make sure both have the same features that make sense
-  - [x] Allow for tags to be an exportable HTML page or markdown file
-    - [x] Markdown
-      - [x] Frontmatter
-        - [x] Child tags
-        - [x] Number of links
-          - [x] Direct links
-          - [x] Child links
-          - [x] Number of favourites
-      - [x] Include about section
-      - [x] Topics
-        - [x] Embed topic information in metadata section of documents
-        - [x] Include option to embed topic info as a checkbox
-          - [x] For HTML this puts the topic into a modal that opens when clicked with the topic content
-          - [x] for MD this just adds sections to the bottom of the document that have the content from the topics
-            - [x] Add checkbox to export each topic as a separate file if that's what they want, then download them all as a zip
-      - [x] Put links into separate sections with headings
-        - [x] Links directly associated with tags
-        - [x] "From child tags"
-        - [x] Ordering
-          - [x] 1. Favourites
-          - [x] 2. Read
-          - [x] 3. Unread
-        - [x] Columns
-          - [x] link
-          - [x] Read
-            - [x] true or false
-          - [x] Favourite
-            - [x] true or false
-          - [x] Resource
-            - [x] true or false
-          - [x] Reading week
-          - [x] tags
-            - [x] comma separated list (escape `|`)
-    - [x] HTML
-      - [x] Single HTML page (all JS/css inlined)
-      - [x] Same theme as selected theme
-      - [x] Metadata stats in header card
-        - [x] Child tags
-        - [x] Number of links
-          - [x] Direct links
-          - [x] Child links
-          - [x] Number of favourites
-      - [x] About section as rendered html from markdown (if available)
-      - [x] Separate tables for directly associated links, and links from child tags
-        - [x] Default ordering
-          - [x] 1. Favourites
-          - [x] 2. Read
-          - [x] 3. Unread
-        - [x] Include filterable and sortable datatable from retoken for each column
-        - [x] Columns
-          - [x] link
-          - [x] Read
-            - [x] true or false
-          - [x] Favourite
-            - [x] true or false
-          - [x] Resource
-            - [x] true or false
-          - [x] Reading week
-          - [x] tags
-            - [x] comma separated list
+- [] 
 
 ## For human
 

@@ -354,9 +354,17 @@ ul.topics > li:last-child { border-bottom: none; }
 .topic-open { background: none; border: none; padding: 0; font: inherit; font-weight: 600;
   color: var(--color-primary-strong); cursor: pointer; text-decoration: underline; }
 .topic-name { font-weight: 600; }
-.topic-modal { position: fixed; inset: 0; background: rgb(0 0 0 / 0.55);
-  display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem;
+/*
+ * The modal is display:none by DEFAULT and only laid out when it is not
+ * hidden. Writing \`display: flex\` on the class alone was the bug: an
+ * author-origin class rule outranks the user agent's \`[hidden] {display:none}\`,
+ * so the \`hidden\` attribute did nothing and every export with topic embedding
+ * opened under a full-page backdrop that also swallowed clicks.
+ */
+.topic-modal { display: none; position: fixed; inset: 0; background: rgb(0 0 0 / 0.55);
+  align-items: flex-start; justify-content: center; padding: 2rem 1rem;
   overflow-y: auto; z-index: 20; }
+.topic-modal:not([hidden]) { display: flex; }
 .topic-modal-inner { position: relative; background: var(--bg-color);
   border: 1px solid var(--border-color); border-radius: 10px; padding: 1.5rem;
   max-width: var(--page-max-width); width: 100%; }

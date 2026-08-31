@@ -163,6 +163,23 @@ rather than printing an empty table.
 
 ---
 
+## The topic modal starts closed
+
+Worth knowing, because it bit once: the modal's markup carries `hidden`, but
+writing `.topic-modal { display: flex }` on the class alone **overrode it** —
+an author-origin class rule outranks the user agent's
+`[hidden] { display: none }`. Every export with topic embedding therefore
+opened under a full-page backdrop that also swallowed clicks.
+
+The rule is now `display: none` by default with
+`.topic-modal:not([hidden]) { display: flex }` to lay it out, which no
+specificity accident can undo. `collectionExport.test.ts` parses the emitted
+stylesheet and asserts both halves; re-introducing the old CSS fails it.
+
+Anything else in an export that relies on `hidden` (`.topic-embed`,
+`.topic-store`) has no display rule of its own on purpose — if one ever gains
+one, it needs the same guard.
+
 ## Security notes
 
 Two things in here handle data that came from the web:

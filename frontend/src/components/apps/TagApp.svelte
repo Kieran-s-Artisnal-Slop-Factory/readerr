@@ -10,6 +10,7 @@
   import LinkList from '../LinkList.svelte';
   import MarkdownEditor from '../MarkdownEditor.svelte';
   import Pagination from '../Pagination.svelte';
+  import ToggleSwitch from '../ToggleSwitch.svelte';
   import { href } from '../../lib/paths';
   import { all, get, put, withSyncFields } from '../../lib/db/repo';
   import {
@@ -252,14 +253,17 @@
       </p>
       {#if topics.length > 0}
         <div class="export-options">
-          <label class="check">
-            <input type="checkbox" bind:checked={embedTopics} />
-            Include each topic's full document
-          </label>
-          <label class="check">
-            <input type="checkbox" bind:checked={topicsAsFiles} disabled={!embedTopics} />
-            Markdown only: one file per topic, bundled as a zip
-          </label>
+          <ToggleSwitch
+            bind:checked={embedTopics}
+            label="Include each topic's full document"
+            hint="Sections at the bottom of the Markdown; a click-to-read modal in the HTML."
+          />
+          <ToggleSwitch
+            bind:checked={topicsAsFiles}
+            disabled={!embedTopics}
+            label="One file per topic, bundled as a zip"
+            hint="Markdown only. The tag keeps the topic index; the documents become their own files."
+          />
         </div>
       {/if}
       <div class="export-actions">
@@ -279,7 +283,7 @@
         </p>
         <ul class="topic-list">
           {#each topics as t (t.id)}
-            <li>
+            <li class:done={topicStatus(t) === 'done'}>
               <a class="inherited-title" href={`${href('/topic/')}?id=${t.id}`}>{t.name}</a>
               {#if topicStatus(t)}
                 <span class="status" class:done={topicStatus(t) === 'done'}>
@@ -411,7 +415,7 @@
   .export-options {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
     margin-bottom: var(--space-3);
   }
 
@@ -452,9 +456,20 @@
 
   .topic-list .status.done {
     border-color: var(--border-color);
-    background: var(--surface-color);
+    background: transparent;
     color: var(--text-muted-color);
     font-weight: 400;
+    opacity: 0.8;
+  }
+
+  /* Same recede-don't-hide treatment the topics overview gives a done row. */
+  .topic-list li.done .inherited-title {
+    color: var(--text-muted-color);
+    font-weight: 400;
+  }
+
+  .topic-list li.done .inherited-title:hover {
+    color: var(--color-primary-strong);
   }
 
   .inherited {

@@ -1,4 +1,4 @@
-# 0.4.0 — Unreleased
+# 0.4.0 — August 30th, 2026
 
 ## Features
 
@@ -11,6 +11,7 @@
 * Tagged topics travel with a tag export: metadata always, and optionally each topic's full document — as sections, as a modal, or as one file per topic in a zip.
 * Resource lists now export through the **same shared core as tags**, so both produce the same document shape.
 * The link page can now file a link into **resource lists** (adding also marks it a resource).
+* Added a **sync status indicator** beside the logo: connected, server-unreachable (in the error colour), or a struck-out server icon for a local-only library.
 * Added a new **Inbox** for RSS/Atom feed subscriptions and triage.
 * Inbox feeds can work **without a sync server**, including offline/static-host deployments.
 * Added **Series** for grouping multi-part content into a single link with progress tracking.
@@ -24,6 +25,7 @@
 * Added validation for invalid sync URLs.
 * Bulk action controls now appear alongside the **selected items** instead of at the top of the page.
 * Re-scheduling a link no longer **discards an entry already marked done** in the current, still-open week.
+* Fixed exported tag/resource-list HTML opening with the topic modal already covering the page (its layout rule overrode the `hidden` attribute).
 * Fixed older servers potentially **overwriting newer client fields** during sync.
 * Fixed series parts appearing **twice in reading weeks**.
 * Improved error messages for outdated or incorrectly configured sync servers.
@@ -32,6 +34,8 @@
 ## Other
 
 * Moved **Backlog** and **Favourites** under the Collections menu.
+* The tag export options are now **toggle switches** rather than stretched checkboxes.
+* **Done** topics now recede the way a read link does — muted name, quieter badge — instead of staying at full strength.
 * Added migration tests for both backend and IndexedDB upgrades.
 * The demo/stress seeder can generate **topic tags** (share of topics tagged, and average tags each).
 * Vendored retoken's dependency-free table model and its 113 upstream tests to back the exported tables.

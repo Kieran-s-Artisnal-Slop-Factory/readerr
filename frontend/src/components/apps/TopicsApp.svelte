@@ -182,7 +182,7 @@
     <ul class="topic-list">
       {#each visible as topic (topic.id)}
         {@const status = topicStatus(topic)}
-        <li class:bulk-selected={selectedIds.includes(topic.id)}>
+        <li class:bulk-selected={selectedIds.includes(topic.id)} class:done={status === 'done'}>
           <input
             type="checkbox"
             class="row-check"
@@ -300,6 +300,26 @@
     background: var(--color-primary-soft);
   }
 
+  /*
+   * A done topic is retired, not deleted — so it recedes the way a read link
+   * does (LinkRow's `.row.read .title`) rather than being hidden. The name
+   * goes muted and the row dims; the controls stay at full strength so it is
+   * still one click to bring it back.
+   */
+  .topic-list li.done .topic-name {
+    color: var(--text-muted-color);
+    font-weight: 400;
+  }
+
+  .topic-list li.done .topic-name:hover {
+    color: var(--color-primary-strong);
+  }
+
+  .topic-list li.done .tag-chip,
+  .topic-list li.done .count {
+    opacity: 0.7;
+  }
+
   .row-check {
     flex-shrink: 0;
     width: auto;
@@ -332,9 +352,10 @@
 
   .status-badge.done {
     border-color: var(--border-color);
-    background: var(--surface-color);
+    background: transparent;
     color: var(--text-muted-color);
     font-weight: 400;
+    opacity: 0.8;
   }
 
   .tag-chip {
@@ -378,6 +399,13 @@
     background: var(--color-primary-soft);
     border-color: var(--color-primary);
     color: var(--color-primary-strong);
+  }
+
+  /* Done is a quieter state than in-progress, so its active toggle is too. */
+  .topic-list li.done .status-btn.active {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-muted-color);
   }
 
   @media (max-width: 40rem) {

@@ -319,6 +319,67 @@ describe('collectionHtml', () => {
     expect(out).toContain('About Storage.');
   });
 
+  describe('the modal starts closed', () => {
+    // Regression: `.topic-modal { display: flex }` on the class alone
+    // OUTRANKS the user agent's `[hidden] { display: none }` (author origin
+    // beats UA at equal specificity), so the `hidden` attribute did nothing
+    // and every export with topic embedding opened under a full-page backdrop
+    // that also swallowed clicks. The markup was right; the CSS overrode it.
+    const out = collectionHtml(collection(), '', { embedTopics: true });
+
+    /**
+     * The page's stylesheet with comments stripped. Stripping matters: the
+     * comment explaining this very bug contains braces, and anything that
+     * splits on braces would cut it in half.
+     */
+    const css = (out.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '').replace(
+      /\/\*[\s\S]*?\*\//g,
+      ''
+    );
+
+    /**
+     * The declarations of the rule whose selector is exactly `sel`. Split on
+     * braces rather than matched with a regex: these selectors contain `.`,
+     * `:`, `(` and `[`, and escaping those into a pattern is how a test starts
+     * silently matching nothing.
+     */
+    function ruleFor(sel: string): string | null {
+      for (const block of css.split('}')) {
+        const brace = block.indexOf('{');
+        if (brace === -1) continue;
+        if (block.slice(0, brace).replace(/\s+/g, ' ').trim() === sel) {
+          return block.slice(brace + 1).replace(/\s+/g, ' ').trim();
+        }
+      }
+      return null;
+    }
+
+    it('carries the hidden attribute in the markup', () => {
+      expect(out).toMatch(/<div class="topic-modal" id="topic-modal" hidden>/);
+    });
+
+    it('does not lay the modal out by default', () => {
+      const base = ruleFor('.topic-modal');
+      expect(base, 'a .topic-modal rule exists').not.toBeNull();
+      expect(base).toContain('display: none');
+      expect(base, 'display:flex on the bare class would beat [hidden]').not.toContain(
+        'display: flex'
+      );
+    });
+
+    it('lays it out only when it is NOT hidden', () => {
+      expect(ruleFor('.topic-modal:not([hidden])')).toContain('display: flex');
+    });
+
+    it('leaves the embedded topic sections hidden too', () => {
+      // These have no display rule of their own, so [hidden] is enough — but
+      // if one ever gains one, it must not repeat the mistake above.
+      expect(out).toMatch(/<section class="topic-embed" id="topic-[^"]*" hidden>/);
+      expect(ruleFor('.topic-embed')).toBeNull();
+      expect(ruleFor('.topic-store')).toBeNull();
+    });
+  });
+
   it('escapes a title that looks like markup', () => {
     const out = collectionHtml(collection({ title: '<img onerror=x>' }), '');
     expect(out).not.toContain('<img onerror=x>');
