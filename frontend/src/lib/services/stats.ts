@@ -12,7 +12,7 @@ import { all } from '../db/repo';
 import { domainOf, linkTagAssignments } from './links';
 import { isSeries } from './series';
 import { getUserSettings } from './settings';
-import { getSyncMode, getSyncUrl } from '../sync';
+import { ensureSyncAvailable, getSyncUrl } from '../sync';
 import type { Link, LinkTopic, Tag, Topic } from '../db/types';
 
 export interface OriginStats {
@@ -309,7 +309,10 @@ export async function storageStats(): Promise<StorageStats> {
   }
 
   let serverBytes: number | null = null;
-  if (getSyncMode() === 'sync' && (typeof navigator === 'undefined' || navigator.onLine)) {
+  if (
+    (typeof navigator === 'undefined' || navigator.onLine) &&
+    (await ensureSyncAvailable())
+  ) {
     try {
       const res = await fetch(`${getSyncUrl()}/dbsize`);
       if (res.ok) {

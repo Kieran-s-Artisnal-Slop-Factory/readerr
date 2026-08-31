@@ -32,7 +32,7 @@
     type InboxEntry,
   } from '../../lib/services/feeds';
   import { currentWeekStart, formatWeekRange, upcomingWeekOptions } from '../../lib/services/weeks';
-  import { getSyncMode } from '../../lib/sync';
+  import { ensureSyncAvailable } from '../../lib/sync';
   import { href } from '../../lib/paths';
   import type { Feed, FeedItemStatus, Link } from '../../lib/db/types';
 
@@ -67,7 +67,7 @@
    * itself — but only for sites whose CORS headers allow it, so the page says
    * so up front rather than letting each feed fail mysteriously.
    */
-  const noServer = $derived(getSyncMode() === 'offline');
+  let noServer = $state(false);
   const weekOptions = upcomingWeekOptions();
 
   const visible = $derived(
@@ -89,6 +89,7 @@
   onMount(async () => {
     await reload();
     loading = false;
+    noServer = !(await ensureSyncAvailable());
     // The once-a-day check for every feed this device hasn't looked at
     // recently. Skipped in test mode and while the browser is disconnected.
     const results = await maybeRefreshDueFeeds(feeds);

@@ -1,6 +1,6 @@
 # Version 0.4.0 — Phased implementation plan
 
-Status: **phase 1 complete (2026-08-30); next up: phase 2, then Checkpoint 1.** If you are an agent picking this
+Status: **phases 1–2 complete and Checkpoint 1 green (2026-08-30); next up: phase 3.** If you are an agent picking this
 up: work top-to-bottom, check off items here AND in `TODO` as you go, and do not skip
 checkpoints. VERSION has already been bumped to `0.4.0`; add a `# 0.4.0 (unreleased)`
 heading to `CHANGELOG.md` with the first change you land.
@@ -44,25 +44,42 @@ Problem: `getSyncUrl()` (`frontend/src/lib/sync.ts` ~39) falls back to same-orig
 `BASE_URL`, so an install with no backend hammers `/healthz`, `/sync/push`,
 `/sync/stats` and (on the inbox page) `/feed`, filling the console with errors.
 
-- [ ] Add `hasValidSyncUrl()` next to `getSyncUrl()` in `lib/sync.ts`: true only when
-      the user has explicitly saved a syntactically valid http(s) URL (no same-origin
-      fallback for the *guard* — the fallback can remain for users who genuinely serve
-      frontend+backend together, decide by checking how docker-compose deploys work;
-      if the fallback must stay valid for docker users, gate instead on
-      `getSyncMode() === 'sync'` + a successful `/healthz` remembered per session).
-- [ ] Guard the entry points: `requestSync()`, `flushPendingSync()`, `maybeAutoSync()`,
-      `doSync()`, `checkServerEpoch()`, `serverHasData()` in `lib/sync.ts`.
-- [ ] Guard `/feed` fetches in `lib/services/feeds.ts` (~102–213) the same way — fall
-      through to the client-side parser path (`feedParse.ts`) that 0.3.0 added, without
-      logging errors first.
-- [ ] Settings/Onboarding (`SettingsApp.svelte`, `OnboardingApp.svelte`): validate the
-      URL on save; show a clear "sync disabled — no server configured" state instead of
-      silent failure.
-- [ ] Unit tests: vitest for `hasValidSyncUrl()` cases (empty, garbage, http, https,
-      trailing slash, same-origin default). Manually verify zero console errors on
-      inbox + reading list with no sync URL set.
+- [x] `docker-compose.yml` confirmed: the image serves frontend + sync API on ONE
+      origin with no URL configured, so the same-origin fallback had to stay valid.
+      Resolved with the second option in the original plan — `isValidSyncUrl()` /
+      `hasValidSyncUrl()` (synchronous, config-only) plus `ensureSyncAvailable()`,
+      which probes `/healthz` once per tab session and remembers the verdict in
+      `sessionStorage` (`readerr-same-origin-sync`). `setSyncUrl()` clears it.
+- [x] Guarded the entry points: `requestSync()`, `flushPendingSync()`,
+      `maybeAutoSync()` (synchronous check), `doSync()` (async check, returns
+      `NO_SERVER_MESSAGE` before `checkServerEpoch` or the push — so
+      `checkServerEpoch()` is covered by its only caller), `serverHasData()`.
+- [x] Guarded `/feed` in `lib/services/feeds.ts` — falls through to `feedParse.ts`
+      with no note. Also guarded two call sites the plan hadn't listed but which have
+      the same bug: `/title` (`capture.ts` `fetchTitles`) and `/dbsize`
+      (`stats.ts`). `InboxApp.svelte`'s "no sync server" banner now reflects real
+      availability instead of only explicit offline mode.
+- [x] Settings/Onboarding validate on save (`isValidSyncUrl`); Settings shows a
+      "no server to sync with" banner naming the saved target and disables **Sync
+      now**; Onboarding refuses to finish or connect with a scheme-less URL.
+- [x] Unit tests: `frontend/test/syncGuard.test.ts` (25 cases — URL syntax,
+      offline mode, one-probe-per-session both ways, concurrent-probe dedupe,
+      re-probe after a URL change, `syncNow()` issuing only `/healthz`).
+      `staleSnapshot.test.ts`'s fetch stub needed a healthy `/healthz` added.
+      Verified in the browser against the dev server with no backend: reading list,
+      inbox and settings issue **zero** sync/feed/title requests after the single
+      probe; the inbox banner and the settings banner both appear; a scheme-less URL
+      is rejected and not saved; a valid one saves and clears the banner.
 
-## ✅ CHECKPOINT 1 (after phases 1–2)
+## ✅ CHECKPOINT 1 (after phases 1–2) — **GREEN (2026-08-30)**
+
+`npm test` 398/398 · `go test ./...` ok · `npm run test:sync` 151 passed,
+self-verification 12/12, coverage 17/17 stores. `astro build` and
+`svelte-check` clean (the 24 pre-existing svelte-check errors — node types in
+`tests/`, a readonly-tuple assignment in `BacklogApp`/`WeekApp` — are
+untouched by this phase). The harness runs the backend serving `dist/` on one
+origin with no URL configured, so its green run also proves the same-origin
+probe still admits a legitimate server.
 
 Run the full suite (vitest, go test, test:sync). Phase 2 touches sync entry points, so
 `test:sync` must be fully green — the harness configures a sync URL, so it also proves

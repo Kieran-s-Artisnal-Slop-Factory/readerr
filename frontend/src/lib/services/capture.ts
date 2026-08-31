@@ -32,7 +32,7 @@ import {
   weekHistoryForLink,
   weekStartPlus,
 } from './weeks';
-import { getSyncMode, getSyncUrl } from '../sync';
+import { ensureSyncAvailable, getSyncUrl } from '../sync';
 import { isTestMode } from '../testMode';
 
 /** Query params that only exist to track you — safe to drop from any URL. */
@@ -533,7 +533,7 @@ export async function fetchTitles(links: Link[]): Promise<void> {
   // mid-test; tests that want titles call the backend explicitly.
   if (isTestMode()) return;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-  if (getSyncMode() === 'offline') return;
+  if (!(await ensureSyncAvailable())) return;
   const base = getSyncUrl();
   await Promise.allSettled(links.map((link) => fetchTitle(link, base)));
 }

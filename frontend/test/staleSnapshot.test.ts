@@ -166,15 +166,23 @@ describe('the background title fetch (audit D10 — the longest-lived stale row)
    * Stub GET /title so a pull lands WHILE the request is in flight — the exact
    * race: three attempts plus network latency, fanned out over the backlog.
    *
-   * fetchTitles is gated on being online and not in offline sync mode, neither
-   * of which exists in the node test environment, so both are stubbed too.
-   * (repo.put's requestSync stays dormant regardless — it returns early with no
-   * `window`.)
+   * fetchTitles is gated on being online and on there being a sync server to
+   * fetch through, none of which exists in the node test environment — so
+   * navigator, localStorage/sessionStorage and a healthy /healthz are all
+   * stubbed too. (repo.put's requestSync stays dormant regardless — it returns
+   * early with no `window`.)
    */
   function stubTitleFetch(title: string | null, onInFlight?: () => Promise<void>) {
     vi.stubGlobal('navigator', { onLine: true });
     vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    });
     vi.stubGlobal('fetch', async (input: unknown) => {
+      // The same-origin availability probe: yes, there is a backend here.
+      if (String(input).includes('/healthz')) return { ok: true, json: async () => ({}) };
       if (!String(input).includes('/title')) return { ok: false, json: async () => ({}) };
       if (onInFlight) await onInFlight();
       return { ok: true, json: async () => ({ ok: title !== null, title: title ?? undefined }) };

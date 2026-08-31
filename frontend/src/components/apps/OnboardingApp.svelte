@@ -11,7 +11,7 @@
   import { getUserSettings, saveUserSettings } from '../../lib/services/settings';
   import { importData } from '../../lib/db/export';
   import { requestPersistentStorage } from '../../lib/db/persistence';
-  import { setSyncUrl, setSyncMode, syncFresh, testConnection } from '../../lib/sync';
+  import { setSyncUrl, setSyncMode, syncFresh, testConnection, isValidSyncUrl } from '../../lib/sync';
   import {
     loadThemeConfig,
     saveThemeConfig,
@@ -137,6 +137,11 @@
     restoring = true;
     restoreMessage = '';
     try {
+      if (!isValidSyncUrl(restoreUrl)) {
+        restoreMessage =
+          'That address is missing its scheme — a server URL looks like http://192.168.1.10:8080.';
+        return;
+      }
       const test = await testConnection(restoreUrl);
       if (!test.ok) {
         restoreMessage = test.message;
@@ -163,6 +168,14 @@
   }
 
   async function finish() {
+    // Don't carry a typo into the install: an unusable URL would be saved as
+    // the sync target and then fail on every request, with nothing on any
+    // page explaining why. Clearing the field finishes without a server.
+    if (syncUrlInput.trim() && !isValidSyncUrl(syncUrlInput)) {
+      syncTestResult =
+        'That address is missing its scheme — a server URL looks like http://192.168.1.10:8080. Fix it or clear the field to finish without a server.';
+      return;
+    }
     // Persist the optional walkthrough choices, then mark complete. A blank
     // quota means "untouched", not "clear it" — matters if onboarding is
     // ever re-run over existing settings.
@@ -192,6 +205,11 @@
   }
 
   async function runTest() {
+    if (!isValidSyncUrl(syncUrlInput)) {
+      syncTestResult =
+        'That address is missing its scheme — a server URL looks like http://192.168.1.10:8080.';
+      return;
+    }
     testing = true;
     const result = await testConnection(syncUrlInput);
     syncTestResult = result.message;

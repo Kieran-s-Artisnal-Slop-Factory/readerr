@@ -64,6 +64,128 @@ export function setSyncUrl(url: string): void {
   const trimmed = url.trim().replace(/\/+$/, '');
   if (trimmed) localStorage.setItem(SYNC_URL_KEY, trimmed);
   else localStorage.removeItem(SYNC_URL_KEY);
+  // The same-origin verdict below was reached for the PREVIOUS configuration;
+  // saving (or clearing) a URL invalidates it.
+  forgetSameOriginProbe();
+}
+
+// ---------------------------------------------------------------------------
+// Is there a server to talk to at all?
+// ---------------------------------------------------------------------------
+//
+// An install with no backend still had a full sync target: getSyncUrl() falls
+// back to same-origin, so every page load fired /healthz, /sync/stats,
+// /sync/push (and /feed, /title, /dbsize) at a static host that answers none
+// of them, filling the console with failures the user can do nothing about.
+//
+// The fallback itself must stay — the docker-compose deployment serves the
+// frontend and the sync API from ONE origin with no URL configured, and that
+// is the recommended install. So "is sync available?" splits in two:
+//
+//   hasValidSyncUrl()      synchronous, config-only. False in offline mode or
+//                          when a saved URL is garbage; for the same-origin
+//                          fallback, true until a probe says otherwise. Cheap
+//                          enough for the fire-and-forget entry points.
+//   ensureSyncAvailable()  awaits the verdict: probes /healthz ONCE per tab
+//                          session for the same-origin case and remembers it,
+//                          so a serverless install pays one 404 per session
+//                          instead of a request per mutation.
+
+/** sessionStorage: '1' / '0' once the same-origin fallback has been probed. */
+const SAME_ORIGIN_OK_KEY = 'readerr-same-origin-sync';
+
+/** What a sync attempt reports when there is no server to attempt it against. */
+export const NO_SERVER_MESSAGE =
+  'No sync server is configured — add one under Settings → Sync to sync this device.';
+
+/** A usable sync target: an absolute http(s) URL with a host. */
+export function isValidSyncUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return false;
+  }
+  return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '';
+}
+
+/** The URL the user explicitly saved, or '' when they never did. */
+function storedSyncUrl(): string {
+  if (typeof localStorage === 'undefined') return '';
+  return (localStorage.getItem(SYNC_URL_KEY) ?? '').trim();
+}
+
+/** Remembered same-origin verdict: true/false once probed, null if unknown. */
+function sameOriginProbe(): boolean | null {
+  try {
+    const seen = sessionStorage.getItem(SAME_ORIGIN_OK_KEY);
+    return seen === '1' ? true : seen === '0' ? false : null;
+  } catch {
+    return null; // no sessionStorage (SSR, tests) — re-probe each time
+  }
+}
+
+function rememberSameOriginProbe(ok: boolean): void {
+  try {
+    sessionStorage.setItem(SAME_ORIGIN_OK_KEY, ok ? '1' : '0');
+  } catch {
+    // nothing to remember it in; the probe just runs again
+  }
+}
+
+function forgetSameOriginProbe(): void {
+  try {
+    sessionStorage.removeItem(SAME_ORIGIN_OK_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Could this install reach a sync server? Config only — no network. Use it to
+ * skip work that would otherwise fire a doomed request; use
+ * ensureSyncAvailable() when the answer must be trustworthy.
+ */
+export function hasValidSyncUrl(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  if (getSyncMode() === 'offline') return false;
+  const stored = storedSyncUrl();
+  if (stored) return isValidSyncUrl(stored);
+  // Same-origin fallback: assume a backend is there until a probe disproves it.
+  return sameOriginProbe() !== false;
+}
+
+/** Dedupe concurrent probes — page load fires several sync paths at once. */
+let sameOriginProbeInFlight: Promise<boolean> | null = null;
+
+/**
+ * Await the sync-availability verdict. `url`, when given, is an explicit
+ * target being tested (Settings) and is judged on its syntax alone.
+ */
+export async function ensureSyncAvailable(url?: string): Promise<boolean> {
+  if (url !== undefined && url.trim()) return isValidSyncUrl(url);
+  if (!hasValidSyncUrl()) return false;
+  if (storedSyncUrl()) return true;
+
+  const known = sameOriginProbe();
+  if (known !== null) return known;
+  if (sameOriginProbeInFlight) return sameOriginProbeInFlight;
+
+  sameOriginProbeInFlight = (async () => {
+    let ok = false;
+    try {
+      ok = (await fetch(`${getSyncUrl()}/healthz`)).ok;
+    } catch {
+      ok = false; // static host, offline, DNS — all mean "no server here"
+    }
+    rememberSameOriginProbe(ok);
+    return ok;
+  })().finally(() => {
+    sameOriginProbeInFlight = null;
+  });
+  return sameOriginProbeInFlight;
 }
 
 /**
@@ -144,9 +266,11 @@ export async function testConnection(url: string): Promise<{ ok: boolean; messag
  * Has the server ever accepted data? (GET /sync/stats; latestSeq > 0.)
  * null = the probe failed (old backend without the endpoint, or unreachable).
  */
-export async function serverHasData(url = getSyncUrl()): Promise<boolean | null> {
+export async function serverHasData(url = ''): Promise<boolean | null> {
+  if (!(await ensureSyncAvailable(url))) return null;
+  const base = url.trim() || getSyncUrl();
   try {
-    const res = await fetch(`${url.trim().replace(/\/+$/, '')}/sync/stats`);
+    const res = await fetch(`${base.replace(/\/+$/, '')}/sync/stats`);
     if (!res.ok) return null;
     const json = (await res.json()) as { latestSeq?: number };
     return (json.latestSeq ?? 0) > 0;
@@ -392,6 +516,13 @@ export async function hasEverReachedServer(): Promise<boolean> {
 }
 
 async function doSync(): Promise<SyncResult> {
+  // Nothing to sync WITH: offline mode, a garbage saved URL, or a same-origin
+  // install whose /healthz probe found no backend. Returning before the first
+  // request is the whole point of the guard — checkServerEpoch and the push
+  // below would each fire at a server that isn't there.
+  if (!(await ensureSyncAvailable())) {
+    return { ok: false, pushed: 0, pulled: 0, error: NO_SERVER_MESSAGE };
+  }
   syncInProgress = true;
   try {
     const db = await getDB();
@@ -671,7 +802,7 @@ let requestSyncPending = false;
 
 export function requestSync(): void {
   if (typeof window === 'undefined') return;
-  if (getSyncMode() === 'offline') return;
+  if (!hasValidSyncUrl()) return;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   if (isTestMode() && localStorage.getItem('readerr-test-bg-sync') !== '1') return;
 
@@ -717,7 +848,7 @@ function flushPendingSync(): void {
     requestSyncTimer = null;
   }
   requestSyncPending = false;
-  if (getSyncMode() === 'offline') return;
+  if (!hasValidSyncUrl()) return;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   if (isTestMode() && localStorage.getItem('readerr-test-bg-sync') !== '1') return;
   void syncFresh();
@@ -752,7 +883,7 @@ export function maybeAutoSync(): void {
   // an uncontrolled background sync would make snapshots nondeterministic.
   if (isTestMode()) return;
   if (typeof navigator === 'undefined' || !navigator.onLine) return;
-  if (getSyncMode() === 'offline') return;
+  if (!hasValidSyncUrl()) return;
   const syncedThisSession = sessionStorage.getItem(SESSION_SYNC_KEY) === '1';
   const last = Number(localStorage.getItem(AUTO_SYNC_AT_KEY) ?? 0);
   if (syncedThisSession && Date.now() - last < AUTO_SYNC_INTERVAL_MS) return;

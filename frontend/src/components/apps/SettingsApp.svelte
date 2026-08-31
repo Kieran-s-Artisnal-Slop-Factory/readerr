@@ -16,6 +16,8 @@
     getSyncStatus,
     getSyncUrl,
     setSyncUrl,
+    isValidSyncUrl,
+    ensureSyncAvailable,
     setSyncMode,
     testConnection,
     serverHasData,
@@ -220,16 +222,27 @@
    * background sync stops entirely and the week page closes stale weeks from
    * local data (instead of deferring until a sync that can never succeed).
    */
-  function toggleSyncMode(e: Event) {
+  async function toggleSyncMode(e: Event) {
     const on = (e.currentTarget as HTMLInputElement).checked;
     setSyncMode(on ? 'sync' : 'offline');
     syncEnabled = on;
+    syncAvailable = await ensureSyncAvailable();
+    syncTarget = getSyncUrl();
     message = on
       ? 'Sync enabled — it runs automatically in the background.'
       : 'Sync disabled on this device — everything stays local until you turn it back on.';
   }
 
   async function saveSyncUrl() {
+    // Reject a typo before it becomes the sync target: an unsaveable string
+    // used to be stored happily and then failed on every request instead.
+    // Blank stays legal — it means same origin.
+    if (syncUrl.trim() && !isValidSyncUrl(syncUrl)) {
+      message =
+        "That isn't a usable server address — it needs the scheme too, e.g. http://192.168.1.10:8080. Nothing was saved.";
+      syncTest = null;
+      return;
+    }
     const previous = getSyncUrl();
     setSyncUrl(syncUrl);
     syncUrl = getSyncUrl();
@@ -238,6 +251,8 @@
     message = 'Sync server saved.';
     syncTest = null; // a URL change invalidates the last test result
     conflictOpen = false;
+    syncAvailable = await ensureSyncAvailable();
+    syncTarget = getSyncUrl();
     if (!syncUrl || syncUrl === previous) return;
 
     // A different server: find out what exists on each side.
@@ -321,6 +336,15 @@
 
   // Sync history (local-only log; see services/syncLog.ts).
   let syncEnabled = $state(true);
+  /**
+   * Is there actually a server to sync with? False for offline mode and for a
+   * blank URL on a static host, where the same-origin fallback has nothing
+   * behind it — the state the sync card has to say out loud, because
+   * otherwise sync simply never happens and never explains why.
+   */
+  let syncAvailable = $state(true);
+  /** The SAVED target, for the banner — syncUrl is the live, possibly unsaved input. */
+  let syncTarget = $state('');
   let logPrefs = $state<SyncLogPrefs>({ errorTracking: 'all', retentionDays: 30, trackSuccess: false });
   let logStats = $state<SyncLogStats>({ errors: 0, successes: 0, lastSyncedAt: null });
   let logEvents = $state<SyncLogEvent[]>([]);
@@ -366,6 +390,8 @@
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
     syncEnabled = getSyncMode() === 'sync';
+    syncAvailable = await ensureSyncAvailable();
+    syncTarget = getSyncUrl();
     logPrefs = getSyncLogPrefs();
     await pruneSyncLog();
     await refreshSyncLog();
@@ -721,6 +747,14 @@
           placeholder="e.g. http://192.168.1.10:8080"
         />
       </div>
+      {#if syncEnabled && !syncAvailable}
+        <div class="test-banner" role="status">
+          ⚠️ Sync is off because there's no server to sync with. Nothing
+          answered at
+          {syncTarget || 'this site (same origin)'} — enter your readerr backend's
+          address above, or leave sync disabled and keep everything local.
+        </div>
+      {/if}
       {#if syncTest}
         <div class="test-banner" class:ok={syncTest.ok} role="status">
           {syncTest.ok ? '✅' : '⚠️'}
@@ -763,8 +797,12 @@
         <button
           class="btn btn-primary"
           onclick={runSync}
-          disabled={syncing || !syncEnabled}
-          title={syncEnabled ? undefined : 'Sync is disabled on this device.'}
+          disabled={syncing || !syncEnabled || !syncAvailable}
+          title={syncEnabled
+            ? syncAvailable
+              ? undefined
+              : 'No sync server is configured.'
+            : 'Sync is disabled on this device.'}
         >
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>

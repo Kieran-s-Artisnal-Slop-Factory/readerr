@@ -34,7 +34,7 @@ import {
 } from '../db/repo';
 import { getDB } from '../db/db';
 import { healsAllowed, isTestMode } from '../testMode';
-import { getSyncMode, getSyncUrl } from '../sync';
+import { ensureSyncAvailable, getSyncUrl } from '../sync';
 import { captureLinks, cleanUrl } from './capture';
 import { getUserSettings } from './settings';
 import type { Feed, FeedItem, FeedItemStatus, Link } from '../db/types';
@@ -106,7 +106,11 @@ interface ServerAttempt {
  * the browser can still try for itself.
  */
 async function serverFetch(feedUrl: string): Promise<ServerAttempt> {
-  if (getSyncMode() === 'offline') return { feed: null, serverNote: '' };
+  // Offline mode, a garbage saved URL, or a same-origin install with no
+  // backend: there is nothing to ask, and asking anyway logged a failed
+  // request per feed on every inbox refresh. Fall straight through to the
+  // in-browser parser with no note — the absence of a server isn't news here.
+  if (!(await ensureSyncAvailable())) return { feed: null, serverNote: '' };
   const base = getSyncUrl();
   let res: Response;
   try {

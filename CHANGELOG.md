@@ -1,5 +1,19 @@
 # 0.4.0 (unreleased)
 
+## Bug Fixes
+
+- **Sync only runs when there's a server to sync with.** With no sync URL
+  configured the app fell back to same-origin and fired `/healthz`,
+  `/sync/stats`, `/sync/push` — plus `/feed` on the Inbox page — at a host
+  that answers none of them, filling the console with unfixable errors. The
+  app now probes same-origin `/healthz` once per browser session and, if
+  nothing readerr-shaped answers, skips every sync, feed, title and database-
+  size request. The blank-URL default still works for the Docker deployment,
+  where the backend serves the frontend from the same origin. Settings and
+  Onboarding also reject a URL that isn't a valid `http(s)` address instead of
+  saving a typo as the sync target, and Settings now says outright when sync
+  is off for want of a server.
+
 ## Other
 
 - Dependency refresh across both halves. Frontend: Astro 7.0.6 → 7.2.9, Svelte

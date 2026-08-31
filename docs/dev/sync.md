@@ -59,6 +59,76 @@ What this means in practice:
 The mode and server URL live in localStorage (`readerr-sync-mode`,
 `readerr-sync-url`), not in synced settings — they're per-device by nature.
 
+## The availability guard: is there a server at all?
+
+`getSyncUrl()` falls back to same-origin when no URL is saved, which is
+correct for the Docker deployment (one origin serves the frontend *and* the
+sync API) and wrong for every static install — there, the fallback made every
+page load fire `/healthz`, `/sync/stats`, `/sync/push`, plus `/feed`, `/title`
+and `/dbsize`, at a host that answers none of them, filling the console with
+failures the user cannot act on.
+
+The fix splits "can we sync?" into a cheap synchronous check and an
+authoritative asynchronous one
+([sync.ts](../../frontend/src/lib/sync.ts) — `isValidSyncUrl`,
+`hasValidSyncUrl`, `ensureSyncAvailable`):
+
+| Function | Cost | Answers |
+|---|---|---|
+| `isValidSyncUrl(url)` | none | Is this string an absolute `http(s)` URL with a host? |
+| `hasValidSyncUrl()` | none | Config only. False in offline mode or for a garbage saved URL; for the same-origin fallback, **true until a probe says otherwise**. |
+| `ensureSyncAvailable(url?)` | one `/healthz` per tab session, at most | The trustworthy verdict. An explicit `url` argument is judged on syntax alone (Settings testing a candidate). |
+
+```mermaid
+flowchart TD
+  A[ensureSyncAvailable] --> B{explicit url argument?}
+  B -- yes --> C[isValidSyncUrl -- syntax only]
+  B -- no --> D{sync mode}
+  D -- offline --> N[false]
+  D -- sync --> E{URL saved in localStorage?}
+  E -- yes --> F{isValidSyncUrl?}
+  F -- no --> N
+  F -- yes --> Y[true]
+  E -- "no: same origin" --> G{sessionStorage<br/>readerr-same-origin-sync}
+  G -- "'1'" --> Y
+  G -- "'0'" --> N
+  G -- unset --> H["GET /healthz (deduped,<br/>once per tab session)"]
+  H -- ok --> I[remember '1'] --> Y
+  H -- 404 / network error --> J[remember '0'] --> N
+```
+
+The verdict is remembered in `sessionStorage` (`readerr-same-origin-sync`) so
+a serverless install pays exactly one 404 per tab, not one request per
+mutation. `setSyncUrl()` clears it — the verdict belonged to the previous
+configuration. Concurrent callers share one in-flight probe.
+
+Where the guard sits:
+
+- `requestSync`, `flushPendingSync`, `maybeAutoSync` — the fire-and-forget
+  triggers, gated on the synchronous `hasValidSyncUrl()`.
+- `doSync` — gated on `ensureSyncAvailable()` and returns
+  `{ok: false, error: NO_SERVER_MESSAGE}` **before** `checkServerEpoch` or the
+  push, so no request leaves the page. It deliberately does *not* dispatch
+  `SYNC_EVENT` or persist `lastError`: "no server configured" is a
+  configuration state, not a sync failure to log forever.
+- `serverHasData` — returns `null` (its "couldn't probe" answer).
+- `serverFetch` in [feeds.ts](../../frontend/src/lib/services/feeds.ts) —
+  falls through to the in-browser parser (`feedParse.ts`) with *no* note; the
+  absence of a server isn't news on the inbox page, which already says so in a
+  banner.
+- `fetchTitles` in [capture.ts](../../frontend/src/lib/services/capture.ts)
+  and the `/dbsize` probe in
+  [stats.ts](../../frontend/src/lib/services/stats.ts).
+
+Both **Settings** and **Onboarding** validate a typed URL with
+`isValidSyncUrl()` before saving it, so a missing scheme (`192.168.1.10:8080`)
+is rejected at the input instead of becoming the sync target. Settings shows a
+"no server to sync with" banner and disables **Sync now** whenever
+`ensureSyncAvailable()` is false, so a silently-never-syncing install explains
+itself.
+
+Tests: [syncGuard.test.ts](../../frontend/test/syncGuard.test.ts).
+
 ## Setting up a server
 
 The backend is a single binary (or Docker container) with an SQLite file:
@@ -418,6 +488,10 @@ Three layers guard sync:
   server. Reconciler unit tests (`reconcile.test.ts`, `joinDedupe.test.ts`,
   `tagHierarchy.test.ts`, `archive.test.ts`, `staleSnapshot.test.ts`) cover
   the fold rules in isolation.
+  [syncGuard.test.ts](../../frontend/test/syncGuard.test.ts) pins the
+  availability guard: URL syntax cases, one-probe-per-session for the
+  same-origin fallback, and that `syncNow()` on a serverless install issues
+  the `/healthz` probe and nothing else.
 - **The Playwright multi-device harness** (`cd frontend && npm run
   test:sync`): 17 spec files under `frontend/tests/sync/` drive real
   browsers against a real backend — including a sabotage suite (12 seeded
@@ -437,6 +511,11 @@ Three layers guard sync:
   failures are expected and harmless; sync retries on the next interval.
 - **404 on sync** — the URL points at something that isn't a readerr
   backend (a plain web server, or a stale URL after moving servers).
+- **"Sync is off because there's no server to sync with"** (Settings) — with
+  a blank URL the app probed same-origin `/healthz` and nothing readerr-shaped
+  answered, so every sync trigger is now short-circuited. Enter the backend's
+  address, or leave sync off. The verdict is cached per tab session; reload
+  after starting the backend to re-probe.
 - **400 on push** — app and server versions likely disagree; update both to
   the same version.
 - **A device shows old data** — edits push within about a second of being
